@@ -1,10 +1,10 @@
 {
-  "file": "eval/prod_wirein/g_on2_full.json",
+  "file": "eval/prod_wirein/v3_full_on_guardrail_t0.json",
   "arm": "on",
   "totals": {
-    "codes": 147,
-    "grounded": 147,
-    "ungrounded": 0,
+    "codes": 287,
+    "grounded": 286,
+    "ungrounded": 1,
     "nonexistent": 0
   },
   "per_q": [
@@ -45,15 +45,15 @@
     },
     {
       "id": "q21",
-      "n_codes": 2,
-      "grounded": 2,
+      "n_codes": 5,
+      "grounded": 5,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q22",
-      "n_codes": 1,
-      "grounded": 1,
+      "n_codes": 11,
+      "grounded": 11,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -73,29 +73,29 @@
     },
     {
       "id": "q25",
-      "n_codes": 0,
-      "grounded": 0,
+      "n_codes": 1,
+      "grounded": 1,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q26",
-      "n_codes": 25,
-      "grounded": 25,
+      "n_codes": 15,
+      "grounded": 15,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q27",
-      "n_codes": 0,
-      "grounded": 0,
+      "n_codes": 3,
+      "grounded": 3,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q06",
-      "n_codes": 0,
-      "grounded": 0,
+      "n_codes": 1,
+      "grounded": 1,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -129,8 +129,8 @@
     },
     {
       "id": "q28",
-      "n_codes": 0,
-      "grounded": 0,
+      "n_codes": 3,
+      "grounded": 3,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -143,8 +143,8 @@
     },
     {
       "id": "q30",
-      "n_codes": 1,
-      "grounded": 1,
+      "n_codes": 2,
+      "grounded": 2,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -157,22 +157,22 @@
     },
     {
       "id": "q32",
-      "n_codes": 0,
-      "grounded": 0,
+      "n_codes": 4,
+      "grounded": 4,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q33",
-      "n_codes": 0,
-      "grounded": 0,
+      "n_codes": 5,
+      "grounded": 5,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q34",
-      "n_codes": 12,
-      "grounded": 12,
+      "n_codes": 4,
+      "grounded": 4,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -213,9 +213,11 @@
     },
     {
       "id": "q35",
-      "n_codes": 0,
+      "n_codes": 1,
       "grounded": 0,
-      "ungrounded": [],
+      "ungrounded": [
+        "C66742"
+      ],
       "nonexistent": []
     },
     {
@@ -255,15 +257,15 @@
     },
     {
       "id": "q41",
-      "n_codes": 0,
-      "grounded": 0,
+      "n_codes": 2,
+      "grounded": 2,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q16",
-      "n_codes": 4,
-      "grounded": 4,
+      "n_codes": 3,
+      "grounded": 3,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -276,8 +278,8 @@
     },
     {
       "id": "q18",
-      "n_codes": 0,
-      "grounded": 0,
+      "n_codes": 2,
+      "grounded": 2,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -304,29 +306,29 @@
     },
     {
       "id": "q43",
+      "n_codes": 4,
+      "grounded": 4,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q44",
       "n_codes": 1,
       "grounded": 1,
       "ungrounded": [],
       "nonexistent": []
     },
     {
-      "id": "q44",
-      "n_codes": 3,
-      "grounded": 3,
-      "ungrounded": [],
-      "nonexistent": []
-    },
-    {
       "id": "q45",
-      "n_codes": 3,
-      "grounded": 3,
+      "n_codes": 2,
+      "grounded": 2,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q46",
-      "n_codes": 10,
-      "grounded": 10,
+      "n_codes": 4,
+      "grounded": 4,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -339,15 +341,15 @@
     },
     {
       "id": "q48",
-      "n_codes": 1,
-      "grounded": 1,
+      "n_codes": 5,
+      "grounded": 5,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "s01",
-      "n_codes": 1,
-      "grounded": 1,
+      "n_codes": 3,
+      "grounded": 3,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -374,8 +376,8 @@
     },
     {
       "id": "s05",
-      "n_codes": 1,
-      "grounded": 1,
+      "n_codes": 5,
+      "grounded": 5,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -402,15 +404,15 @@
     },
     {
       "id": "q57",
-      "n_codes": 0,
-      "grounded": 0,
+      "n_codes": 1,
+      "grounded": 1,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q58",
-      "n_codes": 4,
-      "grounded": 4,
+      "n_codes": 23,
+      "grounded": 23,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -430,29 +432,29 @@
     },
     {
       "id": "q61",
-      "n_codes": 3,
-      "grounded": 3,
+      "n_codes": 2,
+      "grounded": 2,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q62",
-      "n_codes": 4,
-      "grounded": 4,
+      "n_codes": 6,
+      "grounded": 6,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q63",
-      "n_codes": 0,
-      "grounded": 0,
+      "n_codes": 2,
+      "grounded": 2,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q64",
-      "n_codes": 0,
-      "grounded": 0,
+      "n_codes": 3,
+      "grounded": 3,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -472,22 +474,22 @@
     },
     {
       "id": "q67",
-      "n_codes": 2,
-      "grounded": 2,
+      "n_codes": 5,
+      "grounded": 5,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q68",
-      "n_codes": 3,
-      "grounded": 3,
+      "n_codes": 2,
+      "grounded": 2,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q69",
-      "n_codes": 2,
-      "grounded": 2,
+      "n_codes": 3,
+      "grounded": 3,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -500,8 +502,8 @@
     },
     {
       "id": "q71",
-      "n_codes": 3,
-      "grounded": 3,
+      "n_codes": 7,
+      "grounded": 7,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -535,15 +537,15 @@
     },
     {
       "id": "q76",
-      "n_codes": 0,
-      "grounded": 0,
+      "n_codes": 1,
+      "grounded": 1,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q77",
-      "n_codes": 1,
-      "grounded": 1,
+      "n_codes": 8,
+      "grounded": 8,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -563,8 +565,8 @@
     },
     {
       "id": "q80",
-      "n_codes": 3,
-      "grounded": 3,
+      "n_codes": 6,
+      "grounded": 6,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -584,8 +586,8 @@
     },
     {
       "id": "q83",
-      "n_codes": 1,
-      "grounded": 1,
+      "n_codes": 3,
+      "grounded": 3,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -598,8 +600,8 @@
     },
     {
       "id": "q85",
-      "n_codes": 0,
-      "grounded": 0,
+      "n_codes": 1,
+      "grounded": 1,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -626,22 +628,22 @@
     },
     {
       "id": "q89",
-      "n_codes": 0,
-      "grounded": 0,
+      "n_codes": 4,
+      "grounded": 4,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q90",
-      "n_codes": 1,
-      "grounded": 1,
+      "n_codes": 3,
+      "grounded": 3,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q91",
-      "n_codes": 4,
-      "grounded": 4,
+      "n_codes": 5,
+      "grounded": 5,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -654,43 +656,43 @@
     },
     {
       "id": "q93",
+      "n_codes": 2,
+      "grounded": 2,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q94",
       "n_codes": 4,
       "grounded": 4,
       "ungrounded": [],
       "nonexistent": []
     },
     {
-      "id": "q94",
-      "n_codes": 2,
-      "grounded": 2,
-      "ungrounded": [],
-      "nonexistent": []
-    },
-    {
       "id": "q95",
-      "n_codes": 6,
-      "grounded": 6,
+      "n_codes": 3,
+      "grounded": 3,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q96",
-      "n_codes": 2,
-      "grounded": 2,
+      "n_codes": 8,
+      "grounded": 8,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q97",
-      "n_codes": 2,
-      "grounded": 2,
+      "n_codes": 11,
+      "grounded": 11,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q98",
-      "n_codes": 7,
-      "grounded": 7,
+      "n_codes": 3,
+      "grounded": 3,
       "ungrounded": [],
       "nonexistent": []
     },
@@ -710,15 +712,281 @@
     },
     {
       "id": "q101",
-      "n_codes": 7,
-      "grounded": 7,
+      "n_codes": 5,
+      "grounded": 5,
       "ungrounded": [],
       "nonexistent": []
     },
     {
       "id": "q102",
+      "n_codes": 6,
+      "grounded": 6,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q103",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q104",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q105",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q106",
+      "n_codes": 8,
+      "grounded": 8,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q107",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q108",
+      "n_codes": 3,
+      "grounded": 3,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q109",
+      "n_codes": 4,
+      "grounded": 4,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q110",
+      "n_codes": 10,
+      "grounded": 10,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q111",
+      "n_codes": 5,
+      "grounded": 5,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q112",
+      "n_codes": 3,
+      "grounded": 3,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q113",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q114",
+      "n_codes": 1,
+      "grounded": 1,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q115",
+      "n_codes": 1,
+      "grounded": 1,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q116",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q117",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q118",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q119",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q120",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q121",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q122",
       "n_codes": 2,
       "grounded": 2,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q123",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q124",
+      "n_codes": 3,
+      "grounded": 3,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q125",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q126",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q127",
+      "n_codes": 8,
+      "grounded": 8,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q128",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q129",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q130",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q131",
+      "n_codes": 2,
+      "grounded": 2,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q132",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q133",
+      "n_codes": 2,
+      "grounded": 2,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q134",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q135",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q136",
+      "n_codes": 3,
+      "grounded": 3,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q137",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q138",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q139",
+      "n_codes": 0,
+      "grounded": 0,
+      "ungrounded": [],
+      "nonexistent": []
+    },
+    {
+      "id": "q140",
+      "n_codes": 0,
+      "grounded": 0,
       "ungrounded": [],
       "nonexistent": []
     }
