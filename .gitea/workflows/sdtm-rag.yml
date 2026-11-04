@@ -74,8 +74,8 @@ jobs:
         run: |
           GW=$(ip route | awk '/^default/{print $3; exit}')
           for i in $(seq 1 60); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "http://$GW:18000/api/health" || true)
-            [ "$code" = 200 ] && { echo "健康检查通过（$GW:18000/api/health 返回 200）"; exit 0; }
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://$GW:8000/api/health" || true)
+            [ "$code" = 200 ] && { echo "健康检查通过（$GW:8000/api/health 返回 200）"; exit 0; }
             sleep 3
           done
           echo "健康检查失败，最后返回 $code"; docker logs --tail 80 sdtm-rag-api; exit 1
