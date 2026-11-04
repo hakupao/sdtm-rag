@@ -29,11 +29,11 @@ _WEBCHAT = Path(__file__).resolve().parents[2] / "webchat"
 # 只放前端真读的字段 + SelectableModel 的 `model` (保持与 /api/info 真实形状同构):
 # app.js loadModelName 读 default_model / federation / selectable_models[].{id,label,verified}。
 _INFO = {
-    "default_model": "bedrock/converse/global.anthropic.claude-opus-5",
+    "default_model": "anthropic/claude-opus-5",
     "federation": False,
     "selectable_models": [
         {"id": "opus-5", "label": "Claude Opus 5",
-         "model": "bedrock/converse/global.anthropic.claude-opus-5", "verified": True},
+         "model": "anthropic/claude-opus-5", "verified": True},
     ],
 }
 

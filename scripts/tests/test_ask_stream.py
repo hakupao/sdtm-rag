@@ -146,8 +146,8 @@ def test_stream_injects_facts_and_appends_correction():
 # ── 输出触顶自动续写 (2026-09-08) ─────────────────────────────────────────
 #
 # 背景 (真实事故): 一条 ~3.5k 汉字的答案在 ≈4k output token 处**半句话被切断**, 界面
-# 上没有任何提示。根因是 `bedrock/converse/...` 这条路径下 litellm 不传 `maxTokens`,
-# Bedrock 落到一个远低于模型上限的服务端默认值 (截断本身就是"那不是模型上限"的证据)。
+# 上没有任何提示。根因是当时的 provider 路径下 litellm 不传输出上限, 服务端落到一个
+# 远低于模型上限的默认值 (截断本身就是"那不是模型上限"的证据)。
 # 两条修法必须同时存在: 显式 max_tokens (把天花板抬到模型真实上限) + 触顶自动续写
 # (即便抬高后仍触顶, 也要接着写完, 而不是留半句话)。
 
@@ -320,7 +320,7 @@ def test_ask_non_stream_normal_stop_is_one_call():
 
 # ── 空轮: 一个可见字都没吐就触顶 (2026-09-08 探针实测) ────────────────────
 #
-# 实测 (.superpowers/probe_e2e_continue.py, 真 Bedrock + opus-5, 天花板压到 200/1200):
+# 实测 (.superpowers/probe_e2e_continue.py, 真 opus-5, 天花板压到 200/1200):
 # 某一轮的预算可能被模型的内部思考吃光, 于是 delta.content 一个字都没有却报 length。
 # 此时按"回灌 assistant(本轮原文)"照做, 回灌的就是 `assistant: ""` ——
 #   · litellm 当场警告 "Potential consecutive user/tool blocks. Trying to merge.",

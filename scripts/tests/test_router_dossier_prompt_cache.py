@@ -13,13 +13,15 @@ from pathlib import Path
 
 from scripts.tests.test_router_dossier_gate import BAD, GOOD, _gated_client, _stream
 from scripts.tests.test_router_dossier_wiring import DOSSIER, OPUS, Q_CDISC, Q_MAP, _client
-from server.config import Settings
+from server.config import SelectableModel, Settings
 from server.dossier_trigger import ANSWER_LANGUAGE_LINE
 from server.router import _DOSSIER_RULES, _PDF_SOURCE_RULE
 
 LEGACY = Path(__file__).parent / "fixtures" / "dossier_attached_legacy_messages_golden.json"
 EPHEMERAL = {"type": "ephemeral"}
-GPT = next(m.model for m in Settings().selectable_models if m.id == "gpt-terra")
+# 非 Anthropic 的可选模型 (默认配置里已没有, 测试自己注入一个)。
+NON_ANTHROPIC = SelectableModel(id="ds-pick", label="DeepSeek", model="deepseek/deepseek-v4-pro",
+                                verified=False)
 
 
 def _post(c, ep, **kw):
@@ -87,11 +89,14 @@ def test_unattached_leaves_system_a_plain_string():
 
 
 def test_non_anthropic_model_gets_same_layout_as_plain_string():
-    """gpt-* 走 bedrock converse: litellm 会把 cache_control 转成 cachePoint, 模型不支持就 400。
-    ⇒ 断点只对 Anthropic 下; 其余同布局 (研读包仍在 system 末尾) 但 system 是字符串。"""
-    for model, cached in (("opus-5", True), ("default", True), ("gpt-terra", False),
-                          ("gpt-sol", False), ("default-fallback", False)):
+    """断点只对 Anthropic 下 (不支持缓存的 provider 可能 400); 其余同布局
+    (研读包仍在 system 末尾) 但 system 是字符串。"""
+    for model, cached in (("opus-5", True), ("default", True), ("ds-pick", False),
+                          ("default-fallback", False)):
         c, app = _client(DOSSIER)
+        s = app.state.settings
+        app.state.settings = s.model_copy(
+            update={"selectable_models": [*s.selectable_models, NON_ANTHROPIC]})
         _post(c, "/api/ask", model=model)
         sys_content = app.state.llm_router.messages[0]["content"]
         if cached:
@@ -102,13 +107,14 @@ def test_non_anthropic_model_gets_same_layout_as_plain_string():
 
 def test_prompt_cache_capable_resolves_like_router_groups():
     from server.router import _prompt_cache_capable
-    s = Settings(default_model=OPUS)
+    base = Settings(default_model=OPUS)
+    s = base.model_copy(update={"selectable_models": [*base.selectable_models, NON_ANTHROPIC]})
     assert _prompt_cache_capable(s, "opus-5") and _prompt_cache_capable(s, "sonnet-5")
     assert _prompt_cache_capable(s, "default") and _prompt_cache_capable(s, "hard")
-    assert not _prompt_cache_capable(s, "gpt-terra")
+    assert not _prompt_cache_capable(s, "ds-pick")
     assert not _prompt_cache_capable(s, "default-fallback")      # deepseek
     assert not _prompt_cache_capable(s, "nope")
-    assert not _prompt_cache_capable(Settings(default_model=GPT), "default")
+    assert not _prompt_cache_capable(Settings(default_model=NON_ANTHROPIC.model), "default")
 
 
 def test_deepseek_transform_flattens_list_system_and_drops_cache_control():

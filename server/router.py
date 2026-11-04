@@ -31,7 +31,7 @@ _NO_CONTEXT = "(No relevant context found in the knowledge base.)"
 _WEB_FAIL_RANK = {"disabled": 3, "quota_exceeded": 2, "failed": 1}
 
 # 「这一轮是被输出上限切断的」的两种拼法。OpenAI / litellm 归一化成 "length";
-# Anthropic 原生 (以及部分透传的 Bedrock 路径) 报 "max_tokens"。⛔ 只认一个的话,
+# Anthropic 原生报 "max_tokens"。⛔ 只认一个的话,
 # 另一条路上的截断依旧是静默的 —— 而静默截断正是本功能要消灭的东西。
 _TRUNCATED_FINISH_REASONS = frozenset({"length", "max_tokens"})
 
@@ -44,10 +44,10 @@ _CONTINUE_MIN_REMAINING_S = 15.0
 # 触顶后回灌给模型的续写指令。
 #
 # ⚠ 为什么是**追加一条 user 消息**而不是 assistant prefill: prefill (把上一轮原文塞成
-# 最后一条 assistant 消息、让模型接着补全) 是 Anthropic 特有能力, 走 Bedrock Converse 的
-# 两个 OpenAI 模型 (gpt-terra / gpt-sol) 不支持 —— 同一段代码要服务四个可选模型加
-# DeepSeek 兜底, 只能用所有 provider 都认的形状。代价是接缝处依赖模型听话 (可能重复
-# 半句), 换来的是"四个模型一视同仁", 见 evidence/checkpoints/autocontinue_2026-09.md。
+# 最后一条 assistant 消息、让模型接着补全) 在 Claude 4.6+ 系 (含本仓库全部可选的
+# Opus 5 / Sonnet 5 / 5.5 系) 上直接 400 —— 同一段代码还要服务 DeepSeek 兜底, 只能用
+# 所有 provider 都认的形状。代价是接缝处依赖模型听话 (可能重复半句), 换来的是"所有模型
+# 一视同仁", 见 evidence/checkpoints/autocontinue_2026-09.md。
 #
 # 用英文写: 系统提示里的接地规则 ([Source: path] / [Web: url]) 本身是英文, 续写指令跟着
 # 用英文可以逐字引用它们, 不必翻译一遍再指望模型对上号。
@@ -186,7 +186,7 @@ _DOSSIER_RULES_IN_CONTEXT = _DOSSIER_RULES.replace(
 
 def _prompt_cache_capable(s, model_id: str) -> bool:
     """请求的模型组解析后是不是 Anthropic 模型 —— 只有它才下 cache_control 断点。
-    gpt-* 走 bedrock converse, litellm 会把断点转成 cachePoint, 不支持缓存的模型会 400;
+    非 Anthropic 模型不下断点 (不支持缓存的 provider 可能 400);
     deepseek 只作为 Anthropic 主模型的回退出现, litellm 的 deepseek 转换自己把 list 拼回字符串。"""
     from server.llm_config import _INTERNAL_GROUP_MODEL_FIELDS
     by_id = {m.id: m.model for m in s.selectable_models}
@@ -979,10 +979,8 @@ async def ask_stream(body: AskStreamRequest, request: Request):
                                     if fr:
                                         finish_reason = fr
                                     # 只取 content / tool_calls, 其余 delta 字段有意丢弃 ——
-                                    # 含 GPT-5.6 Sol 的 reasoning_content (模型内部思考, 不该进
-                                    # 知识库答案, 更不该被当成引用来源)。spec §4.3。
-                                    # 实测边界: 流式下两个 GPT 均未发该增量, 只有非流式 boto3 调用
-                                    # 时 Sol 发了 reasoningContent 块 ⇒ 这是预防, 不是现实问题。
+                                    # 含 reasoning_content (模型内部思考, 不该进知识库答案,
+                                    # 更不该被当成引用来源)。spec §4.3。
                                     text = getattr(ch.delta, "content", None)
                                     if text:
                                         parts.append(text)
@@ -1042,10 +1040,10 @@ async def ask_stream(body: AskStreamRequest, request: Request):
                                 break
                             continue_rounds += 1
                             # 回灌上一轮原文 + 续写指令。⚠ 用 user 消息而非 assistant prefill,
-                            # 理由见 CONTINUE_PROMPT 上方 (prefill 是 Anthropic 专有, GPT 系不支持)。
+                            # 理由见 CONTINUE_PROMPT 上方 (Claude 4.6+ 拒收 prefill)。
                             #
                             # ⚠ 本轮一个可见字都没吐时**什么都不加**, 原样重开一轮 —— 预算刷新,
-                            # 让模型把想清楚的东西写出来。实测 (真 Bedrock + opus-5, 天花板压到
+                            # 让模型把想清楚的东西写出来。实测 (真 opus-5, 天花板压到
                             # 200/1200) 这一支是**会发生**的: 预算可能被模型的内部思考吃光, 于是
                             # content 一个字没有却报 length。此时照旧回灌 `assistant: ""` 的后果:
                             # litellm 警告 "Potential consecutive user/tool blocks. Trying to merge."

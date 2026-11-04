@@ -22,12 +22,7 @@ from scripts.spec_loader import SpecLoader
 from server.auth import install_security
 from server.config import settings
 from server.domain_expand import build_expander
-from server.llm_config import (
-    create_router,
-    non_bedrock_model_groups,
-    register_selectable_model_capabilities,
-    verify_selectable_model_capabilities,
-)
+from server.llm_config import create_router
 from server.rag import RAGEngine
 from server.router import api_router
 
@@ -218,23 +213,6 @@ async def lifespan(app: FastAPI):
         vi_map = app.state.rag._vi_section_map()
         log.info("s1_vi_section_map", entries=len(vi_map))
     app.state.llm_router = create_router(s)
-    # 给 GPT 系模型补 LiteLLM 能力元数据, 否则 bedrock allowlist 拒收 tools, 联网通道
-    # 对它们不可用 (spec §4.2)。
-    register_selectable_model_capabilities(s)
-    # C3 告警: 模型串没走公司 Bedrock 的组 (config.py 里 default/hard/light 的硬编码默认
-    # 值是 anthropic/ 直连, 只靠 .env 改写且无任何校验 ⇒ .env 缺一段、或并列两段顺序一换,
-    # 答题主路径就静默回到直连)。default-fallback 按 spec §9 D4 豁免。
-    non_bedrock_models = non_bedrock_model_groups(s)
-    if non_bedrock_models:
-        log.warning("models_not_on_bedrock", models=non_bedrock_models)
-    # spec §4.2 启动期自检: register_model() 跑过不等于生效 (带前缀的 key 注册就是
-    # 静默无效, 不报错直到有人开联网才炸) —— 回查而非假定调用没抛异常就算数。
-    unverified_capability_models = verify_selectable_model_capabilities(s)
-    if unverified_capability_models:
-        log.warning(
-            "selectable_model_capability_registration_failed",
-            models=unverified_capability_models,
-        )
     app.state.federation = None
     # S2 只挂在 study 引擎上, 而 study 引擎只在联邦分支存在。先置空, 好让下面的 ready 日志
     # 报告"实际加载了什么"而不是"开关写了什么" —— 两者可以不一致 (见下方 elif)。
@@ -412,8 +390,6 @@ async def lifespan(app: FastAPI):
         prompt_guardrail=s.prompt_guardrail_enabled,
         web_search=s.web_search_enabled,
         rag_init_s=rag_init_s,
-        non_bedrock_models=non_bedrock_models,
-        capability_registration_failed=unverified_capability_models,
     )
     yield
     log.info("shutdown")

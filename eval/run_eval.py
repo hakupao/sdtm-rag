@@ -46,7 +46,7 @@ from server.rag import RAGEngine  # noqa: E402
 TOP_K = 15
 
 # V-2: 生成调用的 max_tokens 必须**显式**给, 不能吃 litellm 的 provider 默认值
-# (Bedrock Converse=4096, OpenAI 系是模型上限) —— 默认值不同 ⇒ 各模型截断率不同
+# (2026-09 当时的 Claude 托管路径默认 4096, OpenAI 系是模型上限) —— 默认值不同 ⇒ 各模型截断率不同
 # ⇒ 截断会少发码 ⇒ 话痨模型在 (a) 层显得更干净。跨模型比较必须同一个上限。
 MAX_TOKENS = 8192
 

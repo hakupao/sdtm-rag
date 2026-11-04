@@ -153,7 +153,7 @@ def entity_needles(cat: dict) -> dict[str, list[tuple[str, str]]]:
     }
 
 
-# ── S0-3: Bedrock 多模态实测 ────────────────────────────────────────────
+# ── S0-3: 多模态实测 ────────────────────────────────────────────
 # 复跑: uv run python scripts/study/survey_pdf_pages.py probe --pdf workflow --page 315
 PROBE_PROMPT = "この画面に表示されている項目名を列挙してください。OID ではなく画面上の日本語ラベルで。"
 

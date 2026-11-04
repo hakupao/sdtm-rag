@@ -39,11 +39,11 @@ const WEBCHAT = process.env.PROBE_WEBCHAT_DIR
 // 把 default_model 的尾段写进 #topbar-model 的 dataset, 这正是老实现拿去归因的那个串,
 // 也是本探针用来区分"读对了没有"的诱饵。
 const INFO = {
-  default_model: "bedrock/converse/global.anthropic.claude-opus-5",
+  default_model: "anthropic/claude-opus-5",
   federation: true,
   selectable_models: [
     { id: "opus-5", label: "Claude Opus 5", verified: true },
-    { id: "gpt-sol", label: "GPT-5.6 Sol", verified: false },
+    { id: "sonnet-5-5", label: "Claude Sonnet 5.5", verified: false },
   ],
 };
 
@@ -108,6 +108,9 @@ class El {
   get selectedOptions() { return this.options.filter((o) => o.value === this.value); }
   addEventListener(t, fn) { (this._listeners[t] ||= []).push(fn); }
   focus() {}
+  // setSending() 给发送按钮写 aria-label —— 与 toggle 同理, 只有走完整条 send() 的场景碰得到。
+  setAttribute(k, v) { (this._attrs ||= {})[k] = String(v); }
+  getAttribute(k) { return this._attrs && k in this._attrs ? this._attrs[k] : null; }
   // 支持 `.class` 与 `:scope > .class` (前端用到的全部形态); "pre code" 之类一律空集。
   // `:scope >` 只看直接子元素: render.js 用它把"本条消息的 .turn-meta"与别处的同名节点
   // 分开, 当成全树搜就会让 metaBox 拿到**上一条**消息的容器, 徽章挂错气泡。
@@ -276,7 +279,7 @@ async function badShapeScenario(modelsUsed) {
       id: "c1", title: "t", createdAt: 1,
       messages: [{ role: "user", content: "AETERM?" },
                  { role: "assistant", content: "答案", sources: [],
-                   modelId: "gpt-sol", verified: false, modelsUsed, fellBack: true }],
+                   modelId: "sonnet-5-5", verified: false, modelsUsed, fellBack: true }],
     }],
   }));
   const { error: renderError } = await loadApp(g);
@@ -322,7 +325,7 @@ async function corruptDatasetScenario() {
       id: "c1", title: "t", createdAt: 1,
       messages: [{ role: "user", content: "AETERM?" },
                  { role: "assistant", content: "答案", sources: [],
-                   modelId: "gpt-sol", verified: false,
+                   modelId: "sonnet-5-5", verified: false,
                    modelsUsed: ["deepseek-v4-pro"], fellBack: true }],
     }],
   }));
@@ -364,7 +367,7 @@ async function streamScenario(doneData) {
   const { render, error } = await loadApp(g);
   if (error) throw new Error(`app.js 求值抛了: ${error}`);
   await flush(); await flush();
-  g.__byId.get("model-select").value = "gpt-sol";
+  g.__byId.get("model-select").value = "sonnet-5-5";
 
   // app.js 不再往全局挂 send() —— 走**真实 UI 路径**: 填输入框 + 触发 composer 的 submit。
   // 比原来直接调 send() 多覆盖一段接线, 少覆盖的一样也没有。
@@ -400,35 +403,35 @@ async function streamScenario(doneData) {
 let out;
 try {
   out = {
-    withModelId: await scenario({ modelId: "gpt-sol" }),
+    withModelId: await scenario({ modelId: "sonnet-5-5" }),
     legacyNoModelId: await scenario({ modelId: null }),
     verifiedTrue: await scenario({ modelId: "opus-5", verified: true }),
     // ⚠ verified=true **且**回退 —— opus-5 是四个里唯一 verified:true 的, 又是下拉第一项,
-    // 所以"用户停在 Opus 5 → Bedrock 挂 → DeepSeek 答"是最可能真实发生的那一次回退,
+    // 所以"用户停在 Opus 5 → 主模型挂 → DeepSeek 答"是最可能真实发生的那一次回退,
     // 而它的琥珀色恰好落在此前没闸的那一格 (终审第 2 轮 N-1)。
     fellBackVerified: await scenario({ modelId: "opus-5", verified: true, fellBack: true,
                                        modelsUsed: ["deepseek-v4-pro"] }),
-    fellBack: await scenario({ modelId: "gpt-sol", modelsUsed: ["deepseek-v4-pro"], fellBack: true }),
-    fellBackMulti: await scenario({ modelId: "gpt-sol", fellBack: true,
-                                    modelsUsed: ["deepseek-v4-pro", "global.openai.gpt-5.6-sol"] }),
-    notFellBack: await scenario({ modelId: "gpt-sol", fellBack: false,
-                                  modelsUsed: ["global.openai.gpt-5.6-sol"] }),
+    fellBack: await scenario({ modelId: "sonnet-5-5", modelsUsed: ["deepseek-v4-pro"], fellBack: true }),
+    fellBackMulti: await scenario({ modelId: "sonnet-5-5", fellBack: true,
+                                    modelsUsed: ["deepseek-v4-pro", "claude-sonnet-5-5"] }),
+    notFellBack: await scenario({ modelId: "sonnet-5-5", fellBack: false,
+                                  modelsUsed: ["claude-sonnet-5-5"] }),
     badShapeString: await badShapeScenario("deepseek-v4-pro"),   // 后端发了裸串而非列表
     badShapeObject: await badShapeScenario({ 0: "x", length: 1 }),  // array-like, 没有 .join
     corruptDataset: await corruptDatasetScenario(),
-    streamFellBack: await streamScenario({ model_id: "gpt-sol", verified: false,
+    streamFellBack: await streamScenario({ model_id: "sonnet-5-5", verified: false,
                                            model_used: "deepseek-v4-pro",
                                            models_used: ["deepseek-v4-pro"], fell_back: true,
                                            web_status: "off", web_searches_ok: 0 }),
-    streamNoFallback: await streamScenario({ model_id: "gpt-sol", verified: false,
-                                             model_used: "global.openai.gpt-5.6-sol",
-                                             models_used: ["global.openai.gpt-5.6-sol"],
+    streamNoFallback: await streamScenario({ model_id: "sonnet-5-5", verified: false,
+                                             model_used: "claude-sonnet-5-5",
+                                             models_used: ["claude-sonnet-5-5"],
                                              fell_back: false,
                                              web_status: "off", web_searches_ok: 0 }),
     // spec §5 B1 在**存档层**的形状: done 事件里压根没有 models_used / fell_back 两个键
     // (新前端已上线、Python 侧还没重启)。上面两条都发了显式值, 看不见"缺失"与"false"的差别。
-    streamOldBackend: await streamScenario({ model_id: "gpt-sol", verified: false,
-                                             model_used: "global.openai.gpt-5.6-sol",
+    streamOldBackend: await streamScenario({ model_id: "sonnet-5-5", verified: false,
+                                             model_used: "claude-sonnet-5-5",
                                              web_status: "off", web_searches_ok: 0 }),
   };
 } finally {

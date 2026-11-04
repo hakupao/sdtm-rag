@@ -4,7 +4,7 @@
 
 背景 (V-2, 见 evidence/checkpoints/verified_spotcheck_2026-09.md):
 `run_eval.py` 的 comp_kwargs 原来只放 `messages` (+ 可选 temperature), **从不设 max_tokens**
-⇒ 实收值是 litellm 对各 provider 的默认值 (Bedrock Converse = 4096)。
+⇒ 实收值是 litellm 对各 provider 的默认值 (当时的 Claude 托管路径 = 4096)。
 不同 provider 默认值不同 ⇒ 四模型跑下来是**不同的截断率**, 而截断会少发码
 ⇒ 话痨模型在 (a) 层显得更干净。这是跨模型比较的系统性混淆。
 

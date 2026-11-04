@@ -93,7 +93,7 @@ HTML 与 app.js 的 `transferSize` 双双为 0 (零网络)。表现是**新加�
 
 ```bash
 uv pip install --python .venv/bin/python playwright   # 只增不删; 别用 uv sync --extra,
-                                                      # 它会按 lock 卸掉 boto3/pytest 等
+                                                      # 它会按 lock 卸掉 pytest 等
 .venv/bin/python -m pytest scripts/tests/test_webchat_cache_browser.py
 ```
 

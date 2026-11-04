@@ -68,7 +68,7 @@ browser = [
     # everyone has to install their way out of. The browser binary is optional too: the test
     # falls back to the machine's installed Google Chrome.
     # Install additively (`uv pip install playwright`) — a `uv sync` against this lock would
-    # uninstall the packages this venv carries beyond it, boto3 (Bedrock) among them.
+    # uninstall the packages this venv carries beyond it.
     "playwright>=1.48",
 ]
 

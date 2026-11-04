@@ -20,33 +20,26 @@ def test_selectable_models_defaults():
     重复会让 Router 后写覆盖先写而 UI 毫无察觉。"""
     s = Settings()
     ids = [m.id for m in s.selectable_models]
-    assert ids == ["opus-5", "sonnet-5", "gpt-terra", "gpt-sol", "gpt6-luna", "gpt6-sol", "gpt61-sol",
-                   "opus-5-5", "sonnet-5-5"]
+    assert ids == ["opus-5", "sonnet-5", "opus-5-5", "sonnet-5-5"]
     assert len(set(ids)) == len(ids)
 
 
-def test_selectable_models_all_on_bedrock():
-    """C3: GPT 与 Claude 不得走用户个人 API。"""
+def test_selectable_models_all_anthropic_direct():
+    """2026-11-04 起可选模型全部 Anthropic 直连 (litellm `anthropic/` 串)。"""
     s = Settings()
     for m in s.selectable_models:
-        assert m.model.startswith("bedrock/"), f"{m.id} 不走 Bedrock: {m.model}"
+        assert m.model.startswith("anthropic/"), f"{m.id} 不走 Anthropic 直连: {m.model}"
 
 
 def test_verified_flags_match_spotcheck_record():
     """verified 语义 = 该模型跑过反捏造抽检并通过。值钉在 2026-09 兑现抽检的结果表
-    (evidence/checkpoints/verified_spotcheck_2026-09.md): opus-5 / gpt-terra / gpt-sol 过,
+    (evidence/checkpoints/verified_spotcheck_2026-09.md): opus-5 过,
     sonnet-5 (a) 层 1 条 ungrounded ⇒ false。两个方向都钉住 —— sonnet-5 是 Claude 不代表
     验过, 免得有人顺手全填 true; 改任一值须先有新一轮抽检记录。"""
     s = Settings()
     v = {m.id: m.verified for m in s.selectable_models}
     assert v["opus-5"] is True
     assert v["sonnet-5"] is False
-    assert v["gpt-terra"] is True
-    assert v["gpt-sol"] is True
-    # GPT-6 系 2026-09-30 接入, 未跑抽检
-    assert v["gpt6-luna"] is False
-    assert v["gpt6-sol"] is False
-    assert v["gpt61-sol"] is False
     # Claude 5.5 系 2026-09-30 接入, 未跑抽检 —— opus-5 验过不代表 opus-5-5 验过
     assert v["opus-5-5"] is False
     assert v["sonnet-5-5"] is False
@@ -115,7 +108,7 @@ def test_every_deployment_carries_an_explicit_max_tokens():
     assert by_name["light"] == s.light_max_output_tokens
     for m in s.selectable_models:
         assert by_name[m.id] == m.max_output_tokens
-    # 漏掉任何一个组 = 那个组悄悄落回 provider 的隐式默认值 (Bedrock 上就是那个
+    # 漏掉任何一个组 = 那个组悄悄落回 provider 的隐式默认值 (2026-09-08 那次
     # ≈4k 的截断本体)。⛔ 不许有 None。
     assert None not in by_name.values(), f"没有天花板的组: {[k for k, v in by_name.items() if v is None]}"
 
@@ -123,23 +116,18 @@ def test_every_deployment_carries_an_explicit_max_tokens():
 def test_configured_ceilings_are_the_documented_numbers():
     """上一条只钉"Router 与 Settings 一致", 两边一起写错它照绿。这条锚**字面量**。
 
-    数字来源 (.superpowers/research-max-output-tokens.md):
-    · opus-5 / sonnet-5 = 128K —— AWS Bedrock model card 明写 "Max output tokens: 128K"。
-    · gpt-terra / gpt-sol = 128K —— **无一手文档**, 只有 litellm 静态表; 由探针实测兜底
-      (evidence/checkpoints/autocontinue_2026-09.md)。
-    · light (haiku-4-5) = 64K —— 它的真实上限就比 Claude 系另外两个低一半, 跟着抄 128K
-      会在 provider 侧被拒。
+    数字来源: Anthropic 官方 claude-api skill 模型说明 (cached 2026-10-06)
+    · opus-5 / sonnet-5 / opus-5-5 / sonnet-5-5 = 128K output。
+    · default / hard / light 三档均为 claude-sonnet-5-5 = 128K。
     · fallback (DeepSeek) = 32K 保守值 —— 报告里 384K 那个数只有第三方博客背书。
     """
     s = Settings()
     by_id = {m.id: m.max_output_tokens for m in s.selectable_models}
     assert by_id == {"opus-5": 128000, "sonnet-5": 128000,
-                     "gpt-terra": 128000, "gpt-sol": 128000,
-                     "gpt6-luna": 128000, "gpt6-sol": 128000, "gpt61-sol": 128000,
                      "opus-5-5": 128000, "sonnet-5-5": 128000}
     assert s.default_max_output_tokens == 128000
     assert s.hard_max_output_tokens == 128000
-    assert s.light_max_output_tokens == 64000
+    assert s.light_max_output_tokens == 128000
     assert s.fallback_max_output_tokens == 32000
 
 
@@ -194,22 +182,16 @@ def test_internal_worker_groups_have_no_fallback():
         assert g not in flat, f"{g} 不该有 fallback 条目: {flat}"
 
 
-_OPUS5 = "bedrock/converse/global.anthropic.claude-opus-5"   # config.py 里 opus-5 的配置串
-# ⚠ 这是一个**构造**的短形, 不是实测串。本轮实测 (真 create_router + litellm mock_response)
-# bedrock 侧 chunk 报的是 `converse/global.anthropic.claude-opus-5` 与
-# `bedrock/converse/...` 两种拼法 —— `converse/` **保留**。真实串见
-# test_litellm_really_reports_two_spellings_for_one_model。这里留着它是因为它测的是
-# `_same_model` 在"更短的合法后缀"上也成立, 那个性质本身要钉。
-_OPUS5_REPORTED = "global.anthropic.claude-opus-5"
+_OPUS5 = "anthropic/claude-opus-5"   # config.py 里 opus-5 的配置串
+# litellm mock 流 (真 create_router + mock_response) 报的是 `claude-opus-5` 与
+# `anthropic/claude-opus-5` 两种拼法, 见 test_litellm_really_reports_two_spellings_for_one_model。
+_OPUS5_REPORTED = "claude-opus-5"
 
 
 def test_fell_back_is_false_when_every_reported_model_is_the_configured_one():
     """闸 G7 (a): 配置串与 chunk 报的串**拼法不一定逐字相同**, 都必须认作"同一个模型"。
 
-    ⚠ 措辞在终审修正过: 初稿写的是"实测 chunk 报的是**去掉 provider 前缀**的串" ——
-    那是把 deepseek 那次非流式实测 (`deepseek/deepseek-v4-pro` → `deepseek-v4-pro`)
-    **外推**到了 bedrock 串。本轮实测 bedrock 侧 `converse/` 是**保留**的
-    (见 test_litellm_really_reports_two_spellings_for_one_model)。
+    实测拼法见 test_litellm_really_reports_two_spellings_for_one_model (mock 流, 非真实 provider)。
     """
     s = Settings()
     assert fell_back(s, "opus-5", [_OPUS5_REPORTED]) is False
@@ -218,8 +200,8 @@ def test_fell_back_is_false_when_every_reported_model_is_the_configured_one():
 
 
 def test_fell_back_is_true_when_another_model_answered():
-    """闸 G7 (b): 容灾真的触发时的样子 —— 用户选 gpt-sol, DeepSeek 答的。"""
-    assert fell_back(Settings(), "gpt-sol", ["deepseek-v4-pro"]) is True
+    """闸 G7 (b): 容灾真的触发时的样子 —— 用户选 sonnet-5-5, DeepSeek 答的。"""
+    assert fell_back(Settings(), "sonnet-5-5", ["deepseek-v4-pro"]) is True
 
 
 def test_fell_back_is_true_when_any_single_chunk_came_from_another_model():
@@ -256,27 +238,27 @@ def test_fell_back_is_none_for_internal_groups_and_empty_reports():
 def test_fell_back_match_requires_a_path_boundary():
     """闸 G8: 匹配必须带 `/` 边界, ⛔ 不许裸子串。
 
-    `claude-opus-5` 是配置串的真子串, 但它**不是**一个完整的模型标识 ——
+    `opus-5` / `laude-opus-5` 是配置串的真子串, 但它们**不是**完整的模型标识 ——
     把实现写成 `reported in configured` 会让这条红。裸子串正是 retrospective
     规则 6 成因 A 的形状 (判定式被悄悄放宽成近乎恒真)。
     """
     s = Settings()
-    assert fell_back(s, "opus-5", ["claude-opus-5"]) is True
-    assert fell_back(s, "opus-5", ["anthropic.claude-opus-5"]) is True
+    assert fell_back(s, "opus-5", ["opus-5"]) is True
+    assert fell_back(s, "opus-5", ["laude-opus-5"]) is True
 
 
 def test_fell_back_does_not_confuse_opus_5_with_opus_5_5():
     """`claude-opus-5` 是 `claude-opus-5-5` 的真前缀 —— 两个组互相顶替必须判成回退,
-    两种拼法 (`converse/…` 与 `bedrock/converse/…`) 都钉住。前缀/子串式匹配会让这条红。"""
+    两种拼法 (裸名与 `anthropic/…`) 都钉住。前缀/子串式匹配会让这条红。"""
     s = Settings()
-    o5, o55 = "global.anthropic.claude-opus-5", "global.anthropic.claude-opus-5-5"
-    for pre in ("converse/", "bedrock/converse/"):
+    o5, o55 = "claude-opus-5", "claude-opus-5-5"
+    for pre in ("", "anthropic/"):
         assert fell_back(s, "opus-5", [pre + o55]) is True
         assert fell_back(s, "opus-5-5", [pre + o5]) is True
         assert fell_back(s, "opus-5-5", [pre + o55]) is False
-        assert fell_back(s, "sonnet-5-5", [pre + "global.anthropic.claude-sonnet-5"]) is True
-    used = ["converse/" + o5]
-    merge_reported_model(used, "bedrock/converse/" + o55)
+        assert fell_back(s, "sonnet-5-5", [pre + "claude-sonnet-5"]) is True
+    used = [o5]
+    merge_reported_model(used, "anthropic/" + o55)
     assert len(used) == 2, used
 
 
@@ -295,7 +277,7 @@ def test_create_router_raises_on_internal_group_collision():
     在运行时注入, 只挡默认配置不够, 必须在构造时就拒绝。"""
     from server.llm_config import create_router
     s = Settings(selectable_models=[
-        SelectableModel(id="light", label="撞名", model="bedrock/x", verified=False),
+        SelectableModel(id="light", label="撞名", model="anthropic/x", verified=False),
     ])
     with pytest.raises(ValueError, match="light"):
         create_router(s)
@@ -306,91 +288,13 @@ def test_known_model_groups_raises_on_internal_group_collision():
     走的正是这个函数, 不经过 create_router。"""
     from server.llm_config import known_model_groups
     s = Settings(selectable_models=[
-        SelectableModel(id="hard", label="撞名", model="bedrock/x", verified=False),
+        SelectableModel(id="hard", label="撞名", model="anthropic/x", verified=False),
     ])
     with pytest.raises(ValueError, match="hard"):
         known_model_groups(s)
 
 
-def test_registration_makes_tools_supported_for_gpt():
-    """LiteLLM 1.88.1 的 bedrock allowlist 不认 openai.*, 不注册就拒收 tools ——
-    联网通道对 GPT 直接不可用。裸 boto3 已实测工具调用本身通 ⇒ 这是客户端元数据缺口。
-    ⚠ 注册 key 必须**去掉 bedrock/ 前缀**, 用错前缀是静默无效 (spec §4.2)。"""
-    import litellm
-    from server.llm_config import register_selectable_model_capabilities
-    register_selectable_model_capabilities(Settings())
-    for mid in ["converse/global.openai.gpt-5.6-terra", "converse/global.openai.gpt-5.6-sol",
-                "converse/global.openai.gpt-6-luna", "converse/global.openai.gpt-6-sol",
-                "converse/global.openai.gpt-6.1-sol"]:
-        assert litellm.supports_function_calling(model=mid, custom_llm_provider="bedrock_converse")
-
-
-def _class_default(field: str) -> str:
-    """字段的**类默认值** —— 即 config.py 里写死的那个串。
-
-    ⚠ 不能用 `Settings().<field>`: config.py 顶层 `load_dotenv()` 把本机 .env 灌进了
-    os.environ, 所以 `Settings()` 拿到的是**这台机器**的 .env 值 (实测本机是 bedrock/)。
-    闸 6 要防的恰恰是 ".env 缺失/被覆盖" 那个世界, 而那个世界里生效的正是类默认值。
-    读默认值让本组测试与本机 .env 解耦 —— 否则换台机器测试结论就变。
-    """
-    return Settings.model_fields[field].default
-
-
-_ALL_BEDROCK = dict(
-    default_model="bedrock/converse/global.anthropic.claude-opus-5",
-    hard_model="bedrock/converse/global.anthropic.claude-opus-5",
-    light_model="bedrock/converse/global.anthropic.claude-haiku-4-5",
-)
-_ENV_LESS = {f: _class_default(f) for f in ("default_model", "hard_model", "light_model")}
-
-
-def test_c3_gate_covers_the_three_hardcoded_claude_models():
-    """闸 6 (C3) 的**主要**目标就是 config.py 里 default/hard/light 那三个硬编码默认值
-    (`anthropic/` 直连, 只靠 .env 改写且无任何启动期校验) —— spec §8 闸 6 的脚注点名的
-    正是它们。终审 I-1: 老实现只扫 selectable_models, 而那四条硬编码全是 `bedrock/`,
-    于是默认配置下返回值恒为 [], 结构上不可能报警。
-
-    场景 = ".env 缺失/后段被删/两段顺序一换" ⇒ 三个内部组回落到类默认值。"""
-    from server.llm_config import non_bedrock_model_groups
-    # 前提自证: 这三个类默认值今天确实是 anthropic/ 直连。前提一变本组测试就该重写,
-    # 而不是安静地测一个已经不存在的风险。
-    assert all(v.startswith("anthropic/") for v in _ENV_LESS.values()), _ENV_LESS
-    assert non_bedrock_model_groups(Settings(**_ENV_LESS)) == ["default", "hard", "light"]
-
-
-def test_c3_gate_is_quiet_when_everything_is_on_bedrock():
-    """反方向: 只测"会报"的话, 把函数写成恒返回三个组名也全绿。生产 .env 把这三个
-    改写成 bedrock/ 之后, 闸必须闭嘴 —— 否则就是一条长期喊狼来了的告警。"""
-    from server.llm_config import non_bedrock_model_groups
-    assert non_bedrock_model_groups(Settings(**_ALL_BEDROCK)) == []
-
-
-def test_c3_gate_reports_a_single_drifted_model():
-    """逐个方向: 三个里只坏一个时必须精确报出是哪一个 —— 报全部或报空都会让运维
-    看着日志找不到该改哪一行。"""
-    from server.llm_config import non_bedrock_model_groups
-    s = Settings(**{**_ALL_BEDROCK, "light_model": "anthropic/claude-haiku-4-5"})
-    assert non_bedrock_model_groups(s) == ["light"]
-
-
-def test_c3_gate_excludes_the_fallback_model():
-    """spec §9 D4: fallback 走 DeepSeek 个人流量是用户明确裁定接受的。fallback_model 的
-    类默认值就是 deepseek/, 若把它纳入检查, 这条告警在任何配置下都恒响 = 等于没有告警。"""
-    from server.llm_config import non_bedrock_model_groups
-    assert _class_default("fallback_model").startswith("deepseek/"), "前提变了, 本测试要重写"
-    s = Settings(**_ALL_BEDROCK, fallback_model=_class_default("fallback_model"))
-    assert non_bedrock_model_groups(s) == []
-
-
-def test_c3_gate_still_covers_selectable_models():
-    """selectable 那半边不能因为补了内部三组就丢: 两类模型走同一条 C3 约束。"""
-    from server.llm_config import non_bedrock_model_groups
-    bad = Settings(**_ALL_BEDROCK, selectable_models=[
-        {"id": "x", "label": "X", "model": "anthropic/claude-opus-5", "verified": False}])
-    assert non_bedrock_model_groups(bad) == ["x"]
-
-
-def test_every_internal_group_has_a_c3_field_mapping():
+def test_every_internal_group_has_a_model_field_mapping():
     """新增内部组却忘了往 _INTERNAL_GROUP_MODEL_FIELDS 加一行, 表现是 KeyError 当场炸在
     启动路径上 (刻意的, 好过静默漏检)。这条测试把它提前到 CI —— 别让人在生产启动时才知道。"""
     from server.llm_config import INTERNAL_GROUPS, _INTERNAL_GROUP_MODEL_FIELDS
@@ -398,49 +302,6 @@ def test_every_internal_group_has_a_c3_field_mapping():
     s = Settings()
     for field in _INTERNAL_GROUP_MODEL_FIELDS.values():
         assert isinstance(getattr(s, field), str), f"{field} 不是模型串字段"
-
-
-def test_verify_reports_empty_after_successful_registration():
-    """spec §4.2 启动期自检: register 之后回查, 正常路径必须为空 —— 既包括注册后
-    变 True 的 GPT 系, 也包括在 litellm bedrock allowlist 里原生就是 True 的 Claude
-    系 (不注册也通过 allowlist)。两类模型都不该被自检误报。"""
-    from server.llm_config import (
-        register_selectable_model_capabilities,
-        verify_selectable_model_capabilities,
-    )
-    s = Settings()
-    register_selectable_model_capabilities(s)
-    assert verify_selectable_model_capabilities(s) == []
-
-
-def test_verify_flags_a_model_whose_registration_never_happened():
-    """自检真的会抓: 用一个专造的、别处从未注册过的 bedrock key (不依赖源码变异,
-    也不依赖测试执行顺序) 验证 supports_function_calling 仍为 False 时会被 flag。
-    这是"注册未生效"在自检里的直接复现 —— 与控制器实测的『去掉 removeprefix 导致
-    静默无效』是同一条检测路径, 只是不需要真的改坏源码就能钉住。"""
-    from server.llm_config import verify_selectable_model_capabilities
-    s = Settings(selectable_models=[
-        SelectableModel(id="never-registered", label="从未注册",
-                         model="bedrock/converse/global.openai.gpt-9.9-never-registered",
-                         verified=False),
-    ])
-    assert verify_selectable_model_capabilities(s) == ["never-registered"]
-
-
-def test_verify_does_not_let_a_natively_true_model_mask_a_broken_one():
-    """Claude 天然 True; 若 verify 是"存在一个 True 即通过", 混一个天然 True 的
-    Claude 与一个从未注册的假 bedrock 模型会让后者被掩盖。同一个 Settings 里
-    混装两者, 专门钉这条(与两条现有新测试互补, 它们都没测到这个组合)。"""
-    from server.llm_config import verify_selectable_model_capabilities
-    s = Settings(selectable_models=[
-        SelectableModel(id="opus-5", label="Claude Opus 5",
-                         model="bedrock/converse/global.anthropic.claude-opus-5",
-                         verified=True),
-        SelectableModel(id="never-registered", label="从未注册",
-                         model="bedrock/converse/global.openai.gpt-9.9-never-registered",
-                         verified=False),
-    ])
-    assert verify_selectable_model_capabilities(s) == ["never-registered"]
 
 
 def _info_client(**kw):
@@ -459,8 +320,7 @@ def _info_client(**kw):
 
 def test_info_exposes_selectable_models_with_verified():
     got = _info_client().get("/api/info").json()["selectable_models"]
-    assert [m["id"] for m in got] == ["opus-5", "sonnet-5", "gpt-terra", "gpt-sol", "gpt6-luna", "gpt6-sol", "gpt61-sol",
-                   "opus-5-5", "sonnet-5-5"]
+    assert [m["id"] for m in got] == ["opus-5", "sonnet-5", "opus-5-5", "sonnet-5-5"]
     by_id = {m["id"]: m for m in got}
     assert by_id["opus-5"]["verified"] is True
     assert by_id["sonnet-5"]["verified"] is False  # 2026-09 抽检唯一 false 的, 保住一真一假
@@ -531,7 +391,7 @@ class _EchoModelRouter:
 
     为什么不能只用 `_CapturingRouter`: 它回的是 `resolved-{组名}`, **跟着组名走**。
     只有它的话, 把 `model_used` 实现成 `body.model` 的某种变形也可能蒙混过关。
-    这个类把"事实"与"意图"彻底解耦: 请求 gpt-sol、回 deepseek-v4-pro。
+    这个类把"事实"与"意图"彻底解耦: 请求 sonnet-5-5、回 deepseek-v4-pro。
 
     `reported=None` 用来造"chunk 压根没报模型"那一档 (getattr 取到 None)。
     """
@@ -700,12 +560,12 @@ def test_done_event_model_used_follows_the_router_not_the_request():
     """闸 G1 反向: Router 交出别的模型时, `model_used` 必须跟着变。
 
     把实现写成 `"model_used": body.model` (回显意图) 会让这条红 —— 而那正是
-    U2 容灾落地后最容易发生的静默错误: 用户选 gpt-sol、DeepSeek 答题、事件却说 gpt-sol。
+    U2 容灾落地后最容易发生的静默错误: 用户选 sonnet-5-5、DeepSeek 答题、事件却说 sonnet-5-5。
     """
     c = _stream_client(_EchoModelRouter("deepseek-v4-pro"))
-    ev = _done_event(c, model="gpt-sol")
+    ev = _done_event(c, model="sonnet-5-5")
     assert ev["model_used"] == "deepseek-v4-pro", ev
-    assert ev["model_id"] == "gpt-sol", ev
+    assert ev["model_id"] == "sonnet-5-5", ev
 
 
 def test_done_event_model_used_is_null_when_the_router_reports_nothing():
@@ -809,7 +669,7 @@ def test_stream_survives_a_dead_primary_deployment(monkeypatch):
     """闸 G6 正向, **端到端**: 主模型开流抛错 ⇒ 流不该死, 由 default-fallback 接管,
     且 `done.model_used` 报的是**实际**答题的那个。
 
-    ⚠ `Settings()` 的类默认值里 opus-5 走 `bedrock/converse/global.anthropic.*`,
+    ⚠ `Settings()` 的类默认值里 opus-5 走 `anthropic/claude-opus-5`,
     所以 fake 里那句 `"anthropic" in model` 打的就是它。
 
     ⛔ **兄弟闸 `test_stream_dies_without_the_fallback_entry` 承重, 不许单删本条留它、
@@ -1134,7 +994,7 @@ def test_flag_is_attributed_to_the_model_that_actually_answered(flag_probe):
     这条测试就什么都没测到。"""
     got = flag_probe["withModelId"]
     assert "claude-opus-5" in got["topbarText"], f"诱饵没摆上, 本测试无效: {got['topbarText']}"
-    assert got["flagBody"]["model"] == "GPT-5.6 Sol", got["flagBody"]
+    assert got["flagBody"]["model"] == "Claude Sonnet 5.5", got["flagBody"]
     # 徽章与归档必须指同一个模型 —— C2 的安全论证靠的就是这条标注链完整
     # (选项文字 → 常驻提示条 → 答案徽章 → 持久失败记录)。
     assert got["flagBody"]["model"] in got["badgeText"], (got["flagBody"], got["badgeText"])
@@ -1146,7 +1006,7 @@ def test_flag_falls_back_to_the_topbar_for_legacy_records(flag_probe):
     就把旧记录的归因整个丢掉。"""
     got = flag_probe["legacyNoModelId"]
     assert got["badgeText"] is None, "旧记录不该有模型徽章, 场景造错了"
-    assert got["flagBody"]["model"] == "global.anthropic.claude-opus-5", got["flagBody"]
+    assert got["flagBody"]["model"] == "claude-opus-5", got["flagBody"]
 
 
 def test_flag_payload_reads_the_message_model_id():
@@ -1169,7 +1029,7 @@ def test_badge_says_which_model_actually_answered_when_it_fell_back(flag_probe):
     **别人答的**消息背书就是撒谎。
     """
     badge = flag_probe["fellBack"]["badgeText"]
-    assert badge == "模型: GPT-5.6 Sol → 实际 deepseek-v4-pro（已回退）· 验证状态未知", badge
+    assert badge == "模型: Claude Sonnet 5.5 → 实际 deepseek-v4-pro（已回退）· 验证状态未知", badge
     assert "⚠未验证" not in badge, f"verified 那一支必须被盖掉: {badge}"
 
 
@@ -1181,7 +1041,7 @@ def test_badge_lists_every_model_that_answered(flag_probe):
     """
     badge = flag_probe["fellBackMulti"]["badgeText"]
     assert "deepseek-v4-pro" in badge, badge
-    assert "global.openai.gpt-5.6-sol" in badge, badge
+    assert "claude-sonnet-5-5" in badge, badge
     assert "已回退" in badge and "验证状态未知" in badge, badge
 
 
@@ -1191,7 +1051,7 @@ def test_badge_is_byte_identical_when_it_did_not_fall_back(flag_probe):
     ⚠ 这条不是形式主义: 把回退分支写成"只要有 modelsUsed 就显示箭头"的实现会让它红,
     而那种实现会给**每一条**正常回答都挂上"已回退", 三天之内没人再看这个徽章。
     """
-    assert flag_probe["notFellBack"]["badgeText"] == "模型: GPT-5.6 Sol ⚠未验证"
+    assert flag_probe["notFellBack"]["badgeText"] == "模型: Claude Sonnet 5.5 ⚠未验证"
 
 
 def test_badge_ignores_records_that_predate_the_field(flag_probe):
@@ -1205,7 +1065,7 @@ def test_badge_ignores_records_that_predate_the_field(flag_probe):
     `withModelId` 场景的历史记录里 `modelsUsed` / `fellBack` **两个键都不存在**
     (探针的 `scenario()` 对显式 undefined 整个键都不设), 正是那个形状。
     """
-    assert flag_probe["withModelId"]["badgeText"] == "模型: GPT-5.6 Sol ⚠未验证"
+    assert flag_probe["withModelId"]["badgeText"] == "模型: Claude Sonnet 5.5 ⚠未验证"
 
 
 def test_badge_text_reads_the_fell_back_field():
@@ -1255,20 +1115,20 @@ def test_archive_records_a_clean_run_as_not_fallen_back(flag_probe):
     把 persist 写成"一律存 true/一律不存"都会让这一对里的某条红。"""
     got = flag_probe["streamNoFallback"]
     assert got["stored"]["fellBack"] is False, got["stored"]
-    assert got["badgeAfterReload"] == "模型: GPT-5.6 Sol ⚠未验证", got["badgeAfterReload"]
+    assert got["badgeAfterReload"] == "模型: Claude Sonnet 5.5 ⚠未验证", got["badgeAfterReload"]
 
 
 def test_flag_is_attributed_to_the_fallback_model_that_actually_answered(flag_probe):
     """闸 G12 (⚑ 归因): 回退时 `dogfood_failures.md` 记的必须是**实际**答题的模型。
 
-    ⚠ 诱饵: 这条消息的 `msgObj.modelId` 是 `gpt-sol` —— 只读 modelId 的实现
-    (也就是终审 C-1 的修法) 在这里会把 DeepSeek 的捏造记到 GPT-5.6 Sol 头上。
+    ⚠ 诱饵: 这条消息的 `msgObj.modelId` 是 `sonnet-5-5` —— 只读 modelId 的实现
+    (也就是终审 C-1 的修法) 在这里会把 DeepSeek 的捏造记到 Claude Sonnet 5.5 头上。
     backlog 是 append-only 的 (用户全局规则 B), 错误写入即永久且无从回溯,
     读的人还可能据此把一轮反捏造工作投到错误的模型上。
     """
     body = flag_probe["streamFellBack"]["flagBody"]
     assert "deepseek-v4-pro" in body["model"], body
-    assert "GPT-5.6 Sol" in body["model"], "当时选的是谁也要留着, 否则复盘断线"
+    assert "Claude Sonnet 5.5" in body["model"], "当时选的是谁也要留着, 否则复盘断线"
 
 
 def test_flag_model_field_fits_the_worst_case_attribution():
@@ -1323,7 +1183,7 @@ def test_badge_survives_a_models_used_that_is_not_a_list(flag_probe):
         got = flag_probe[key]
         assert got["renderError"] is None, f"{key}: 渲染抛了 —— {got['renderError']}"
         assert got["renderedCount"] == 2, f"{key}: 历史渲染中止了, 只画出 {got['renderedCount']} 条"
-        assert got["badgeText"] == "模型: gpt-sol ⚠未验证", f"{key}: {got['badgeText']}"
+        assert got["badgeText"] == "模型: sonnet-5-5 ⚠未验证", f"{key}: {got['badgeText']}"
 
 
 def test_flagging_still_records_when_models_used_is_not_a_list(flag_probe):
@@ -1343,7 +1203,7 @@ def test_flagging_still_records_when_models_used_is_not_a_list(flag_probe):
         assert got["flagBody"] is not None, f"{key}: /api/flag 压根没被调用, 记录丢了"
         # 归因退回"用户选的那个" (label 表此时还没加载, 所以是原始 id) —— 形状不对时
         # 不知道实际是谁, 报选的那个是诚实的降级, 空着或崩掉都不是。
-        assert got["flagBody"]["model"] == "gpt-sol", got["flagBody"]
+        assert got["flagBody"]["model"] == "sonnet-5-5", got["flagBody"]
 
 
 def test_badge_at_first_paint_is_observed_not_only_after_the_label_table_loads(flag_probe):
@@ -1354,15 +1214,15 @@ def test_badge_at_first_paint_is_observed_not_only_after_the_label_table_loads(f
     - `fellBack === undefined` —— **spec §5 B1 字面的那个值** —— 在被观测路径里从不出现
       (刷新那版走的是 dataset 三路比较后的 `null`)。
 
-    初次渲染时 label 表还没到, 所以是原始 id `gpt-sol` 而不是 `GPT-5.6 Sol` —— 这个差异
+    初次渲染时 label 表还没到, 所以是原始 id `sonnet-5-5` 而不是 `Claude Sonnet 5.5` —— 这个差异
     本身就证明抓的确实是**另一个**时点。
     """
     # B1 形状 (两个键都不存在) ⇒ 与今天逐字相同, 只是 label 还没补上
-    assert flag_probe["withModelId"]["badgeTextInitial"] == "模型: gpt-sol ⚠未验证", \
+    assert flag_probe["withModelId"]["badgeTextInitial"] == "模型: sonnet-5-5 ⚠未验证", \
         flag_probe["withModelId"]["badgeTextInitial"]
     # 回退形状 ⇒ 首屏就该说实话, 不能等 /api/info 回来才说
     assert flag_probe["fellBack"]["badgeTextInitial"] == \
-        "模型: gpt-sol → 实际 deepseek-v4-pro（已回退）· 验证状态未知", \
+        "模型: sonnet-5-5 → 实际 deepseek-v4-pro（已回退）· 验证状态未知", \
         flag_probe["fellBack"]["badgeTextInitial"]
 
 
@@ -1375,7 +1235,7 @@ def test_refresh_survives_a_corrupt_dataset(flag_probe):
     got = flag_probe["corruptDataset"]
     assert got["refreshError"] is None, f"try/catch 没兜住: {got['refreshError']}"
     # 坏数据 ⇒ 当"没有这个信息", 退回非回退文案 (label 表此时已加载)
-    assert got["badgeText"] == "模型: GPT-5.6 Sol ⚠未验证", got["badgeText"]
+    assert got["badgeText"] == "模型: Claude Sonnet 5.5 ⚠未验证", got["badgeText"]
 
 
 def test_archive_says_unknown_not_false_when_the_backend_never_sent_the_field(flag_probe):
@@ -1392,7 +1252,7 @@ def test_archive_says_unknown_not_false_when_the_backend_never_sent_the_field(fl
     got = flag_probe["streamOldBackend"]
     assert got["stored"]["fellBack"] is None, got["stored"]
     assert got["stored"]["modelsUsed"] is None, got["stored"]
-    assert got["badgeAfterReload"] == "模型: GPT-5.6 Sol ⚠未验证", got["badgeAfterReload"]
+    assert got["badgeAfterReload"] == "模型: Claude Sonnet 5.5 ⚠未验证", got["badgeAfterReload"]
 
 
 def test_flag_attribution_is_unchanged_when_the_backend_is_old(flag_probe):
@@ -1403,7 +1263,7 @@ def test_flag_attribution_is_unchanged_when_the_backend_is_old(flag_probe):
     闸的名字就是它的说明书 —— 说明书没提到的东西, 下一个人不会知道要保护。
     """
     got = flag_probe["streamOldBackend"]
-    assert got["flagBody"]["model"] == "GPT-5.6 Sol", got["flagBody"]
+    assert got["flagBody"]["model"] == "Claude Sonnet 5.5", got["flagBody"]
 
 
 def _badge_classes(probe_entry) -> set:
@@ -1453,12 +1313,11 @@ def test_same_model_does_not_merge_across_providers():
     """
     from server.llm_config import _same_model
     assert _same_model("openai/gpt-4", "azure/gpt-4") is False
-    assert _same_model("bedrock/converse/x", "converse/x") is True      # 带 / 边界的后缀
-    assert _same_model("converse/x", "bedrock/converse/x") is True      # 反方向也认
-    assert _same_model("bedrock/converse/claude-opus-5", "claude-opus-5") is True
-    # ⛔ 不完整标识不算命中 (`.` 不是 `/`)
-    assert _same_model("bedrock/converse/global.anthropic.claude-opus-5",
-                       "claude-opus-5") is False
+    assert _same_model("anthropic/x", "x") is True      # 带 / 边界的后缀
+    assert _same_model("x", "anthropic/x") is True      # 反方向也认
+    assert _same_model("anthropic/claude-opus-5", "claude-opus-5") is True
+    # ⛔ 不完整标识不算命中 (`-` 不是 `/`)
+    assert _same_model("anthropic/claude-opus-5", "opus-5") is False
 
 
 def test_done_event_merges_two_spellings_of_one_model():
@@ -1475,8 +1334,7 @@ def test_done_event_merges_two_spellings_of_one_model():
     答: "保留首次出现的那个"。它在**长形先到**那半与正确实现输出**逐字相同**
     (改期望值前, 是**短形先到**那半相同) ⇒ 两个到达顺序都必须跑, 只是有分辨力的那半换了边。
     """
-    long_, short = "bedrock/converse/global.anthropic.claude-opus-5", \
-                   "converse/global.anthropic.claude-opus-5"
+    long_, short = "anthropic/claude-opus-5", "claude-opus-5"
     for first, second in ((long_, short), (short, long_)):
         c = _stream_client(_ChunkScriptRouter([(first, True), (second, True)]))
         ev = _done_event(c, model="opus-5")
@@ -1490,10 +1348,9 @@ def test_done_event_keeps_genuinely_different_models_apart():
     归一化做过头会把这两项合并 ⇒ `fell_back` 翻成 False ⇒ 一次**真回退**被说成没回退。
     """
     c = _stream_client(_ChunkScriptRouter(
-        [("deepseek-v4-pro", True), ("converse/global.anthropic.claude-opus-5", True)]))
+        [("deepseek-v4-pro", True), ("claude-opus-5", True)]))
     ev = _done_event(c, model="opus-5")
-    assert ev["models_used"] == ["deepseek-v4-pro",
-                                 "converse/global.anthropic.claude-opus-5"], ev
+    assert ev["models_used"] == ["deepseek-v4-pro", "claude-opus-5"], ev
     assert ev["fell_back"] is True, ev
 
 
@@ -1502,7 +1359,7 @@ def test_litellm_really_reports_two_spellings_for_one_model():
     这一条用**真 `create_router` + litellm 自带 `mock_response`** (零外部调用) 钉住
     "litellm 确实会报两种拼法" —— 它一旦变了, 这条会红, 而不是让合并逻辑悄悄变成一段无用代码。
 
-    ⚠ **它证的是 litellm 的 mock 流的拼法逻辑, 不是真实 Bedrock 返回什么** (终审 N-3 /
+    ⚠ **它证的是 litellm 的 mock 流的拼法逻辑, 不是真实 provider 返回什么** (终审 N-3 /
     spec §7 L6b)。真实回退时 chunk 里到底写什么串仍未实测 (spec §7 L1) —— 别把这条闸
     读成"真实 provider 也这样"。
 
@@ -1526,7 +1383,7 @@ def test_litellm_really_reports_two_spellings_for_one_model():
     for m in raw:
         merge_reported_model(merged, m)
     # 期望值随 N-2 一并从最短形改成最长(最限定)形 —— 见 merge_reported_model 的证明。
-    assert merged == ["bedrock/converse/global.anthropic.claude-opus-5"], merged
+    assert merged == ["anthropic/claude-opus-5"], merged
 
 
 def test_fell_back_warning_is_logged(capsys):
@@ -1556,7 +1413,7 @@ def test_badge_is_amber_when_a_verified_model_fell_back(flag_probe):
     与常量 `true` **逐字同输出** ⇒ 成因 D, 判据形状根本没被钉住。
 
     ⚠ 为什么这一格特别重要: `opus-5` 是四个可选模型里**唯一** `verified: true` 的, 又是
-    下拉第一项 ⇒ **"用户停在 Opus 5 → Bedrock 挂 → DeepSeek 答"是最可能真实发生的那次回退**,
+    下拉第一项 ⇒ **"用户停在 Opus 5 → 主模型挂 → DeepSeek 答"是最可能真实发生的那次回退**,
     而它的琥珀色恰好落在此前唯一没闸的那一格。
 
     成因 D 自查 —— 哪种错误实现在这组输入上会产出相同输出?
@@ -1595,8 +1452,7 @@ def test_merge_still_collapses_one_model_in_any_arrival_order():
     """闸 N-2 反方向: 别为了防合并把该合的也不合了 —— 同一模型的两种拼法, 无论谁先到,
     都必须收成**一项**, 且结果与到达顺序无关 (最长形的一个附带好处)。"""
     from server.llm_config import merge_reported_model
-    long_, short = "bedrock/converse/global.anthropic.claude-opus-5", \
-                   "converse/global.anthropic.claude-opus-5"
+    long_, short = "anthropic/claude-opus-5", "claude-opus-5"
     for order in ((long_, short), (short, long_)):
         merged: list[str] = []
         for m in order:

@@ -1,13 +1,12 @@
 """LiteLLM Router configuration (PLAN §4.2, R-8).
 
 Model groups:
-- "default": Sonnet primary -> DeepSeek non-thinking fallback
-- "hard": Opus (complex semantic review / dataset validation)
-- "light": Haiku (intent classification / routing)
+- "default": Sonnet 5.5 primary -> DeepSeek non-thinking fallback
+- "hard": Sonnet 5.5 (complex semantic review / dataset validation)
+- "light": Sonnet 5.5 (intent classification / routing)
 """
 from __future__ import annotations
 
-import litellm
 from litellm import Router
 
 from server.config import Settings, SelectableModel
@@ -16,8 +15,7 @@ from server.config import Settings, SelectableModel
 INTERNAL_GROUPS = ("default", "default-fallback", "hard", "light")
 
 # 内部组名 → Settings 上存它模型串的字段名。写成显式表而不是 f"{group}_model" 拼字符串:
-# 拼名字在字段改名时不会报错, 只会静默少检一个模型 —— 正是闸 6 已经栽过一次的形状
-# (它只扫 selectable_models, 而那四条硬编码全是 bedrock/, 于是默认配置下结构上不可能报警)。
+# 拼名字在字段改名时不会报错, 只会静默少检一个模型。
 # 表里缺项则 KeyError 当场炸在启动路径上, 比静默漏检好。
 # 与 INTERNAL_GROUPS 的一一对应由 test_model_switching 钉住, 新增内部组必须同步这里。
 _INTERNAL_GROUP_MODEL_FIELDS = {
@@ -26,11 +24,6 @@ _INTERNAL_GROUP_MODEL_FIELDS = {
     "hard": "hard_model",
     "light": "light_model",
 }
-
-# C3 检查豁免: fallback 默认就是 DeepSeek 个人流量, 用户已明确裁定接受 (spec §9 D4)。
-# 把它纳入会产生恒定假阳性, 而一条长期喊狼来了的告警等于没有告警。
-_C3_EXEMPT_GROUPS = ("default-fallback",)
-
 
 def _validated_selectable_models(s: Settings) -> list[SelectableModel]:
     """`s.selectable_models`, 但先 fail-loud 挡住与 INTERNAL_GROUPS 撞名的 id。
@@ -65,7 +58,7 @@ def _fallback_map(s: Settings) -> list[dict[str, list[str]]]:
     能悄悄换模型就破了 C1。`default-fallback` 也不进表 (给自己配 fallback 是个环)。
 
     ⚠ 代价是**明的**: 兜底落在 `default-fallback` = DeepSeek **个人流量** (spec §9 D4),
-    即答题有可能不走公司 Bedrock。用户 2026-09-02 裁定接受, 条件是**必须让用户看得见** ——
+    即答题有可能不走 Anthropic。用户 2026-09-02 裁定接受, 条件是**必须让用户看得见** ——
     `done` 事件的 `fell_back` 字段与前端徽章就是那个条件的兑现, 不许只补这半边。
     """
     return [{g: ["default-fallback"]}
@@ -81,9 +74,8 @@ def create_router(s: Settings) -> Router:
        per-call 的 `max_tokens` 会被原样带过去 —— 于是 DeepSeek 被扣上一个按 Claude
        量的数。deployment 级则各组各自带各自的值, 回退后自动换成 DeepSeek 那个。
        (`_fallback_map` 那条"兜底落在个人流量"的代价已经够明了, 不该再叠一个隐性错配。)
-    2. **不写 = 静默截断**。`bedrock/converse/...` 路径下 litellm 只在"开了 thinking 又
-       没给 max_tokens"那一支才补 `maxTokens`; 其余情况该字段整个缺席, Bedrock 落到一个
-       远低于模型上限的服务端默认值。2026-09-08 一条 ~3.5k 汉字的答案在 ≈4k output token
+    2. **不写 = 静默截断**。不给 max_tokens 时 provider / litellm 落到各自的隐式默认值,
+       可能远低于模型上限。2026-09-08 一条 ~3.5k 汉字的答案在 ≈4k output token
        处半句话被切断, 界面上没有任何提示 —— 那次截断本身就是证据。
 
     值的出处与"哪些是未经一手文档确认的"写在 `server/config.py` 的字段注释里, 不在这里
@@ -151,90 +143,6 @@ def known_model_groups(s: Settings) -> set[str]:
     return set(INTERNAL_GROUPS) | {m.id for m in _validated_selectable_models(s)}
 
 
-def non_bedrock_model_groups(s: Settings) -> list[str]:
-    """C3 闸 (spec §8 闸 6): 报出模型串**不走公司 Bedrock** 的全部 Router 组名。
-
-    检查集合 = 内部组 (default/hard/light, 经 `_INTERNAL_GROUP_MODEL_FIELDS` 取字段)
-    ∪ selectable_models, **不含** default-fallback (见 `_C3_EXEMPT_GROUPS`)。
-
-    ⚠ 内部三组是这条闸的**主要**目标, 不是附带: spec §8 闸 6 的脚注点名的正是
-    「`server/config.py` 里三个 Claude 模型的硬编码默认值是 `anthropic/` 直连,
-    只有 `.env` 把它们改写成 Bedrock, 且无任何启动期校验」。selectable_models 那
-    四条硬编码本来就全是 `bedrock/`, 只扫它们的话默认配置下返回值恒为 `[]` ——
-    结构上不可能报警, 而闸要防的失败 (.env 缺一段、或两段并列时顺序一换) 全在
-    内部三组上。`default` 组还是 `/api/ask`、eval 脚本、以及 Chat UI 在 /api/info
-    加载失败时的降级落点。
-
-    C3 与 C1 正交, 纳入 light/hard **不**触碰 C1: 本函数只读模型串判前缀、结果进
-    ready 日志, 不往 model_list 加组、不进 known_model_groups、不进 /api/info、
-    不碰答题请求的 `kw["model"]`。C1 管"谁能被用户切", C3 管"钱走谁的账"。
-
-    返回组名列表; 空列表 = 全部合规。告警不阻止启动 (spec §8 闸 6)。
-    """
-    off = [
-        g for g in INTERNAL_GROUPS
-        if g not in _C3_EXEMPT_GROUPS
-        and not getattr(s, _INTERNAL_GROUP_MODEL_FIELDS[g]).startswith("bedrock/")
-    ]
-    off += [m.id for m in _validated_selectable_models(s)
-            if not m.model.startswith("bedrock/")]
-    return off
-
-
-def register_selectable_model_capabilities(s: Settings) -> None:
-    """给可选模型补 LiteLLM 能力元数据。
-
-    为什么需要: LiteLLM 的 bedrock provider allowlist 只认
-    anthropic|mistral|cohere|meta.llama3-*|amazon.nova, 其余走 supports_function_calling()
-    兜底, 而 registry 里没有 openai.gpt-5.6-* ⇒ 拒收 tools, 联网通道对 GPT 不可用。
-    裸 boto3 Converse 已实测工具调用本身是通的 ⇒ 客户端元数据缺口, 非服务端限制。
-
-    ⚠ 注册 key 必须是**去掉 bedrock/ 前缀**的形式 (litellm 内部就用这个查表)。
-    用带前缀的 key 注册会**静默无效** —— 不报错, 直到有人开联网才炸。
-
-    经 `_validated_selectable_models` 读取 (与 `create_router` / `known_model_groups`
-    同一道 fail-loud 撞名闸), 不直接读 `s.selectable_models`。
-
-    非 Bedrock 的模型跳过注册 (这里的元数据写死 `bedrock_converse` provider, 套到别的
-    provider 上是错的)。它们的合规问题由 `non_bedrock_model_groups` 管 —— C3 告警是
-    一个函数一个口径, 不在这里分一半出去。
-    """
-    info = {"litellm_provider": "bedrock_converse", "mode": "chat",
-            "supports_function_calling": True}
-    for m in _validated_selectable_models(s):
-        if not m.model.startswith("bedrock/"):
-            continue
-        litellm.register_model({m.model.removeprefix("bedrock/"): dict(info)})
-
-
-def verify_selectable_model_capabilities(s: Settings) -> list[str]:
-    """spec §4.2 启动期自检: `register_model()` 跑过不等于生效 (实测带前缀的 key
-    注册就是这样静默无效的) ——理由原文: 「注册失败的表现是『一切正常, 直到有人开
-    联网』」。这里回查 litellm 是否真的认了每个 Bedrock 模型的 tool-calling 能力,
-    而不是假定调用 `register_model()` 没抛异常就算数。
-
-    逐模型独立回查 (而非"任意一个通过就算过"): Claude 系在 litellm bedrock
-    allowlist 里原生认 `anthropic` 前缀, 不注册也是 True —— 若把检查做成"存在
-    一个 True 即通过", 只要 Claude 天然为真, GPT 系注册悄悄失效也测不出来, 自
-    检就形同虚设。故每个模型各自核对自己的 `supports_function_calling`, Claude
-    天然为 True 不会被误报, 也不会因为它天然为真就让 GPT 那份检查跟着恒真。
-
-    非 Bedrock 的模型不在本自检范围内 —— 那是 C3 (`register_selectable_model_
-    capabilities` 的返回值) 管的另一个问题, 两者语义不混。
-
-    返回注册后仍未生效 (`supports_function_calling` 为 False) 的模型 id;
-    空列表 = 全部生效。
-    """
-    failed: list[str] = []
-    for m in _validated_selectable_models(s):
-        if not m.model.startswith("bedrock/"):
-            continue
-        key = m.model.removeprefix("bedrock/")
-        if not litellm.supports_function_calling(model=key, custom_llm_provider="bedrock_converse"):
-            failed.append(m.id)
-    return failed
-
-
 def _same_model(a: str, b: str) -> bool:
     """两个模型串指的是不是**同一个模型**。
 
@@ -260,9 +168,9 @@ def merge_reported_model(models_used: list[str], reported: str) -> None:
     """把一个 chunk 报出的模型串并进有序列表 —— 同一模型只留一项, 已存条目**只朝更限定
     (更长) 的方向增长**, ⛔ 绝不缩短。
 
-    ⚠ 为什么需要这个 (2026-09-02 终审 I-2, 本轮实测): litellm 对**同一次**回答会报出
-    **两种拼法** —— 内容 chunk 是 `converse/global.anthropic.claude-opus-5`, 收尾/usage
-    chunk 是 `bedrock/converse/global.anthropic.claude-opus-5` (源码: `chunk_creator` 用
+    ⚠ 为什么需要这个 (2026-09-02 终审 I-2): litellm 对**同一次**回答可能报出
+    **两种拼法** —— 内容 chunk 是去掉 provider 前缀的形 (如 `claude-opus-5`), 收尾/usage
+    chunk 是配置串原样 (如 `anthropic/claude-opus-5`) (源码: `chunk_creator` 用
     `model_response.model = self.model`, 而"用 chunk 自带 model 覆盖"那支只对 Azure 生效)。
     不合并的话, 徽章会把 2 个模型写成 4 个串、上百字符, 而且"实际答题的是谁"这一栏里还混着
     **用户自己选的那个** —— 直接把 R4 想要的"一眼看出实际是谁答的"给毁了。
@@ -284,7 +192,7 @@ def merge_reported_model(models_used: list[str], reported: str) -> None:
     或反之; 而 `B` 若以 `A` 结尾则 `A` 是 `B` 的 `/` 后缀 ⇒ `A ≡ B`, 与"`A`、`B` 是两个
     不同条目"矛盾。⇒ **增长永远不会把原本互不等价的两项并到一起。**
 
-    代价: 展示的是较长那个形 (`bedrock/converse/…` 而非 `converse/…`, 多 7 个字符),
+    代价: 展示的是较长那个形 (`anthropic/…` 而非裸名, 多一个 provider 前缀),
     换来的是**与到达顺序无关的确定性输出** + 上面那条 ⛔ 承诺真的无条件成立。
     """
     for i, seen in enumerate(models_used):
@@ -312,20 +220,18 @@ def fell_back(s: Settings, model_group: str, reported_models) -> bool | None:
     `reported_models` 的元素来自流式 chunk 的 `.model`, **拼法与配置串不一定逐字相同**,
     故比对走 `_same_model` (带 `/` 边界的后缀关系), 而不是 `==`。三个已知形态:
 
-    - **bedrock 侧, 本轮实测** (真 `create_router` + litellm `mock_response`, 零外部调用):
-      同一次回答里会出现**两种**拼法 —— `converse/global.anthropic.claude-opus-5` 与
-      `bedrock/converse/global.anthropic.claude-opus-5`。`get_llm_provider` **保留** `converse/`,
-      只剥掉最前面的 `bedrock/`。
+    - **litellm mock 流** (真 `create_router` + litellm `mock_response`, 零外部调用):
+      同一次回答里可能出现**两种**拼法 —— 剥掉 provider 前缀的形与配置串原样。
+      `get_llm_provider` 只剥掉最前面那一段 provider 前缀。
     - **deepseek 侧, 实测但只有非流式那一次**: `DEPLOY_PLAN.md` 记的 `/api/ask` 回退到
       `deepseek/deepseek-v4-pro` 时 `response.model = deepseek-v4-pro` (provider 前缀被剥掉)。
-    - ⚠ **真实 bedrock 回退时流式 chunk 里写什么, 仍未实测** (spec §7 L1)。上面第一条用的是
+    - ⚠ **真实 provider 流式 chunk 里写什么, 仍未实测** (spec §7 L1)。上面第一条用的是
       litellm 的 mock 流, 证的是"litellm 的拼法逻辑", 不是"真实 provider 返回什么"。
       若真串与配置串对不上, 表现是**每条答案都误报"已回退"** —— 响的失败不是静默的,
       上线第一条真实回答即可证伪。
 
-    ⚠ 上面这段是 2026-09-02 终审修正过的: 初稿把 deepseek 那次实测的"去掉 provider 前缀"
-    **外推**到 bedrock 串并标成"实测", 而实测结果是 `converse/` 被保留。
-    这正是 spec §3 P6 那条教训 (把自己实验的边界当成被测系统的边界) 在下一层重演。
+    ⚠ spec §3 P6 那条教训: 别把自己实验的边界当成被测系统的边界 —— mock 流证的是
+    litellm 的拼法逻辑, 不是 provider 的真实返回。
     """
     if not reported_models:
         return None

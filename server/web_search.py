@@ -22,7 +22,7 @@ log = structlog.get_logger(__name__)
 
 _API_URL = "https://api.tavily.com/search"
 
-# 给 LiteLLM 的 OpenAI 风格工具定义 (Router 已验证可透传到 Bedrock Converse, spec §11)
+# 给 LiteLLM 的 OpenAI 风格工具定义 (litellm 负责转成各 provider 的工具格式, spec §11)
 WEB_TOOL_SPEC = {
     "type": "function",
     "function": {

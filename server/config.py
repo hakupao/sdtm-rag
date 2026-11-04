@@ -29,66 +29,46 @@ class SelectableModel(BaseModel):
     label: str       # 下拉显示文字
     model: str       # litellm 模型串
     verified: bool   # ⟺ 该模型跑过反捏造抽检 (Rule 9 + 答题侧 guardrail) 并通过
-    # 单次回答的输出上限 (token)。**必须显式写出来**: `bedrock/converse/...` 这条路径下
-    # litellm 只在"开了 thinking 又没给 max_tokens"那一支才补 `maxTokens`, 其余情况整个
-    # 字段缺席, Bedrock 于是落到一个远低于模型上限的服务端默认值 —— 2026-09-08 一条
-    # ~3.5k 汉字的答案在 ≈4k output token 处半句话被切断, 那次截断本身就是"缺席时拿到的
-    # 不是模型上限"的证据。默认 128000 是为了让 `SDTM_RAG_SELECTABLE_MODELS` 的 JSON
-    # 覆盖可以省略本字段 (省略 ⇒ 有天花板, 而不是没有)。
+    # 单次回答的输出上限 (token)。**必须显式写出来**: 不写时 provider 落到它自己的隐式
+    # 默认值, 可能远低于模型上限 —— 2026-09-08 一条 ~3.5k 汉字的答案在 ≈4k output token
+    # 处半句话被切断, 那次截断本身就是"缺席时拿到的不是模型上限"的证据。默认 128000 是为了
+    # 让 `SDTM_RAG_SELECTABLE_MODELS` 的 JSON 覆盖可以省略本字段 (省略 ⇒ 有天花板, 而不是没有)。
     max_output_tokens: int = 128000
 
 
 class Settings(BaseSettings):
-    # LLM models (PLAN §4.2 D-2)
-    default_model: str = "anthropic/claude-sonnet-4-6"
+    # LLM models (PLAN §4.2 D-2)。2026-11-04 起 Claude 全部走 Anthropic 直连:
+    # 内部三档统一 Claude Sonnet 5.5; fallback 仍是 DeepSeek (spec §9 D4)。
+    default_model: str = "anthropic/claude-sonnet-5-5"
     fallback_model: str = "deepseek/deepseek-v4-pro"
-    hard_model: str = "anthropic/claude-opus-4-7"
-    light_model: str = "anthropic/claude-haiku-4-5"
+    hard_model: str = "anthropic/claude-sonnet-5-5"
+    light_model: str = "anthropic/claude-sonnet-5-5"
 
     # 用户可选答题模型 (spec §3.2)。只作用于**答题**; 判库(light)/检索改写不受影响 (C1)。
     # verified 的语义写死: 跑过反捏造抽检并通过。2026-09 兑现抽检 (102q, 预登记判据
-    # evidence/checkpoints/verified_spotcheck_2026-09.md): opus-5 / gpt-terra / gpt-sol 过;
-    # sonnet-5 (a) 层 1 条 ungrounded (q35 C66742) ⇒ false。sonnet-5 是 Claude 不代表验过。
+    # evidence/checkpoints/verified_spotcheck_2026-09.md): opus-5 过; sonnet-5 (a) 层 1 条
+    # ungrounded (q35 C66742) ⇒ false。sonnet-5 是 Claude 不代表验过。
+    # ⚠ 抽检当时走 Bedrock (同一模型), 2026-11-04 换成 Anthropic 直连后**未重测**;
+    # verified 沿用当时的结果。
     #
-    # max_output_tokens 的出处 (evidence/checkpoints/autocontinue_2026-09/research-max-output-tokens.md):
-    # · opus-5 / sonnet-5 = 128000 —— AWS Bedrock model card 明写 "Max output tokens: 128K"。
-    # · gpt-terra / gpt-sol = 128000 —— ⚠ **未经一手文档确认**: AWS 那两张 model card 只列
-    #   1M context window, 没有 max-output 行; 128000 只来自 litellm 的静态 model_cost 表。
-    #   由探针实测兜底 (evidence/checkpoints/autocontinue_2026-09.md): provider 若拒收这个
-    #   值会当场 ValidationException, 是**响的**失败, 不是静默截断。
+    # max_output_tokens: 四个 Claude 模型均为 128K —— 出处: Anthropic 官方 claude-api skill
+    # 模型表 (cached 2026-10-06, Opus 5 / Opus 5.5 / Sonnet 5 / Sonnet 5.5 "128K output"),
+    # litellm 1.88.1 model_cost 表的 max_output_tokens 亦为 128000。
     selectable_models: list[SelectableModel] = [
         SelectableModel(id="opus-5", label="Claude Opus 5",
-                        model="bedrock/converse/global.anthropic.claude-opus-5",
+                        model="anthropic/claude-opus-5",
                         verified=True, max_output_tokens=128000),
         SelectableModel(id="sonnet-5", label="Claude Sonnet 5",
-                        model="bedrock/converse/global.anthropic.claude-sonnet-5",
+                        model="anthropic/claude-sonnet-5",
                         verified=False, max_output_tokens=128000),
-        SelectableModel(id="gpt-terra", label="GPT-5.6 Terra",
-                        model="bedrock/converse/global.openai.gpt-5.6-terra",
-                        verified=True, max_output_tokens=128000),  # 未验证值, 见上
-        SelectableModel(id="gpt-sol", label="GPT-5.6 Sol",
-                        model="bedrock/converse/global.openai.gpt-5.6-sol",
-                        verified=True, max_output_tokens=128000),  # 未验证值, 见上
-        # GPT-6 系 (2026-09-30 接入): 裸 boto3 Converse 实测基础问答 / tools / maxTokens=128000
-        # 请求均被接受; 128000 仅"不拒收", 真实输出上限未测。未跑反捏造抽检 ⇒ verified=False。
-        SelectableModel(id="gpt6-luna", label="GPT-6 Luna",
-                        model="bedrock/converse/global.openai.gpt-6-luna",
-                        verified=False, max_output_tokens=128000),
-        SelectableModel(id="gpt6-sol", label="GPT-6 Sol",
-                        model="bedrock/converse/global.openai.gpt-6-sol",
-                        verified=False, max_output_tokens=128000),
-        SelectableModel(id="gpt61-sol", label="GPT-6.1 Sol",
-                        model="bedrock/converse/global.openai.gpt-6.1-sol",
-                        verified=False, max_output_tokens=128000),
-        # Claude 5.5 系 (2026-09-30 接入): 裸 Converse (curl + bearer) 实测基础问答 /
-        # maxTokens=128000 均 200。未跑反捏造抽检 ⇒ verified=False。
+        # Claude 5.5 系 (2026-09-30 接入)。未跑反捏造抽检 ⇒ verified=False。
         # ⚠ 与 opus-5 不等价: Opus 5.5 默认 effort=medium (Opus 5 是 high), 本仓库不传
         # effort ⇒ 同题思考深度可能更浅; 抽检时一并量, ⛔ 别据 opus-5 的结果外推。
         SelectableModel(id="opus-5-5", label="Claude Opus 5.5",
-                        model="bedrock/converse/global.anthropic.claude-opus-5-5",
+                        model="anthropic/claude-opus-5-5",
                         verified=False, max_output_tokens=128000),
         SelectableModel(id="sonnet-5-5", label="Claude Sonnet 5.5",
-                        model="bedrock/converse/global.anthropic.claude-sonnet-5-5",
+                        model="anthropic/claude-sonnet-5-5",
                         verified=False, max_output_tokens=128000),
     ]
 
@@ -98,16 +78,15 @@ class Settings(BaseSettings):
     # provider 当场拒 (响的失败), 抄低了则是静默截断 —— 后者正是本次要修的病。
     # 环境覆盖走既有 SDTM_RAG_ 前缀 (SDTM_RAG_LIGHT_MAX_OUTPUT_TOKENS 等), 无需额外代码。
     #
-    # ⚠ **接缝** (2026-09-08 实测): `.env` 改的是上面四个**模型串**, 不会自动改这四个天花板。
-    # 生产 .env 就把 default/hard/light 三个全指到了 `bedrock/converse/global.anthropic.
-    # claude-opus-5`, 而下面的注释写的是 config.py 里那几个**默认**模型的上限。两者错配时:
-    #   · 天花板 < 模型真实上限 ⇒ 只是把输出封得更低, 触顶自动续写兜得住 (light 现在正是
-    #     这种情况: 64K 封在一个 128K 的模型上, 而判库/改写本来就只吐几十个 token)。
-    #   · 天花板 > 模型真实上限 ⇒ provider 当场 ValidationException, **响的**失败。
+    # ⚠ **接缝**: `.env` 改的是上面四个**模型串**, 不会自动改这四个天花板。两者错配时:
+    #   · 天花板 < 模型真实上限 ⇒ 只是把输出封得更低, 触顶自动续写兜得住。
+    #   · 天花板 > 模型真实上限 ⇒ provider 当场拒绝, **响的**失败。
     # 换模型串时请连着这里一起看一眼; 两个方向都不会静默截断, 但第二个会拒服务。
-    default_max_output_tokens: int = 128000   # claude-sonnet-4-6: 128K (platform.claude.com)
-    hard_max_output_tokens: int = 128000      # claude-opus-4-7: 128K (AWS model card)
-    light_max_output_tokens: int = 64000      # claude-haiku-4-5: 64K —— ⚠ 只有上面两个的一半
+    # claude-sonnet-5-5 = 128K output —— 出处: Anthropic 官方 claude-api skill (cached
+    # 2026-10-06) "Claude Sonnet 5.5 ... 1M context and 128K output"; litellm model_cost 同为 128000。
+    default_max_output_tokens: int = 128000   # claude-sonnet-5-5: 128K
+    hard_max_output_tokens: int = 128000      # claude-sonnet-5-5: 128K
+    light_max_output_tokens: int = 128000     # claude-sonnet-5-5: 128K
     # DeepSeek: 研究报告找不到一手文档, 只有第三方博客说 384K (litellm 静态表 393216)。
     # 32000 是**保守值**, 不是实测上限: fallback 是容灾路径, 宁可让极长回答多续写两轮
     # (触顶自动续写兜得住), 也不拿一个没有一手背书的大数去赌 provider 不拒。
@@ -322,7 +301,7 @@ class Settings(BaseSettings):
     # 判定按**解析后的模型串** (router._auto_attach_allowed): 请求 "default" 取 default_model,
     # 所以 default 换成名单外模型时自动不挂, 不会静默扩大范围.
     # ⚠ 约束的是**请求**模型, 不是实际作答模型: opus-5 / default 配了 default-fallback (deepseek),
-    # Bedrock 拒 Opus 时研读包照样喂给回退模型 (未过 DM2 判据); 回退经 fell_back / 徽章 / ⚑ 可见.
+    # 主模型失败时研读包照样喂给回退模型 (未过 DM2 判据); 回退经 fell_back / 徽章 / ⚑ 可见.
     # 名单 id 须存在于 selectable_models, 否则 main.maybe_build_dossier 拒启动.
     # 扩展 / 恢复 = 往名单里加 id (先让该模型过 DM2 e2e 判据). 改名单时同步改前端两处文案:
     # webchat/index.html #scope-dossier 所在 label 的 title (写死了「Claude Opus 5 下自动挂载」)

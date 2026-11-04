@@ -262,7 +262,7 @@ def test_endpoints_attach_only_for_listed_models():
 
 def test_empty_list_pauses_every_model():
     c, app = _client(DOSSIER, auto_attach=False)
-    for m in ("opus-5", "default", "sonnet-5", "gpt-terra"):
+    for m in ("opus-5", "default", "sonnet-5", "sonnet-5-5"):
         assert _post(c, "/api/ask", m)["reason"] == "auto:paused", m
 
 
