@@ -1,0 +1,85 @@
+# sdtm-rag（SDTM 知识库助手）：push 到 main 后构建镜像，推送到 Gitea 镜像仓库，部署到 mini 虚拟机。
+# 部署配置在 sdtm-rag/deploy/container/；运维说明见 lan-services 仓库（第 6 步）。
+# 回滚：在 Actions 页面手动运行本工作流，tag 填已有镜像的 commit SHA，跳过构建，直接部署该版本。
+name: sdtm-rag
+on:
+  push:
+    branches: [main]
+    paths:
+      - "knowledge_base/**"
+      - "sdtm-rag/server/**"
+      - "sdtm-rag/ui/**"
+      - "sdtm-rag/webchat/**"
+      - "sdtm-rag/scripts/**"
+      - "sdtm-rag/pyproject.toml"
+      - "sdtm-rag/uv.lock"
+      - "sdtm-rag/deploy/container/**"
+      - ".gitea/workflows/sdtm-rag.yml"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "回滚用：要部署的镜像标签（完整 commit SHA）。留空则构建并部署当前提交"
+        required: false
+        default: ""
+
+concurrency:
+  group: sdtm-rag-deploy
+  cancel-in-progress: false
+
+env:
+  REGISTRY: 192.168.100.58
+  IMAGE: 192.168.100.58/bojiang/sdtm-rag
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # 只部署 main：手动运行时选了其他分支就不执行（避免部署未合并的工作流和 compose）
+    if: gitea.ref == 'refs/heads/main'
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 登录镜像仓库
+        env:
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          [ -n "$REGISTRY_TOKEN" ] || { echo "缺少仓库密钥 REGISTRY_TOKEN"; exit 1; }
+          echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "${{ gitea.actor }}" --password-stdin
+
+      - name: 确定要部署的标签
+        id: tag
+        # 手动输入经环境变量传入，不直接拼进脚本（防止命令注入），并且必须是 40 位 commit SHA
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG="$INPUT_TAG"
+          [ -n "$TAG" ] || TAG="${{ gitea.sha }}"
+          printf '%s' "$TAG" | grep -Eqx '[0-9a-f]{40}' || { echo "标签必须是 40 位小写 commit SHA"; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "部署标签：$TAG"
+
+      - name: 构建并推送
+        if: inputs.tag == ''
+        run: |
+          docker build -f sdtm-rag/deploy/container/Dockerfile -t "$IMAGE:${{ steps.tag.outputs.tag }}" .
+          docker push "$IMAGE:${{ steps.tag.outputs.tag }}"
+
+      - name: 部署
+        run: |
+          docker pull "$IMAGE:${{ steps.tag.outputs.tag }}"
+          IMAGE_TAG="${{ steps.tag.outputs.tag }}" docker compose -f sdtm-rag/deploy/container/compose.yml up -d
+          docker inspect sdtm-rag-api sdtm-rag-ui --format '{{.Name}} 运行镜像：{{.Config.Image}}'
+
+      - name: 健康检查
+        run: |
+          GW=$(ip route | awk '/^default/{print $3; exit}')
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://$GW:18000/api/health" || true)
+            [ "$code" = 200 ] && { echo "健康检查通过（$GW:18000/api/health 返回 200）"; exit 0; }
+            sleep 3
+          done
+          echo "健康检查失败，最后返回 $code"; docker logs --tail 80 sdtm-rag-api; exit 1
+
+      - name: 退出镜像仓库
+        if: always()
+        run: docker logout "$REGISTRY" || true

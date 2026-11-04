@@ -1,0 +1,37 @@
+# sdtm-rag 在 mini 虚拟机里的部署（lan-services 第 6 步）。
+# 测试期：API 18000（Lima 转发到 mini 的 0.0.0.0:18000），Streamlit 18501（只转发到 mini 的 127.0.0.1）。
+# 两个挂载都在虚拟机里：
+#   - data/：mini 的 /Volumes/DevSSD/deploy-data/sdtm-rag/data（Lima 可写挂载，不是项目目录）
+#   - .env：虚拟机本地的 /opt/sdtm-rag/.env（600，不在任何宿主机挂载里），只读挂到代码目录
+name: sdtm-rag
+x-common: &common
+  image: 192.168.100.58/bojiang/sdtm-rag:${IMAGE_TAG:?需要 IMAGE_TAG}
+  restart: unless-stopped
+  volumes:
+    - /Volumes/DevSSD/deploy-data/sdtm-rag/data:/Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag/data
+    - /opt/sdtm-rag/.env:/Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag/.env:ro
+services:
+  api:
+    <<: *common
+    container_name: sdtm-rag-api
+    ports:
+      - "18000:8000"
+    mem_limit: 1536m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+  ui:
+    <<: *common
+    container_name: sdtm-rag-ui
+    command: ["streamlit", "run", "ui/streamlit_app.py", "--server.address", "0.0.0.0", "--server.port", "8501", "--server.headless", "true", "--browser.gatherUsageStats", "false"]
+    environment:
+      SDTM_RAG_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "18501:8501"
+    mem_limit: 512m
