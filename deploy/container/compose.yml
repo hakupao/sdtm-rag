@@ -7,9 +7,19 @@ name: sdtm-rag
 x-common: &common
   image: 192.168.100.58/bojiang/sdtm-rag:${IMAGE_TAG:?需要 IMAGE_TAG}
   restart: unless-stopped
+  # create_host_path: false：virtiofs 没挂上或 .env 不在时直接启动失败，不让 docker 建空目录、带着空数据「健康」启动
   volumes:
-    - /Volumes/DevSSD/deploy-data/sdtm-rag/data:/Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag/data
-    - /opt/sdtm-rag/.env:/Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag/.env:ro
+    - type: bind
+      source: /Volumes/DevSSD/deploy-data/sdtm-rag/data
+      target: /Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag/data
+      bind:
+        create_host_path: false
+    - type: bind
+      source: /opt/sdtm-rag/.env
+      target: /Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag/.env
+      read_only: true
+      bind:
+        create_host_path: false
 services:
   api:
     <<: *common
