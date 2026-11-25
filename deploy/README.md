@@ -39,7 +39,9 @@ chroma 副本 (旧代码只按绝对路径过滤 → 启动失败); 备份 `/Vol
 ## 启动失败常见原因
 
 - KB 与 chroma 对不上 → S1 VARIABLE_INDEX section 映射为空 → lifespan 预热 raise (有意: 旧版本同样错配会静默退化成纯 cosine)。
-  旧索引先停服务, 再 `.venv/bin/python -m scripts.migrate_source_relative <chroma_dir> --kb-root <KB> --apply`。
+  旧索引先停服务, 再 `.venv/bin/python -m scripts.migrate_source_relative <chroma_dir> --kb-root <旧前缀> --apply`
+  (`<旧前缀>` = 索引里 `source` 实际存的绝对 KB 根, 如 `/Volumes/DevSSD/Project/sdtm-pedia/knowledge_base`, **不是**新 KB 位置)。
+  `python -m scripts.check_index_freshness` 会抽样报出这类索引 (BAD SOURCE PATHS)。
 - 画面 PDF 旁路 (`SDTM_RAG_PDF_CONTEXT_ENABLED`, 默认 false) 开着而 pdftoppm / 页索引 / PDF 缺失或 sha256 不符 ⇒ 启动失败; 键见 `.env.example` 末节。
 - `.env` 写了旧变量名 `SDTM_RAG_KB_ROOT` / `SDTM_RAG_CHROMA_DIR` → 静默不生效, 须用 `*_OVERRIDE`; 路径类覆盖须是容器内路径 (`/app/...`)。
 

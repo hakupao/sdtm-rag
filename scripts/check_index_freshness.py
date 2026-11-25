@@ -12,7 +12,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from scripts.kb_freshness import check_freshness
+from scripts.kb_freshness import check_freshness, check_source_paths
 from server.config import settings
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -24,14 +24,19 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--kb-root", default=str(_DEFAULT_KB))
     ap.add_argument("--stamp", default=str(_DEFAULT_STAMP))
+    ap.add_argument("--chroma-dir", default=str(settings.chroma_dir))
     args = ap.parse_args(argv)
 
     res = check_freshness(Path(args.stamp), Path(args.kb_root))
-    if res.fresh:
-        print(f"[index] OK — in sync with knowledge_base ({res.current[:12]}…)")
+    src_problem = check_source_paths(Path(args.chroma_dir), Path(args.kb_root), settings.collection_name)
+    if res.fresh and src_problem is None:
+        print(f"[index] OK — in sync with knowledge_base ({res.current[:12]}…), source 路径格式 OK")
         return 0
-    print(f"[index] STALE — {res.reason}")
-    print("[index] fix: .venv/bin/python -m scripts.ingest   # 然后重启服务")
+    if not res.fresh:
+        print(f"[index] STALE — {res.reason}")
+        print("[index] fix: .venv/bin/python -m scripts.ingest   # 然后重启服务")
+    if src_problem:
+        print(f"[index] BAD SOURCE PATHS — {src_problem}")
     return 1
 
 

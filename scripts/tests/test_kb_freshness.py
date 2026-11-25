@@ -140,8 +140,38 @@ def test_cli_exits_zero_when_fresh(tmp_path, capsys):
     root = _kb(tmp_path, {"a.md": "x"})
     stamp = tmp_path / "stamp.txt"
     stamp.write_text(f"kb_fingerprint={kb_fingerprint(root)}\n", encoding="utf-8")
-    assert main(["--kb-root", str(root), "--stamp", str(stamp)]) == 0
+    chroma = _chroma(tmp_path, ["a.md", str((root / "a.md").resolve())])
+    assert main(["--kb-root", str(root), "--stamp", str(stamp), "--chroma-dir", str(chroma)]) == 0
     assert "in sync" in capsys.readouterr().out.lower()
+
+
+def _chroma(tmp_path, sources):
+    import chromadb
+    d = tmp_path / "chroma"
+    col = chromadb.PersistentClient(path=str(d)).create_collection("sdtm_kb_v1")
+    col.add(ids=[f"i{n}" for n in range(len(sources))], documents=["x"] * len(sources),
+            embeddings=[[0.0, 1.0]] * len(sources), metadatas=[{"source": s} for s in sources])
+    return d
+
+
+def test_cli_fails_on_absolute_sources_outside_kb_root(tmp_path, capsys):
+    """指纹一致但索引 source 是旧位置绝对路径 (step 1.4 前未迁移的库) → 必须非零退出。"""
+    from scripts.check_index_freshness import main
+    root = _kb(tmp_path, {"a.md": "x"})
+    stamp = tmp_path / "stamp.txt"
+    stamp.write_text(f"kb_fingerprint={kb_fingerprint(root)}\n", encoding="utf-8")
+    chroma = _chroma(tmp_path, ["a.md", "/old/place/knowledge_base/a.md"])
+    rc = main(["--kb-root", str(root), "--stamp", str(stamp), "--chroma-dir", str(chroma)])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "BAD SOURCE PATHS" in out and "1/2" in out
+
+
+def test_source_check_reports_missing_chroma_dir_without_creating_it(tmp_path):
+    from scripts.kb_freshness import check_source_paths
+    missing = tmp_path / "nope"
+    assert "not found" in check_source_paths(missing, tmp_path)
+    assert not missing.exists()
 
 
 # ---- 服务侧: /api/info 必须暴露新鲜度 (陈旧要看得见, 不能只躺在日志里) ----
