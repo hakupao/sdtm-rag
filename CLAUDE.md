@@ -36,7 +36,7 @@ FastAPI (`server/`) + Chroma + BM25 + Chat UI (`webchat/`) + Streamlit 调试 UI
 ## 红线 pre-commit 闸
 
 `git config core.hooksPath .githooks` (每个 clone 一次; 或 `sh .githooks/install.sh`)。hook 用 `.venv/bin/python -m scripts.precommit_oidscan`
-扫暂存文件 (只扫 A/C/M, 纯改名不扫); venv / catalog / KB 任一缺失 → 拦下 (fail-closed)。全仓审计: 不带参数跑 `scripts/oidscan_evidence.py`。
+扫暂存文件 (A/C/M/R, 改名含纯改名也扫); venv / catalog / KB 任一缺失 → 拦下 (fail-closed)。全仓审计: 不带参数跑 `scripts/oidscan_evidence.py`。
 命中先 `scripts/oidscan_evidence.py <文件> --show-values` 本机排查; 撞车加 ALLOWLIST 并附理由。禁止 `--no-verify`。
 
 ## 测试 / 评测

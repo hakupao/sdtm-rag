@@ -98,3 +98,34 @@ def test_kb_missing_abort_prints_submodule_hint_not_allowlist(tmp_path, monkeypa
     assert rc == 1
     assert "git submodule update --init --depth 1" in out
     assert "ALLOWLIST" not in out
+
+
+def test_staged_files_include_rename_with_edit(tmp_path):
+    """改名 + 改内容在 git 里是 R (不是 M); 旧的 --diff-filter=ACM 会把它整条漏扫 ——
+    新内容哪怕写进了真名也不进闸。纯改名同样纳入 (内容旧, 重扫便宜, 不值得开盲区)。"""
+    import subprocess
+
+    from scripts.precommit_oidscan import git_staged_files
+
+    def git(*a):
+        subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.invalid")
+    git("config", "user.name", "t")
+    git("config", "diff.renames", "true")  # 不依赖本机全局配置: 强制开改名检测
+    body = "".join(f"line {i} 一些足够长的公共内容\n" for i in range(40))
+    (tmp_path / "old.md").write_text(body, encoding="utf-8")
+    (tmp_path / "pure_old.md").write_text(body + "pure\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "init")
+    git("mv", "old.md", "new.md")
+    (tmp_path / "new.md").write_text(body + "提到了 偽ITEM01\n", encoding="utf-8")
+    git("mv", "pure_old.md", "pure_new.md")
+    git("add", "-A")
+
+    staged = git_staged_files(tmp_path)
+
+    assert "new.md" in staged, "改名+改内容 (R) 必须进扫描清单"
+    assert "pure_new.md" in staged, "纯改名 (R100) 也纳入"
+    assert "old.md" not in staged and "pure_old.md" not in staged

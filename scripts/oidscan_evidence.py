@@ -13,8 +13,8 @@ activity 的 OID 或 label/name。
                                                   [--catalog PATH] [--show N]
 
     target 可给 0 个、1 个或多个文件/目录 (目录递归展开)。**不给时用固定的默认
-    扫描面** (与 cwd 无关, 见下方"默认扫描面"): `<仓根>/evidence/`、
-    `<仓根>/docs/`、`scripts/`、`server/`、`eval/`、以及本脚本自身 —— 覆盖 spec §8
+    扫描面** (与 cwd 无关, 见下方"默认扫描面"): 仓根下除 vendor/ data/ .venv 外
+    的进 git 目录与仓根文件 (见 DEFAULT_TARGETS)、以及本脚本自身 —— 覆盖 spec §8
     第 1/3 条点名的证据/文档/spec/plan 位置, 外加闸自扫。给了 target 时按 CWD
     解析 (标准 CLI 行为), 不受下面的"默认扫描面用 git 根锚定"规则约束。
 
@@ -128,6 +128,15 @@ DEFAULT_TARGETS: tuple[Path, ...] = (
     # eval/ (2026-11-25 加入): 题面 yml / 评测脚本也进 git, 此前不在默认面, 存量撞车无人发现;
     # 实测 158 文件 +3.7s (`time python scripts/oidscan_evidence.py eval`)。
     REPO_ROOT / "eval",
+    # 其余进 git 的树 + 仓根文件 (2026-11-25 step 1.8 审查补): 此前不在默认面, "全仓审计"名不副实。
+    # 不含 vendor/ (KB submodule, 公开 CDISC) / data/ (gitignored 研究数据本体) / .venv; 仓根 .env 是密钥不读。
+    REPO_ROOT / ".work",
+    REPO_ROOT / "ui",
+    REPO_ROOT / "webchat",
+    REPO_ROOT / "deploy",
+    REPO_ROOT / "viewer",
+    REPO_ROOT / ".gitea",
+    *sorted(p for p in REPO_ROOT.iterdir() if p.is_file() and p.name != ".env"),
     _SELF_PATH,
 )
 

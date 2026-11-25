@@ -42,7 +42,7 @@ def git_staged_files(repo_root: Path) -> list[str]:
     """暂存区里新增/修改/改名后存在的路径 (相对仓库根)。用 -z 以容忍带空格/非 ASCII
     的路径名 —— 本仓有大量中日文文件名。"""
     out = subprocess.run(
-        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM", "-z"],
+        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"],
         cwd=repo_root, capture_output=True, text=True, check=True,
     ).stdout
     return [x for x in out.split("\0") if x]

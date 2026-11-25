@@ -265,6 +265,10 @@ def test_default_targets_include_source_trees():
     assert REPO_ROOT / "tests" in DEFAULT_TARGETS
     assert REPO_ROOT / "eval" in DEFAULT_TARGETS
     assert REPO_ROOT / "server" in DEFAULT_TARGETS
+    # step 1.8 审查补: 其余进 git 的树 + 仓根文件; vendor/ data/ 不进
+    for d in (".work", "ui", "webchat", "deploy", "viewer", ".gitea", "README.md", "CLAUDE.md"):
+        assert REPO_ROOT / d in DEFAULT_TARGETS, d
+    assert REPO_ROOT / "vendor" not in DEFAULT_TARGETS and REPO_ROOT / "data" not in DEFAULT_TARGETS
 
 
 def test_find_git_root_walks_up_to_dot_git(tmp_path):
