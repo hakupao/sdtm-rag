@@ -26,4 +26,4 @@ curl -fsSL https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/gi
 - 护栏测试: `tests/test_sse_contract.py` / `test_model_switching.py` (+ `fixtures/flag_attribution_probe.mjs`) 已从 `app.js` 改读 `js/*.js` —— 再拆模块时**这三处的锚点要一起改**, 否则闸会一路绿着退化成什么也没钉。
 - 正文 `[Source: path]` 由 `citations.js` 在**渲染层**剥除 (设置 → 显示行内出处 可开); 存档与 ⚑ 上报存原文。
 
-收口证据: `sdtm-rag/evidence/checkpoints/chat_ui_redesign_2026-09.md`。
+收口证据: `docs/evidence/checkpoints/chat_ui_redesign_2026-09.md`。

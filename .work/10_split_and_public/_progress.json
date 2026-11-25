@@ -83,6 +83,7 @@
     {
       "step": "R1",
       "status": "DONE_PENDING_REVIEW",
+      "superseded_by": "下方 R1 PASS-with-fixes→fixed (审查 step_R1_reviewer.md, 修复 d563a56)",
       "date": "2026-11-25",
       "artifact": "evidence/checkpoints/r1_reorg.md",
       "note": "B 仓目录重组 (docs/ 归档, tests/, viewer/dist/, README 英/中 + LICENSE MIT); 闸 1/2/6 逐题一致"
@@ -104,7 +105,7 @@
     }
   ],
   "recovery_hint": "新会话在 /Volumes/DevSSD/Project/sdtm-rag 打开: 读本文件 → PLAN.md §2 P1 1.8/1.9 → 续跑",
-  "decisions_2026_11_25_late": "两仓都公开; B 经 Gitea push-mirror 到 GitHub hakupao/sdtm-rag; B 内网信息接受公开; A 仍推重写版",
+  "decisions_2026_11_25_late": "两仓都公开; B 的 origin 配双 push URL (Gitea + GitHub hakupao/sdtm-rag), 一次 push 两边都推 (不是 Gitea push-mirror); B 内网信息接受公开; A 仍推重写版",
   "todo_later": [
     "lan-services Caddy assets/kg_viewer.html 拷贝源改为 viewer/dist/kg_viewer.html",
     "Cloudflare Pages watch paths → web/** + releases/v1.4/** (用户在面板确认)",

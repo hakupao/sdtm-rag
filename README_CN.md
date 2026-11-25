@@ -80,7 +80,7 @@ node --test webchat/tests/*.test.mjs
 |---|---|---|
 | CDISC 题集 140 题，只评检索，出处召回率（source recall） | **0.9917**（未达 1.0 的是 q126、q38） | `.venv/bin/python -m eval.run_eval eval/test_set_v3.yml --retrieval-only --hybrid --structured-lookup --output <out.json>` |
 | 私有研究题集 48 题，只评检索，出处召回率 | **0.875**（需要本机的研究数据，不在 git 里） | `.venv/bin/python -m eval.run_eval data/study/st01/eval/test_set_study_v2.yml --retrieval-only --hybrid --study-lookup --collection study_st01 --kb-root data/study/st01/cards --output <out.json>` |
-| 单元测试（`-m "not slow"`） | 2609 通过，2 跳过（都需要 playwright） | `.venv/bin/python -m pytest -m "not slow" -q -o addopts="" -rs` |
+| 单元测试（`-m "not slow"`） | 本机有 `data/`：2610 通过，2 跳过（都需要 playwright）。全新 clone / CI（无 `data/`）：2551 通过，61 跳过（`local_data` 测试跳过）。实测于 `dcdee7f` | `.venv/bin/python -m pytest -m "not slow" -q -o addopts="" -rs` |
 
 证据：[p0_baseline.md](.work/10_split_and_public/evidence/checkpoints/p0_baseline.md) 是 2026-11-25 冻结的基线；[r1_reorg.md](.work/10_split_and_public/evidence/checkpoints/r1_reorg.md) 记录了目录重组后的复跑结果：逐题召回率与基线一致，测试数即上表数字。只评检索时不调用 LLM 回答，只需要向量模型的 key。q126 是已记录的永久局限（[s4_full_eval_closure.md](docs/evidence/checkpoints/s4_full_eval_closure.md)）。
 

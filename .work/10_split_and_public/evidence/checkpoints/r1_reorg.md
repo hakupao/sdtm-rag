@@ -1,6 +1,6 @@
 # R1 目录重组 (2026-11-25)
 
-> 状态: **writer 完成, 待独立审查 (规则 D)**。派单: `evidence/subagent_prompts/step_R1_rag_reorg_executor.md`。
+> 状态: **reviewed PASS-with-fixes → fixed** (审查派单 `evidence/subagent_prompts/step_R1_reviewer.md`, 修复提交 d563a56)。派单: `evidence/subagent_prompts/step_R1_rag_reorg_executor.md`。
 > 旧 → 新路径: `docs/history/PATH_MAP.md`。
 
 ## 改了什么

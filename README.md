@@ -80,7 +80,7 @@ Every number below comes from an evidence file in this repo and has a command to
 |---|---|---|
 | CDISC gold set, 140 questions, retrieval-only source recall | **0.9917** (below 1.0: q126, q38) | `.venv/bin/python -m eval.run_eval eval/test_set_v3.yml --retrieval-only --hybrid --structured-lookup --output <out.json>` |
 | Private study gold set, 48 questions, retrieval-only source recall | **0.875** (needs the gitignored study data) | `.venv/bin/python -m eval.run_eval data/study/st01/eval/test_set_study_v2.yml --retrieval-only --hybrid --study-lookup --collection study_st01 --kb-root data/study/st01/cards --output <out.json>` |
-| Unit tests (`-m "not slow"`) | 2609 passed, 2 skipped (both need playwright) | `.venv/bin/python -m pytest -m "not slow" -q -o addopts="" -rs` |
+| Unit tests (`-m "not slow"`) | With local `data/`: 2610 passed, 2 skipped (both need playwright). Fresh clone / CI (no `data/`): 2551 passed, 61 skipped (the `local_data` tests skip). Measured at `dcdee7f` | `.venv/bin/python -m pytest -m "not slow" -q -o addopts="" -rs` |
 
 Evidence: [p0_baseline.md](.work/10_split_and_public/evidence/checkpoints/p0_baseline.md) is the frozen baseline from 2026-11-25. [r1_reorg.md](.work/10_split_and_public/evidence/checkpoints/r1_reorg.md) records the re-run after the repo reorganization: identical per-question recall, and the test count above. Retrieval-only mode makes no LLM answer calls; it only needs the embedding key. q126 is a documented permanent limit ([s4_full_eval_closure.md](docs/evidence/checkpoints/s4_full_eval_closure.md)).
 
