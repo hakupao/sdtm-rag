@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import base64
+import shutil
 import hashlib
 import json
 
@@ -452,14 +453,14 @@ def fake_pdftoppm(monkeypatch):
     return calls
 
 
-def test_render_shells_out_once_per_page_with_the_configured_dpi(builder, fake_pdftoppm):
+def test_render_shells_out_once_per_page_with_the_configured_dpi(fake_pdftoppm, builder):
     sel = builder.select_pages([card(item="WX")], max_pages=2)
     parts = builder.render(sel)
     assert len(parts) == len(sel.pages) == 2
     assert fake_pdftoppm[0][:6] == ["pdftoppm", "-r", "110", "-png", "-singlefile", "-f"]
 
 
-def test_render_reuses_the_disk_cache_on_the_second_call(builder, fake_pdftoppm):
+def test_render_reuses_the_disk_cache_on_the_second_call(fake_pdftoppm, builder):
     sel = builder.select_pages([card(item="WX")], max_pages=1)
     builder.render(sel)
     n = len(fake_pdftoppm)
@@ -475,7 +476,7 @@ def test_cache_key_separates_dpi_and_pdf(tmp_path, fake_pdftoppm):
     assert len(fake_pdftoppm) == 2, "dpi 違いが同じキャッシュ鍵に潰れている"
 
 
-def test_message_parts_pair_a_text_header_with_each_image(builder, fake_pdftoppm):
+def test_message_parts_pair_a_text_header_with_each_image(fake_pdftoppm, builder):
     sel = builder.select_pages([card(item="WX")], max_pages=2)
     parts = builder.to_message_parts(sel)
     assert [p["type"] for p in parts[:4]] == ["text", "image_url", "text", "image_url"]
@@ -485,14 +486,14 @@ def test_message_parts_pair_a_text_header_with_each_image(builder, fake_pdftoppm
     assert "annotated p.2" in parts[0]["text"]
 
 
-def test_truncated_selection_says_so_inside_the_message(builder, fake_pdftoppm):
+def test_truncated_selection_says_so_inside_the_message(fake_pdftoppm, builder):
     """落とした頁を黙って消すと、モデルは「これで全部」と思って断定する。"""
     sel = builder.select_pages([card(item="WX"), card(item="KX")], max_pages=1)
     tail = builder.to_message_parts(sel)[-1]
     assert tail["type"] == "text" and "未添付" in tail["text"] and "p.3" in tail["text"]
 
 
-def test_no_pages_means_no_parts(builder, fake_pdftoppm):
+def test_no_pages_means_no_parts(fake_pdftoppm, builder):
     assert builder.to_message_parts(builder.select_pages([])) == []
 
 
@@ -616,7 +617,7 @@ def test_folded_blocks_are_metadata_not_budget_omissions(builder):
 
 
 # ── M3 / M6 / 文言 ─────────────────────────────────────────────────────
-def test_message_parts_use_the_images_actually_rendered(builder, fake_pdftoppm, monkeypatch):
+def test_message_parts_use_the_images_actually_rendered(fake_pdftoppm, builder, monkeypatch):
     """描画に失敗した頁は片段にも出ない。呼び出し側が「付けた頁」を報告できるよう、
     描画結果を渡せる形にしておく (選んだ頁ではなく)。"""
     sel = builder.select_pages([card(item="WX"), card(item="KX")], max_pages=2)
@@ -625,13 +626,13 @@ def test_message_parts_use_the_images_actually_rendered(builder, fake_pdftoppm, 
     assert sum(1 for p in parts if p["type"] == "image_url") == 1
 
 
-def test_zero_page_budget_attaches_nothing(builder, fake_pdftoppm):
+def test_zero_page_budget_attaches_nothing(fake_pdftoppm, builder):
     """M6: 上限 0 は「実質 OFF」であって「1 枚だけ」ではない。"""
     sel = builder.select_pages([card(item="WX")], max_pages=0)
     assert sel.pages == () and builder.to_message_parts(sel) == []
 
 
-def test_degraded_hint_is_japanese_and_shows_the_configured_cap(builder, fake_pdftoppm):
+def test_degraded_hint_is_japanese_and_shows_the_configured_cap(fake_pdftoppm, builder):
     """回答は日本語。片段の中で 1 行だけ中国語だと、その語彙が答えに漏れる。
     また上限は**設定値**であって、たまたま付いた枚数ではない。"""
     sel = builder.select_pages([card(item="WX"), card(item="KX")], max_pages=1)
@@ -640,7 +641,7 @@ def test_degraded_hint_is_japanese_and_shows_the_configured_cap(builder, fake_pd
     assert "页" not in tail["text"]
 
 
-def test_pages_that_failed_to_render_are_named_in_the_hint(builder, fake_pdftoppm):
+def test_pages_that_failed_to_render_are_named_in_the_hint(fake_pdftoppm, builder):
     """予算で落とした頁と、描画に失敗した頁は、モデルから見れば同じ「見ていない頁」。
     後者だけ黙っていると「これで全部」と思って断定する。"""
     sel = builder.select_pages([card(item="WX"), card(item="KX")], max_pages=2)
@@ -648,7 +649,7 @@ def test_pages_that_failed_to_render_are_named_in_the_hint(builder, fake_pdftopp
     assert "p.3" in parts[-1]["text"]
 
 
-def test_nothing_rendered_means_no_parts_at_all(builder, fake_pdftoppm):
+def test_nothing_rendered_means_no_parts_at_all(fake_pdftoppm, builder):
     """1 枚も描画できなかったときに案内文だけ残すと、画像の無い会話に
     「画面目視判読」という出典名だけが漂う (使ってよい出典だとモデルが読む)。"""
     sel = builder.select_pages([card(item="WX"), card(item="KX")], max_pages=2)
@@ -669,7 +670,8 @@ def _real():
 
 
 @pytest.mark.slow
-@pytest.mark.skipif(_real() is None, reason="st01 の実 PDF / 索引が無い環境")
+@pytest.mark.skipif(_real() is None or shutil.which("pdftoppm") is None,
+                    reason="st01 の実 PDF / 索引、または pdftoppm (poppler) が無い環境")
 def test_real_render_produces_a_real_png(tmp_path):
     sp, idx = _real()
     b = PdfContextBuilder(PdfPageIndex.load(idx),
