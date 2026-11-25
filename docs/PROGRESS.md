@@ -8,7 +8,7 @@
 
 | 线 | 状态 | 当前活动 | 下一步 / 阻塞 |
 |----|------|----------|---------------|
-| **拆仓 (10_split_and_public)** | 🟢 进行中 | 本仓已从 monorepo 抽出 (1.3) + 自立 (1.5a/1.5b); 1.4 KB = submodule `vendor/sdtm-pedia` (钉 sdtm-pedia `ebf0c8a`, shallow) | 开 Gitea Actions → 切部署来源; 记录 `.work/10_split_and_public/` |
+| **拆仓 (10_split_and_public)** | 🟢 进行中 | 本仓已从 monorepo 抽出 (1.3) + 自立 (1.5a/1.5b); 1.4 KB = submodule `vendor/sdtm-pedia` (钉 sdtm-pedia `ebf0c8a`, shallow) | R1 目录重组完成 (文档归入 `docs/`, 测试 `tests/`; 旧→新路径 `docs/history/PATH_MAP.md`); 下一步见 `.work/10_split_and_public/_progress.json` |
 | **Phase 7** RAG + KG | 🟢 唯一活跃线 | 生产 = mini Lima 虚拟机里的容器 (2026-11-04 起, 取代 launchd); Neo4j 探索层 2026-11-07 退役; 联邦路由 + study 直查默认开 | 见 `deploy/README.md`、CLAUDE.md Key Paths 各 checkpoint; 历史状态见快照 |
 
 **图例**: ✅ 完成 · 🟢 进行中 · ⏸ 待启动 · 🔴 阻塞

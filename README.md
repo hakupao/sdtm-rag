@@ -1,203 +1,115 @@
-# sdtm-rag — SDTM Knowledge Base RAG + Dataset Validation
+# sdtm-rag
 
-> Phase 7 RAG+KG 旁枝实际代码仓 (Phase 1A 起开始建).
-> Status: **Phase 1 Complete** — RAG Q&A + Dataset Validation + 53-question eval PASS (88.5%).
-> 上游 PLAN/EXECUTION_PLAN: [`../PLAN.md`](../PLAN.md), [`../EXECUTION_PLAN.md`](../EXECUTION_PLAN.md).
-> 单用户/单租户 (PLAN §0.2 Out-of-scope), uvicorn `--workers 1`.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-%E2%89%A53.11-blue.svg)](pyproject.toml)
+[![Knowledge base](https://img.shields.io/badge/knowledge%20base-sdtm--pedia-green.svg)](https://github.com/hakupao/sdtm-pedia)
 
----
+**Grounded Q&A over the CDISC SDTM standard: hybrid retrieval, a structured knowledge graph, and deterministic answer gates.**
 
-## What
+[中文版](README_CN.md)
 
-为 SDTM 知识库 (`../../../knowledge_base/`, 294 md / 4146 chunks 实测 ingest) 提供:
+## What it is
 
-1. **语义问答 RAG** — 自然语言查询, 带溯源
-2. **数据集校验** — 上传 SDTM 映射 (CSV/XPT/SAS7BDAT), 出完整性 + 规则合规报告
-3. (Phase 2, deferred) 关系发现 — Neo4j KG
+sdtm-rag is a retrieval-augmented question-answering service for CDISC SDTM (Study Data Tabulation Model). Its corpus is the Markdown knowledge base in [hakupao/sdtm-pedia](https://github.com/hakupao/sdtm-pedia), which covers 63 domains, controlled terminology, model concepts and implementation-guide chapters. This repo pins that knowledge base as the git submodule `vendor/sdtm-pedia`.
 
-## Architecture (Phase 1)
+On top of plain RAG it adds a structured knowledge graph built from the same knowledge base (`data/meta/meta.yaml`), deterministic lookups for query types that embeddings miss, and gates that check answers after generation. It can also serve a second, private study corpus (EDC forms and study documents) next to the CDISC corpus. That data never enters git.
+
+## Features
+
+Each feature below is implemented in the module named next to it.
+
+- **Hybrid retrieval**: Chroma dense search (OpenAI `text-embedding-3-small`) plus BM25 (`bm25s`) over the same chunks, fused with RRF (`server/rag.py`).
+- **Structured lookup**: deterministic hits from `meta.yaml` for CT-code, codelist and variable-to-domain questions (`server/structured_lookup.py`).
+- **Federated corpus routing**: an LLM picks the corpus (CDISC, study, or both), corrected by deterministic signals; errors fall back to "both" (`server/federation.py`).
+- **Answer guardrails**:
+  - a counting gate that appends a correction when an answer contradicts the graph counts (`server/grounding.py`);
+  - a study-dossier answer gate that checks OIDs and coverage and regenerates once on failure (`server/dossier_gate.py`);
+  - an offline CT-code grounding checker (`eval/prod_wirein/check_code_grounding.py`).
+- **Multi-model selection with honest fallback**: you pick the model in the UI; when a fallback model answers instead, the UI says so (`server/llm_config.py`, `selectable_models` in `server/config.py`).
+- **Auto-continue**: when an answer hits the output-token limit, the server continues it automatically, and any truncation that remains is shown in the UI (`server/router.py`).
+- **Web reference channel**: optional Tavily search as a model tool, with a bounded number of rounds and visible failure status (`server/web_search.py`).
+- **Knowledge graph tools**:
+  - an advisory cross-domain validator for uploaded study datasets (`server/graph_validator.py`, `POST /api/validate-study`);
+  - an offline single-file KG viewer (`viewer/` → `viewer/dist/kg_viewer.html`).
+- **Evaluation harness**: gold question sets with retrieval-only scoring (no LLM answer calls) and LLM-judge modes (`eval/run_eval.py`).
+- **Sharing hardening**: an optional shared-password login gate, rate limit and security headers, all off by default (`server/auth.py`).
+
+## Architecture
 
 ```
-┌──────────────┐   query     ┌──────────────┐   filter+topK   ┌──────────────┐
-│  Streamlit   │ ──────────► │   FastAPI    │ ──────────────► │    Chroma    │
-│   (ui/)      │             │   (server/)  │                 │   (data/)    │
-│              │ ◄────────── │              │ ◄────────────── │              │
-└──────────────┘   answer    └──────────────┘    chunks       └──────────────┘
-                                    │
-                                    │ LiteLLM Router
-                                    ▼
-                            ┌──────────────────┐
-                            │ Sonnet (主答)    │
-                            │ V4-Pro (复检)    │
-                            │ Opus (难题)      │
-                            │ Haiku (轻分类)   │
-                            └──────────────────┘
+webchat/ ──SSE──▶ FastAPI (server/router.py)
+                    ├─ federation: route to CDISC / study / both
+                    ├─ hybrid retrieval (Chroma + BM25) + structured lookup
+                    ├─ LiteLLM Router (selectable models, fallbacks, optional web tool)
+                    └─ post-answer gates ──▶ streamed answer + provenance
 ```
 
-## Directory Layout
+Full request flow with a Mermaid diagram: [docs/architecture.md](docs/architecture.md).
 
-```
-sdtm-rag/
-├── pyproject.toml          PEP 621 manifest, Python >= 3.11
-├── deploy/container/      Dockerfile + compose (生产)
-├── .env.example            填好 .env 用 (NEVER commit .env)
-├── .gitignore              data/chroma/ + .env + caches
-├── scripts/
-│   ├── chunkers/           ← Phase 1A.3 实现 (8 chunker; config locks L-1..L-5 见 evidence/checkpoints/phase_1a_0_sanity.md §4)
-│   ├── tests/              ← Phase 1A.4 测试套件
-│   ├── shared/
-│   ├── ingest.py           ← Phase 1A.5
-│   └── parse_dataset.py    ← Phase 1C.1
-├── server/
-│   ├── main.py             ← FastAPI app
-│   ├── router.py           ← intent 路由
-│   ├── rag.py              ← Chroma 检索 + LLM 答
-│   ├── validator.py        ← 7 类规则校验 (Phase 1C.2)
-│   ├── reviewer.py         ← RAG 语义评审 (Phase 1C.3, Opus)
-│   ├── llm_config.py       ← LiteLLM Router 配置
-│   └── config.py
-├── ui/
-│   └── streamlit_app.py    ← chat + 溯源 + 上传校验
-├── data/
-│   └── chroma/             ← persistent (gitignored)
-└── eval/
-    ├── test_set_v0.yml     ← Phase 1B5 sanity 20 题
-    ├── test_set_v1.yml     ← Phase 1D 完整 50 题
-    └── run_eval.py
-```
+## Quickstart
 
-## Quick Start — Local (venv)
+Requirements: Python ≥ 3.11, [uv](https://docs.astral.sh/uv/), an OpenAI API key for embeddings, and a key for at least one answer model (Anthropic or DeepSeek by default; see `.env.example`).
 
 ```bash
-# 1. Create venv + install deps
-cd sdtm-rag
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
+git clone --recurse-submodules --shallow-submodules https://github.com/hakupao/sdtm-rag.git
+cd sdtm-rag                      # in an existing clone: git submodule update --init --depth 1
+uv sync --extra dev
+cp .env.example .env             # fill OPENAI_API_KEY + ANTHROPIC_API_KEY and/or DEEPSEEK_API_KEY
 
-# 2. Set up environment
-cp .env.example .env
-# Edit .env: fill ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, OPENAI_API_KEY
+# Build the Chroma index from the knowledge base (OpenAI embeddings, writes data/chroma/)
+.venv/bin/python scripts/ingest.py
 
-# 3. Ingest knowledge base (one-time, ~82 seconds)
-python scripts/ingest.py
-
-# 4. Start API server
-uvicorn server.main:app --host 0.0.0.0 --port 8000
-
-# 5. Start Streamlit UI (separate terminal)
-streamlit run ui/streamlit_app.py
-# Open http://localhost:8501
+# Run the API + chat UI. The study corpus is private, so switch its features off:
+SDTM_RAG_FEDERATION_ENABLED=false SDTM_RAG_DOSSIER_ENABLED=false \
+  .venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000
+# open http://127.0.0.1:8000
 ```
 
-## Deploy (container)
-
-生产部署 = mini 虚拟机里的容器 (push main → Gitea Actions), 见 [`deploy/README.md`](deploy/README.md)。
-根目录的旧 `Dockerfile` / `docker-compose.yml` 已于 2026-11 删除。
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/health` | GET | Health check |
-| `/api/info` | GET | System info (chunks, model) |
-| `/api/ask` | POST | RAG Q&A (JSON: `{"question": "..."}`) |
-| `/api/validate` | POST | Dataset validation (multipart file upload) |
-
-## Eval
+Tests (the same command CI runs):
 
 ```bash
-# Retrieval-only (free, no LLM) — source recall
-python eval/run_eval.py eval/test_set_v3.yml --retrieval-only --structured-lookup --hybrid
-
-# Full eval (substring fact recall — under-counts ~11pt, kept as secondary metric)
-python eval/run_eval.py eval/test_set_v3.yml --model deepseek/deepseek-chat --output eval/report.json
-
-# Full eval with SEMANTIC fact recall (--judge): the trustworthy number; drives the
-# verdict, substring shown as secondary. Adds 1 judge LLM call/question (--judge-model
-# default deepseek). Use temp=0 + levers for a production-faithful run.
-python eval/run_eval.py eval/test_set_v3.yml --model deepseek/deepseek-chat --temperature 0 \
-    --structured-lookup --hybrid --judge --output eval/report.json
+.venv/bin/python -m pytest -m "not slow" -q -o addopts="" -rs
+node --test webchat/tests/*.test.mjs
 ```
 
-> 语义 judge fact recall ≈ **93.9%** on v3 140q (vs substring 82.6%); see
-> `evidence/checkpoints/llm_judge_fact_recall.md`. Always prefer `--judge` for reported
-> fact-recall numbers; the substring metric is for fast/free sanity only.
+## Evaluation
 
-### 改判据实现前后必跑的差分对拍
+Every number below comes from an evidence file in this repo and has a command to reproduce it.
 
-`source_matches` / `check_source_recall` (`eval/run_eval.py`) 是 CDISC 140 题**全部分数的
-判据实现**。动它们之前和之后各跑一次:
+| Measure | Result | Reproduce |
+|---|---|---|
+| CDISC gold set, 140 questions, retrieval-only source recall | **0.9917** (below 1.0: q126, q38) | `.venv/bin/python -m eval.run_eval eval/test_set_v3.yml --retrieval-only --hybrid --structured-lookup --output <out.json>` |
+| Private study gold set, 48 questions, retrieval-only source recall | **0.875** (needs the gitignored study data) | `.venv/bin/python -m eval.run_eval data/study/st01/eval/test_set_study_v2.yml --retrieval-only --hybrid --study-lookup --collection study_st01 --kb-root data/study/st01/cards --output <out.json>` |
+| Unit tests (`-m "not slow"`) | 2609 passed, 2 skipped (both need playwright) | `.venv/bin/python -m pytest -m "not slow" -q -o addopts="" -rs` |
 
-```bash
-.venv/bin/python -m eval.tests_support.gold_semantics_diff            # 工作树 vs HEAD
-.venv/bin/python -m eval.tests_support.gold_semantics_diff --old-ref 501875b   # 历史基线
-```
+Evidence: [p0_baseline.md](.work/10_split_and_public/evidence/checkpoints/p0_baseline.md) is the frozen baseline from 2026-11-25. [r1_reorg.md](.work/10_split_and_public/evidence/checkpoints/r1_reorg.md) records the re-run after the repo reorganization: identical per-question recall, and the test count above. Retrieval-only mode makes no LLM answer calls; it only needs the embedding key. q126 is a documented permanent limit ([s4_full_eval_closure.md](docs/evidence/checkpoints/s4_full_eval_closure.md)).
 
-逐格比较 `(recall, hits, misses)` + 异常消息全文 + docstring 非空行, 覆盖仓内全部真实
-gold 字符串 × 输入网格 (2026-08-07 实测 15620 格, mismatches 0)。
-**不要用 "eval 逐题 Δ0" 代替它** —— 140 题里 138 题是 1.0、`#`/`$` 语法只有个位数题用到、
-三条抛错分支在 eval 里根本走不到, 那把仪器的分辨率证明不了等价性。
+Design notes, plans, retrospectives and the full evidence trail are under [docs/](docs/).
 
-## Environment Variables
+## Deployment
 
-详见 `.env.example`. 关键说明:
+Production runs as a container (`deploy/container/`). On every push to `main`, CI tests, builds, deploys and health-checks the service, and rolls it back automatically if the check fails. Procedure and rollback: [deploy/README.md](deploy/README.md).
 
-| Var | 必需? | 说明 |
-|-----|-------|------|
-| `OPENAI_API_KEY` | ★★ 硬必需 | Embedding: text-embedding-3-small (D-4 v3); **无 fallback**, ingest+query 都靠它, 缺则服务不可用 |
-| `DEEPSEEK_API_KEY` | ★ 必 | **当前实际主答** (Anthropic credits 耗尽时 Router 回退到此; V4-Pro 非思考模式; **不**用 Reasoner 因 LiteLLM Issue #26395 multi-turn bug) |
-| `ANTHROPIC_API_KEY` | 可选 (实务) | 默认 model (Sonnet 4.6) + 难题 (Opus 4.7) + 轻分类 (Haiku 4.5); credits 耗尽时自动回退 DeepSeek, 故实务上可选 |
-| `COHERE_API_KEY` | 可选 | Phase 1B.2 Top-K 重排 (按需) |
-| `SDTM_RAG_DEFAULT_MODEL` | 默 sonnet | LiteLLM identifier |
-| `SDTM_RAG_FALLBACK_MODEL` | 默 v4-pro 非思考 | D-4 v2 |
-| `SDTM_RAG_EMBEDDING_MODEL` | 默 text-embedding-3-small | D-4 v3 cloud; OpenAI API |
-| `SDTM_RAG_EMBEDDING_DIM` | 默 1536 | text-embedding-3-small native |
-| `SDTM_RAG_MAX_UPLOAD_MB` | 默 100 | 数据集上传上限 (Phase 1C.1) |
+## Status and roadmap
 
-**.env hygiene (R-17)**:
-- `.env` 已加入 `.gitignore`, 永远不入库
-- 误 commit `.env` → 立即 rotate 所有 key (Anthropic / OpenAI / DeepSeek dashboard)
-- 共享密钥用 `.env.example` 占位, 不写真值
+- **Now**: running as a private, LAN-internal service. The repo was split out of the sdtm-pedia monorepo in 2026-11; see `docs/PROGRESS.md`.
+- **Planned (P2)**: a public demo instance with per-visitor and site-wide quotas, bring-your-own-key (BYOK), and more answer-model providers. None of this is implemented yet.
 
-## Phase 1 PASS 五条 (引用 `../PLAN.md` §9)
+## Repository layout
 
-每 Phase 收口必通过:
-1. evidence 存在 (research/checkpoints/eval 报告)
-2. writer 产物 lint + typecheck PASS
-3. 独立 reviewer subagent PASS (Rule D 异 type)
-4. 规则 A 抽检 (chunker N≥10 / eval N=5 / 1C 假错误集 N≥5)
-5. 用户 Bojiang ack
-
-## chunker config 5 lock (来自 1A.0 sanity, 1A.3 writer 必准拠)
-
-详见 `../evidence/checkpoints/phase_1a_0_sanity.md` §4:
-
-- **L-1** mermaid 状态机 (0 嵌套, 不用 stack)
-- **L-2** GFM pipe-table 简单 regex (0 HTML rowspan/colspan/`<table>`)
-- **L-3** tiktoken cl100k_base 实测强制 (char/4 偏差 23.6% > 20% 容许带)
-- **L-4** chapters/ ≥ 50KB 强制 `^### ` 切 (ch04 §4.4 = 9598 cl100k > 8K embedding limit)
-- **L-5** terminology core part: H2=1 → part 模式 / H2>1 → codelist 模式
-
-## Testing
-
-```bash
-pytest scripts/tests/
-ruff check .
-mypy server/ scripts/
-```
-
-## Roadmap
-
-| Phase | Step | Status |
-|-------|------|--------|
-| 1A | 0 sanity / 1 scaffold / 2 LiteLLM sanity / 3 chunker / 4 tests / 5 ingest / 6 Rule A | ✅ ALL (4146 chunks / pytest 205+2xfail / Rule A 10/10) |
-| 1B + 1B5 | Q&A 服务 + UI + sanity eval 20 题 | ✅ (sanity 92.5%) |
-| 1C | Dataset validation (7 规则 + RAG 语义评审) | ✅ (Rule A 错误检出 94.7%) |
-| 1D | Full eval 53 题 | ✅ **PASS 88.5%** (DeepSeek; src 82.1% + fact 94.8%) |
-| 2 KG | Neo4j + graph reasoning | deferred (cross_domain 召回 61.5% > 50% gate; **95% bar 下待重评**) |
-| 次 | 检索质量优化 (src recall → >95%) | BACKLOG — 见 [`../TODO_retrieval_quality.md`](../TODO_retrieval_quality.md) |
+| Path | Contents |
+|---|---|
+| `server/` | FastAPI app: routing, retrieval, LLM config, gates, validators |
+| `webchat/` | Chat UI (static, served by the API) |
+| `ui/` | Streamlit debug UI |
+| `scripts/` | Ingest, KG build, study pipeline, red-line scanner |
+| `eval/` | Gold sets and evaluation harness |
+| `tests/` | pytest suite |
+| `viewer/` | KG viewer sources and generated `dist/kg_viewer.html` |
+| `deploy/` | Container, compose, deploy runbook |
+| `docs/` | Architecture, design, plans, retrospectives, evidence, history |
+| `vendor/sdtm-pedia` | Knowledge base (git submodule) |
 
 ## License
 
-Proprietary — internal. 不发布到 PyPI / Docker Hub.
+[MIT](LICENSE) © 2026 hakupao. The knowledge base content has its own repository and terms: [hakupao/sdtm-pedia](https://github.com/hakupao/sdtm-pedia).

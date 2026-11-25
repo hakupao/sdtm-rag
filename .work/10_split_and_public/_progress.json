@@ -79,6 +79,13 @@
       "step": "1.7-prep",
       "status": "PASS",
       "note": "sdtm-pedia-new clone + source/.claude 拷回; B 记忆目录建好, A 记忆移出 RAG 条目 (备份 memory_moved_to_sdtm-rag_20261125)"
+    },
+    {
+      "step": "R1",
+      "status": "DONE_PENDING_REVIEW",
+      "date": "2026-11-25",
+      "artifact": "evidence/checkpoints/r1_reorg.md",
+      "note": "B 仓目录重组 (docs/ 归档, tests/, viewer/dist/, README 英/中 + LICENSE MIT); 闸 1/2/6 逐题一致"
     }
   ],
   "recovery_hint": "新会话在 /Volumes/DevSSD/Project/sdtm-rag 打开: 读本文件 → PLAN.md §2 P1 1.8/1.9 → 续跑",

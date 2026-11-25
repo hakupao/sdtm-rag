@@ -86,7 +86,7 @@
 | 3.6 | 上线 7 天观察, 预登记告警阈值: 日费用 > 封顶 80%、429 占比 > 20%、5xx > 2% | `evidence/checkpoints/p3_week1.md` |
 
 ### P4 收尾
-- 更新 `DEPLOY_PLAN.md` / `deploy/README.md` (现仍写 launchd, 已过时), 两仓 CLAUDE.md / PROGRESS / worklog
+- 更新 `docs/history/DEPLOY_PLAN.md` / `deploy/README.md` (现仍写 launchd, 已过时), 两仓 CLAUDE.md / PROGRESS / worklog
 - `RETROSPECTIVE.md` (规则 C)
 
 ## 3. 风险

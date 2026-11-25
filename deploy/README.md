@@ -22,7 +22,7 @@ push 到 Gitea `main` (路径过滤见 workflow) → 自动部署, 镜像标签 
 
 改了 `webchat/`: 发版后让同事 `Cmd+Shift+R` (Win `Ctrl+F5`) 强刷一次 —— 修 `Cache-Control` 之前存进浏览器的
 旧条目 (启发式新鲜期实测 ≈3 天) 不回源, 症状是"新控件整排消失", 不是后端问题。回归闸:
-`tests/test_webchat_cache_headers.py` 常驻; `test_webchat_cache_browser.py` (真浏览器, 默认 skip) 改前端后手动跑。
+`tests/test_webchat_cache_headers.py` 常驻; `tests/test_webchat_cache_browser.py` (真浏览器, 默认 skip) 改前端后手动跑。
 
 ## 回滚
 
@@ -51,5 +51,7 @@ chroma 副本 (旧代码只按绝对路径过滤 → 启动失败); 备份 `/Vol
 
 ## 其他
 
+- KG 查看器产物 2026-11-25 起在 `viewer/dist/kg_viewer.html` (原仓根 `kg_viewer.html`; 由 `scripts/build_kg_viewer.py` 生成, 不进镜像)。
+  lan-services 的 Caddy 拷的是这个文件 —— 那边的源路径须同步改成 `viewer/dist/kg_viewer.html`。
 - 登录门口令哈希 + session secret: `.venv/bin/python -m scripts.gen_password_hash`。
 - Neo4j 探索层 2026-11-07 退役 (dump 在 dev `~/Backups/neo4j-retired-20261107/`); 原安装步骤见本文件 git 历史。
