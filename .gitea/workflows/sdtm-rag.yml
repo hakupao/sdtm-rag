@@ -1,6 +1,8 @@
 # sdtm-rag（SDTM 知识库助手）：push 到 main 后构建镜像，推送到 Gitea 镜像仓库，部署到 mini 虚拟机。
 # 部署配置在 deploy/container/；运维说明见 lan-services 仓库（第 6 步）。
 # 回滚：在 Actions 页面手动运行本工作流，tag 填已有镜像的 commit SHA，跳过构建，直接部署该版本。
+# 只构建不部署：手动运行，tag 留空、deploy 取消勾选 → 构建+推送镜像后结束 (切换前先在测试端口验证)。
+# 健康检查失败会自动退回部署前正在跑的镜像。
 name: sdtm-rag
 on:
   push:
@@ -25,6 +27,10 @@ on:
         description: "回滚用：要部署的镜像标签（完整 commit SHA）。留空则构建并部署当前提交"
         required: false
         default: ""
+      deploy:
+        description: "false = 只构建并推送镜像, 不部署 (测试端口先验用)"
+        type: boolean
+        default: true
 
 concurrency:
   group: sdtm-rag-deploy
@@ -82,7 +88,16 @@ jobs:
           docker build -f deploy/container/Dockerfile -t "$IMAGE:${{ steps.tag.outputs.tag }}" .
           docker push "$IMAGE:${{ steps.tag.outputs.tag }}"
 
+      - name: 记录当前线上镜像 (健康检查失败时退回)
+        id: prev
+        if: gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false'
+        run: |
+          PREV=$(docker inspect sdtm-rag-api --format '{{.Config.Image}}' 2>/dev/null | sed 's/.*://' || true)
+          echo "prev=$PREV" >> "$GITHUB_OUTPUT"
+          echo "部署前线上镜像标签：${PREV:-无}"
+
       - name: 部署
+        if: gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false'
         run: |
           docker pull "$IMAGE:${{ steps.tag.outputs.tag }}"
           # 挂载目标跟随镜像的 WorkingDir: step 1.5a 前 (monorepo 时代) 的镜像是
@@ -95,6 +110,7 @@ jobs:
           docker inspect sdtm-rag-api sdtm-rag-ui --format '{{.Name}} 运行镜像：{{.Config.Image}}'
 
       - name: 健康检查
+        if: gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false'
         run: |
           GW=$(ip route | awk '/^default/{print $3; exit}')
           for i in $(seq 1 60); do
@@ -103,6 +119,18 @@ jobs:
             sleep 3
           done
           echo "健康检查失败，最后返回 $code"; docker logs --tail 80 sdtm-rag-api; exit 1
+
+      - name: 健康检查失败 → 退回部署前的镜像
+        if: failure() && steps.prev.outputs.prev != '' && steps.prev.outputs.prev != steps.tag.outputs.tag
+        env:
+          PREV: ${{ steps.prev.outputs.prev }}
+        run: |
+          printf '%s' "$PREV" | grep -Eqx '[0-9a-f]{40}' || { echo "部署前镜像标签不是 40 位 SHA ($PREV)，不自动退回，请手动处理"; exit 1; }
+          APP_DIR=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMAGE:$PREV")
+          [ -n "$APP_DIR" ] || APP_DIR=/app
+          export APP_DIR
+          IMAGE_TAG="$PREV" docker compose -f deploy/container/compose.yml up -d
+          echo "已退回镜像 $PREV (挂载目录 $APP_DIR)；注意 .env 若已为新镜像改过，需按 deploy/README「回滚」还原"
 
       - name: 退出镜像仓库
         if: always()

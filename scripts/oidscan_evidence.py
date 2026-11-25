@@ -162,7 +162,7 @@ KNOWN_PUBLIC_COLLISIONS: dict[str, str] = {
     "BILI": "CDISC LBTESTCD 公开码 (C38037 Bilirubin), eval/error_test_set.py 的 LB 合成数据用到",
     "有害事象": "CDISC AE domain 的标准日文译名 (\"不良事件\"), 用作 routing_signals.py 的"
               "通用术语关键词与 gold 题面示例, 与 AE/DM 等标准 domain 码同类, 非私密标识",
-    "臨床検査": "CDISC LB domain (Laboratory Test Results) 的通用日文术语 (\"临床检验\"), 与"
+    "臨床検査": "通用日文术语 (CDISC LB domain 的日文名), ⚠ 同时也正是本 study 的表单名 (form_name 精确撞车) —— 放行只针对这个裸词, 含它的更长 label 仍会被拦; 与"
               "有害事象 同类; eval/routing_gold_ja_supplement.yml 题面用到, 非私密标识",
     "SCRT": "公开肿瘤学治疗方案缩写 (Short Course RadioTherapy) 与本研究真实 form/"
             "event/activity name 字面重合 —— 见上方大段警告, 这是有意保留的全局盲区",

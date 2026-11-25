@@ -434,10 +434,11 @@ class Settings(BaseSettings):
     @property
     def dogfood_log_path(self) -> Path:
         # Append-only backlog of chat answers flagged as wrong/weak (⚑ in the chat UI).
+        # 默认放 data/ (容器里是挂载卷, 重建不丢; 也不依赖 .env 里的绝对路径)。
         return (
             Path(self.dogfood_log_override)
             if self.dogfood_log_override
-            else _SDTM_RAG_ROOT / "dogfood_failures.md"
+            else _SDTM_RAG_ROOT / "data" / "dogfood_failures.md"
         )
 
 
