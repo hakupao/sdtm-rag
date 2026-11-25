@@ -23,3 +23,4 @@
 {"ts":"2026-11-25T00:00:00+09:00","step":1.5,"event":"step_fail","agent":"ci","attempt":1,"note":"pdf fixture order"}
 {"ts":"2026-11-25T00:00:00+09:00","step":1.5,"event":"step_fail","agent":"ci","attempt":2,"note":"VM disk full"}
 {"ts":"2026-11-25T00:00:00+09:00","step":1.5,"event":"step_done","agent":"main","verdict":"PASS","note":"prod on B image ee41a3c via test-port-first; gitea sdtm-pedia force-pushed"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.7,"event":"phase_report","agent":"main","note":"P1 core done: A rewritten+pushed (GH+Gitea), B public GH + deploys prod; remaining 1.7 swap, 1.8 review, 1.9 sync"}

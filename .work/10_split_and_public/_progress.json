@@ -1,9 +1,9 @@
 {
   "project": "10_split_and_public",
   "tier": 3,
-  "status": "P1_DEPLOY_SWITCHED",
-  "current_step": "1.6c/1.7/1.8/1.9",
-  "next_step": "B 镜像 GitHub 公开 (需 token 决定) → 1.7 本地目录切换+记忆 → 1.8 P1 审查 → 1.9 KB→RAG 同步",
+  "status": "P1_1.7_PREP_DONE",
+  "current_step": "1.7 目录交换 (用户执行)",
+  "next_step": "用户: 关会话→mv 交换目录→新会话 (B 仓) 跑 1.8 P1 审查 + 1.9 KB→RAG 同步",
   "completed": [
     {
       "step": "recon",
@@ -69,8 +69,18 @@
     {
       "step": "1.6b-gitea",
       "status": "PASS"
+    },
+    {
+      "step": "1.6c",
+      "status": "PASS",
+      "note": "GitHub hakupao/sdtm-rag 公开; origin 双 push URL"
+    },
+    {
+      "step": "1.7-prep",
+      "status": "PASS",
+      "note": "sdtm-pedia-new clone + source/.claude 拷回; B 记忆目录建好, A 记忆移出 RAG 条目 (备份 memory_moved_to_sdtm-rag_20261125)"
     }
   ],
-  "recovery_hint": "新 session: 1) 读本文件 current_step/next_step; 2) 读 PLAN.md 对应 step; 3) 跳过 completed 中 PASS; 4) 从 next_step 续跑",
+  "recovery_hint": "新会话在 /Volumes/DevSSD/Project/sdtm-rag 打开: 读本文件 → PLAN.md §2 P1 1.8/1.9 → 续跑",
   "decisions_2026_11_25_late": "两仓都公开; B 经 Gitea push-mirror 到 GitHub hakupao/sdtm-rag; B 内网信息接受公开; A 仍推重写版"
 }
