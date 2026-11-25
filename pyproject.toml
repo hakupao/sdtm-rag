@@ -9,7 +9,7 @@ description = "SDTM Knowledge Base RAG + Dataset Validation Service (Phase 7)"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Bojiang Zhang" }]
+authors = [{ name = "hakupao" }]
 keywords = ["sdtm", "rag", "chroma", "litellm", "validation"]
 
 dependencies = [
