@@ -63,6 +63,7 @@ def test_validate_study_missing_domain_column_422(client):
     assert r.status_code == 422
 
 
+@pytest.mark.local_data
 def test_create_app_boots_through_lifespan():
     # Guards the REAL production boot path: `uvicorn server.main:app` runs create_app()'s
     # full lifespan (which builds app.state.graph_engine). Every other test uses a bare app

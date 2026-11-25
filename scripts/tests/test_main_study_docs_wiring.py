@@ -90,6 +90,7 @@ def boot(monkeypatch):
     return _run
 
 
+@pytest.mark.local_data
 def test_docs_engine_is_built_and_wrapped_when_enabled(boot):
     app, engines, _ = boot(federation_enabled=True, study_docs_enabled=True, study_docs_seats=5)
     built = [e["collection_name"] for e in engines]
@@ -98,12 +99,14 @@ def test_docs_engine_is_built_and_wrapped_when_enabled(boot):
     assert app.state.federation.study.doc_seats == 5
 
 
+@pytest.mark.local_data
 def test_docs_engine_absent_when_disabled(boot):
     app, engines, _ = boot(federation_enabled=True, study_docs_enabled=False)
     assert "study_st01_docs" not in [e["collection_name"] for e in engines]
     assert not isinstance(app.state.federation.study, StudyCorpusEngine)
 
 
+@pytest.mark.local_data
 def test_engine_positions_are_not_swapped(boot):
     """两台引擎是**位置**参数 —— 写反了 isinstance 与 doc_seats 都照样绿。
 
@@ -117,6 +120,7 @@ def test_engine_positions_are_not_swapped(boot):
     assert eng.docs.kwargs["collection_name"] == "study_st01_docs"
 
 
+@pytest.mark.local_data
 def test_docs_engine_shares_every_lever_with_the_cards_engine(boot):
     """spec §4.1「与 U1 测上界时逐字同一条路径, 数字因此可比」的可执行形式。
 
@@ -139,12 +143,14 @@ def test_docs_engine_shares_every_lever_with_the_cards_engine(boot):
     assert cards["top_k"] == Settings().top_k and docs["top_k"] == 7
 
 
+@pytest.mark.local_data
 def test_docs_enabled_without_federation_logs_ignored(boot):
     _, engines, events = boot(federation_enabled=False, study_docs_enabled=True)
     assert "study_st01_docs" not in [e["collection_name"] for e in engines]
     assert any(m == "study_docs_ignored" for m, _ in events)
 
 
+@pytest.mark.local_data
 def test_no_ignored_warning_when_federation_is_on(boot):
     """反方向: 去掉 `and not s.federation_enabled` 后每次正常启动都报警 = 告警失效,
     而正方向那条照样绿。参照文件两处反方向断言都写了 (`:186-188` / `:191-193`)。"""
@@ -152,6 +158,7 @@ def test_no_ignored_warning_when_federation_is_on(boot):
     assert not [e for m, e in events if m == "study_docs_ignored"]
 
 
+@pytest.mark.local_data
 def test_no_ignored_warning_when_docs_disabled(boot):
     _, _, events = boot(federation_enabled=False, study_docs_enabled=False)
     assert not [e for m, e in events if m == "study_docs_ignored"]
@@ -187,6 +194,7 @@ def test_settings_study_docs_defaults(monkeypatch):
     assert s.study_docs_collection_name != s.study_collection_name
 
 
+@pytest.mark.local_data
 def test_seats_and_collection_are_reported_in_the_ready_log(boot):
     """条数/库名进日志: 席位写死成常量或库名指错时, 唯一的现场线索就是这一行。"""
     app, _, events = boot(federation_enabled=True, study_docs_enabled=True, study_docs_seats=7)

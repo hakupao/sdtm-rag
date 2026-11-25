@@ -49,6 +49,7 @@ def cfg_path():
     return _RedactedPath(resolve_study("st01").config_report_new)
 
 
+@pytest.mark.local_data
 def test_parse_events_counts(cfg_path):
     evs = parse_events(cfg_path)
     n_evs = len(evs)
@@ -59,6 +60,7 @@ def test_parse_events_counts(cfg_path):
     assert all(e.oid and " " not in e.oid for e in real)
 
 
+@pytest.mark.local_data
 def test_parse_events_type_distribution(cfg_path):
     real = [e for e in parse_events(cfg_path) if not e.is_trailer]
     kinds = {}
@@ -67,6 +69,7 @@ def test_parse_events_type_distribution(cfg_path):
     assert sorted(kinds.values()) == [1, 13]                # 13 + 1, 不写死日文取值
 
 
+@pytest.mark.local_data
 def test_parse_activities_counts(cfg_path):
     acs = parse_activities(cfg_path)
     n_acs = len(acs)
@@ -77,6 +80,7 @@ def test_parse_activities_counts(cfg_path):
     assert all(a.oid and a.event_oid for a in real)
 
 
+@pytest.mark.local_data
 def test_parse_form_assignments_counts(cfg_path):
     fms = parse_form_assignments(cfg_path)
     n_fms = len(fms)
@@ -88,6 +92,7 @@ def test_parse_form_assignments_counts(cfg_path):
     assert n_form_oids == 21
 
 
+@pytest.mark.local_data
 def test_repeating_values(cfg_path):
     real = [f for f in parse_form_assignments(cfg_path) if not f.is_trailer]
     counts = {}
@@ -96,6 +101,7 @@ def test_repeating_values(cfg_path):
     assert counts == {"0": 106, "Unlimited": 4}
 
 
+@pytest.mark.local_data
 def test_scheduling_columns_are_sparse_by_design(cfg_path):
     """本研究 Scheduling 只有 Reference/±days 各 2 条非空 — 钉死, 防未来静默变化."""
     real = [e for e in parse_events(cfg_path) if not e.is_trailer]
@@ -104,6 +110,7 @@ def test_scheduling_columns_are_sparse_by_design(cfg_path):
     assert sum(1 for e in real if e.sched_plus_days) == 2
 
 
+@pytest.mark.local_data
 def test_row_numbers_are_physical(cfg_path):
     """row 必须是可溯源物理行号 (Events 数据自第 4 行起).
 

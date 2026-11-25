@@ -558,6 +558,7 @@ def test_trimmed_docs_routing_gold_raises(tmp_path, monkeypatch):
         run_routing_eval.load_gold()
 
 
+@pytest.mark.local_data
 def test_real_gold_files_match_expected_sizes():
     """拿**真实**题集核对 EXPECTED_GROUP_SIZES —— 常量不能只跟自己对得上。
 
@@ -820,6 +821,7 @@ def test_by_group_has_no_passed_key(monkeypatch):
 
 
 # ── U6 T3: st01_v2_q07 入 final 组 (出题侧, Task 6 基线冻结之前) ──────────
+@pytest.mark.local_data
 def test_final_group_has_four_including_v2_q07():
     """真实题集: final 恒等于 FINAL_IDS 四题, 全集 254.
 

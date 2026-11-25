@@ -107,6 +107,7 @@ def _event(logs, name):
     return next(e for e in logs if e["event"] == name)
 
 
+@pytest.mark.local_data
 def test_enabled_injects_study_lookup_into_study_engine(boot, fake_lookup):
     lookup, recorded = fake_lookup
     # doc 通道显式关掉: 本条量的是 S2 挂在**哪台**引擎上, 二台引擎的世界最直白。
@@ -125,6 +126,7 @@ def test_enabled_injects_study_lookup_into_study_engine(boot, fake_lookup):
     assert study["structured_lookup_enabled"] is False
 
 
+@pytest.mark.local_data
 def test_disabled_injects_nothing(boot, fake_lookup):
     _, recorded = fake_lookup
     cdisc, study = boot(
@@ -148,17 +150,20 @@ def test_enabled_with_missing_catalog_fails_loud(boot, tmp_path):
 
 # ---- 可见性 (fix round 1): 别名 0 条必须在日志里看得见 ----
 
+@pytest.mark.local_data
 def test_federation_log_reports_loaded_counts(boot, fake_lookup):
     """别名表缺失是静默降级 —— 条数是唯一能区分"加载成功"与"0 条空转"的现场线索."""
     logs = boot(Settings(study_lookup_enabled=True)).logs
     assert _event(logs, "federation")["study_lookup"] == "7 items/0 aliases"
 
 
+@pytest.mark.local_data
 def test_ready_log_reports_loaded_counts(boot, fake_lookup):
     logs = boot(Settings(study_lookup_enabled=True)).logs
     assert _event(logs, "ready")["study_lookup"] == "7 items/0 aliases"
 
 
+@pytest.mark.local_data
 def test_counts_come_from_the_lookup_object(boot, monkeypatch):
     """换一个规模, 日志数字必须跟着变 (不是写死的常量)."""
     monkeypatch.setattr(
@@ -170,12 +175,14 @@ def test_counts_come_from_the_lookup_object(boot, monkeypatch):
     assert _event(logs, "federation")["study_lookup"] == "41 items/5 aliases"
 
 
+@pytest.mark.local_data
 def test_logs_report_off_when_disabled(boot):
     logs = boot(Settings(study_lookup_enabled=False)).logs
     assert _event(logs, "federation")["study_lookup"] == "OFF"
     assert _event(logs, "ready")["study_lookup"] is False
 
 
+@pytest.mark.local_data
 def test_federation_off_with_lookup_on_warns(boot, fake_lookup):
     """S2 只挂在联邦的 study 引擎上。关了联邦还开着 S2 = 静默空转, 必须留声。"""
     _, recorded = fake_lookup
@@ -187,11 +194,13 @@ def test_federation_off_with_lookup_on_warns(boot, fake_lookup):
     assert recorded == {}, "没有 study 引擎可挂时不该去读 catalog"
 
 
+@pytest.mark.local_data
 def test_federation_on_does_not_warn(boot, fake_lookup):
     logs = boot(Settings(study_lookup_enabled=True)).logs
     assert not [e for e in logs if e["event"] == "study_lookup_ignored"]
 
 
+@pytest.mark.local_data
 def test_federation_off_without_lookup_does_not_warn(boot):
     logs = boot(Settings(study_lookup_enabled=False, federation_enabled=False)).logs
     assert not [e for e in logs if e["event"] == "study_lookup_ignored"]
@@ -200,6 +209,7 @@ def test_federation_off_without_lookup_does_not_warn(boot):
 # ---- S1 VI section 映射的启动期预热 (审查 HIGH-1) -----------------------------
 
 
+@pytest.mark.local_data
 def test_startup_preheats_vi_section_map(boot, fake_lookup):
     """S1 开着时 lifespan 必须预热 VI section 映射。
 
@@ -213,6 +223,7 @@ def test_startup_preheats_vi_section_map(boot, fake_lookup):
     assert _event(r.logs, "s1_vi_section_map")["entries"] == 2
 
 
+@pytest.mark.local_data
 def test_startup_skips_preheat_when_s1_off(boot, fake_lookup):
     # S1 关着时 VI 映射根本用不到, 预热它等于凭空引入一条启动期失败源
     r = boot(Settings(structured_lookup_enabled=False))

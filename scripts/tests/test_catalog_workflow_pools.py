@@ -53,6 +53,7 @@ def cat():
     return _RedactedCatalog(build_catalog(resolve_study("st01")))
 
 
+@pytest.mark.local_data
 def test_three_pools_exist_with_expected_sizes(cat):
     # len() 的结果先落局部变量再断言标量: `assert len(cat["events"]) == 14` 若失败,
     # pytest assertion rewriting 会在 "+ where" 里把 cat["events"] 整个 list[dict]
@@ -65,6 +66,7 @@ def test_three_pools_exist_with_expected_sizes(cat):
     assert n_assignments == 110
 
 
+@pytest.mark.local_data
 def test_gate_a_cross_check_against_design_summary(cat):
     """spec §5.A: 四条数字必须与 ConfigReport 设计摘要吻合 (已由 PDF 封面独立确认)."""
     asg = cat["assignments"]
@@ -85,6 +87,7 @@ def test_gate_a_cross_check_against_design_summary(cat):
     assert event_type_counts == [1, 109]
 
 
+@pytest.mark.local_data
 def test_gate_b_referential_integrity(cat):
     """spec §5.B: 四条引用完整性.
 
@@ -105,6 +108,7 @@ def test_gate_b_referential_integrity(cat):
     assert n_bad_assignment_form == 0
 
 
+@pytest.mark.local_data
 def test_activity_oid_globally_unique(cat):
     """spec §5.B 第 3 条的隐含前提: activity OID 全局唯一。
 
@@ -121,6 +125,7 @@ def test_activity_oid_globally_unique(cat):
     assert n_total == n_unique == 77
 
 
+@pytest.mark.local_data
 def test_gate_c_transpose_consistency(cat):
     """spec §5.C: assignments.hidden_items 与 items 的 Hidden in activity 互为精确转置.
 
@@ -152,6 +157,7 @@ def test_gate_c_transpose_consistency(cat):
     assert n_mismatched == 0
 
 
+@pytest.mark.local_data
 def test_gate_c_transpose_consistency_form_aware(cat):
     """spec §5.C 转置一致性的加强版, 按 (activity_oid, form_oid) 二元键做转置,
     而不是只按 activity_oid (上面 `test_gate_c_transpose_consistency` 的口径)。
@@ -187,6 +193,7 @@ def test_gate_c_transpose_consistency_form_aware(cat):
     assert n_mismatched == 0
 
 
+@pytest.mark.local_data
 def test_hidden_activities_subset_of_activities(cat):
     """items 引用的 activity 必须全部在 activities 池里 (否则采集范围推导会静默丢)."""
     ac_ids = {a["oid"] for a in cat["activities"]}
@@ -202,6 +209,7 @@ def test_hidden_activities_subset_of_activities(cat):
     assert n_extra == 0
 
 
+@pytest.mark.local_data
 def test_ledger_covers_workflow_sheets(cat):
     sheets = collections.Counter(r["sheet"] for r in cat["ledger"])
     assert sheets["Study workflow-Events"] == 17
@@ -209,6 +217,7 @@ def test_ledger_covers_workflow_sheets(cat):
     assert sheets["Study workflow-Forms"] == 112
 
 
+@pytest.mark.local_data
 def test_no_consumed_column_is_silently_empty(cat):
     """键名守卫 (控制方 Ruling I-2, 源自 Task 2 审查 I-1)。
 

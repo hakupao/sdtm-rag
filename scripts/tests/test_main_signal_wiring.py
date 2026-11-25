@@ -105,6 +105,7 @@ def fake_lookup(monkeypatch):
     return lookup, recorded
 
 
+@pytest.mark.local_data
 def test_signals_wired_onto_the_federated_engine(boot, fake_lookup):
     lookup, recorded = fake_lookup
     r = boot(Settings(study_lookup_enabled=True, study_docs_enabled=False))
@@ -119,6 +120,7 @@ def test_signals_wired_onto_the_federated_engine(boot, fake_lookup):
     assert recorded["loads"] == 1, "信号层自己又加载了一份 S2 = 复用没接上"
 
 
+@pytest.mark.local_data
 def test_no_signals_and_a_warning_when_s2_is_off(boot, fake_lookup):
     """S2 关着 = 信号层的 study 半边没有数据源。此时挂空并留声, 但**绝不**自己去读
     catalog —— 那等于让信号层绕开 study_lookup_enabled 开关。"""
@@ -130,6 +132,7 @@ def test_no_signals_and_a_warning_when_s2_is_off(boot, fake_lookup):
     assert warn["log_level"] == "warning"
 
 
+@pytest.mark.local_data
 def test_federation_log_reports_the_signal_layer(boot, fake_lookup):
     """判库为什么没拓宽, 第一现场是启动日志: 没有这行就分不清"没接线"与"没命中"。"""
     logs = boot(Settings(study_lookup_enabled=True)).logs

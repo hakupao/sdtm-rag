@@ -158,6 +158,7 @@ def _authored_group_sizes() -> tuple[int, dict[str, int]]:
 
 
 @pytest.mark.parametrize("path", [DRAFT, FINAL])
+@pytest.mark.local_data
 def test_gold_file_is_gitignored(path):
     """红线: 两个题集文件都必须被 gitignore 覆盖."""
     assert path.exists(), f"{path} 不存在 —— Task 4/5 未完成"
@@ -173,6 +174,7 @@ def test_gold_file_is_not_tracked(path):
     assert rc != 0, f"{path} 已被 git 跟踪 —— 必须 git rm --cached"
 
 
+@pytest.mark.local_data
 def test_draft_is_frozen_at_the_authored_bytes():
     """出题已结束, draft 冻结在 Task 4 交付时的字节上 —— 改一个字节这条就红.
 
@@ -186,6 +188,7 @@ def test_draft_is_frozen_at_the_authored_bytes():
         "出题已结束, 题面变动必须走 code review")
 
 
+@pytest.mark.local_data
 def test_dev_and_heldout_cover_disjoint_ids():
     """继承自 brief。**近似装饰品**(审阅方 Minor-2), 留着但不计进闸的条数:
 
@@ -199,6 +202,7 @@ def test_dev_and_heldout_cover_disjoint_ids():
     assert dev and hold and not (dev & hold)
 
 
+@pytest.mark.local_data
 def test_final_gold_preserves_draft_questions():
     """划分只许加 group, 不许改题面 —— 改题面等于绕过 Task 4 的出题隔离.
 
@@ -207,6 +211,7 @@ def test_final_gold_preserves_draft_questions():
     assert _question_digests(FINAL) == _question_digests(DRAFT)
 
 
+@pytest.mark.local_data
 def test_final_gold_is_exactly_the_deterministic_split_of_the_draft():
     """反 cherry-pick: 最终 gold 必须**恰好**等于规则作用在 draft 上的结果.
 
@@ -222,6 +227,7 @@ def test_final_gold_is_exactly_the_deterministic_split_of_the_draft():
     assert _routing_fields(FINAL) == _expected_routing_fields(DRAFT)
 
 
+@pytest.mark.local_data
 def test_user_ruled_overrides_are_live_and_evidence_backed():
     """豁免表的**自检**: 每条都还指着 draft 里真实存在的题, 且裁定证据进了 git.
 
@@ -269,6 +275,7 @@ def test_split_rule_sorts_by_chapter_not_by_id(tmp_path):
     assert {i for i, _g, grp, _c in fields if grp == "heldout"} == {"s_03", "s_01"}
 
 
+@pytest.mark.local_data
 def test_double_chapters_are_split_one_each():
     """spec §5.3 对该规则的承诺是「恰好 12/12 且跨章对称」—— 对称性在这里独立核一遍.
 
@@ -284,6 +291,7 @@ def test_double_chapters_are_split_one_each():
     assert all(g == ["dev", "heldout"] for g in doubles.values()), doubles
 
 
+@pytest.mark.local_data
 def test_real_load_gold_enforces_authored_group_sizes():
     """拿**真实**的 254 题跑一遍 load_gold() —— 纯函数, 不发任何 LLM 请求.
 

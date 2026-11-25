@@ -108,4 +108,6 @@ addopts = "-ra -q"
 markers = [
     # 起真实子进程 / 打真实外部 API 的慢测试。默认跑; 要跳过用 -m "not slow"。
     "slow: spawns real subprocesses or hits real APIs",
+    # 依赖 gitignored 本机数据 (data/study/st01 等); 数据缺失时由 scripts/tests/conftest.py 自动 skip (CI)。
+    "local_data: needs gitignored local study data (auto-skipped when absent)",
 ]

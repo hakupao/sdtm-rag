@@ -121,6 +121,7 @@ def eval_boot(monkeypatch, tmp_path):
     return _run
 
 
+@pytest.mark.local_data
 def test_both_paths_build_the_docs_engine_through_the_one_factory(
     prod_boot, eval_boot, monkeypatch
 ):
@@ -144,6 +145,7 @@ def test_both_paths_build_the_docs_engine_through_the_one_factory(
     assert len(calls) == 2, "eval/run_eval.py 的 --study-docs 分支没走工厂"
 
 
+@pytest.mark.local_data
 def test_the_two_paths_hand_the_docs_engine_identical_structural_kwargs(
     prod_boot, eval_boot
 ):
@@ -215,6 +217,7 @@ def test_eval_docs_engine_carries_every_lever_its_cards_engine_carries(eval_boot
     assert docs["chroma_dir"] == settings.chroma_dir
 
 
+@pytest.mark.local_data
 def test_prod_docs_engine_carries_every_lever_its_cards_engine_carries(prod_boot):
     """生产侧同一条不变量的镜像 —— eval 侧那条改红了而这条没有, 就是单边漂移。"""
     engines = prod_boot(study_docs_seats=7)
