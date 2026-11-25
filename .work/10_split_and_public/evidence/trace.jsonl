@@ -1,0 +1,18 @@
+{"ts":"2026-11-25T00:00:00+09:00","step":0,"event":"phase_init","agent":"main","model":"opus","note":"拆仓+对外开放项目启动"}
+{"ts":"2026-11-25T00:00:00+09:00","step":0,"event":"subagent_done","agent":"Explore","model":"opus","verdict":"PASS","note":"recon x4: llm/api-ui/split/deploy"}
+{"ts":"2026-11-25T00:00:00+09:00","step":0,"event":"step_done","agent":"main","model":"opus","verdict":"PASS","note":"PLAN v0.1 草案"}
+{"ts":"2026-11-25T00:00:00+09:00","step":0,"event":"subagent_done","agent":"oh-my-claudecode:critic","model":"opus","verdict":"CONDITIONAL","note":"PLAN v0.1 REVISE 13 条 → v0.2 全吸收"}
+{"ts":"2026-11-25T00:00:00+09:00","step":0,"event":"checkpoint_ack","agent":"user","note":"Q2=10题/$5, Q3=deepseek-v4-pro, Q5=重写A仓历史, Q1=后定"}
+{"ts":"2026-11-25T00:00:00+09:00","step":0,"event":"checkpoint_ack","agent":"user","note":"目的=两者同等+分开维护+产品展示; 冻结留A; KB持续改→加1.9同步管线"}
+{"ts":"2026-11-25T00:00:00+09:00","step":0,"event":"checkpoint_ack","agent":"user","note":"O1 公开站先不开上传校验/多模型对比; O2 IT 无关"}
+{"ts":"2026-11-25T00:00:00+09:00","step":0,"event":"checkpoint_ack","agent":"user","note":"受众=项目感兴趣者; 部署=本机(待确认); 私有=公司LAN; 目的=降维护成本"}
+{"ts":"2026-11-25T00:00:00+09:00","step":0,"event":"checkpoint_ack","agent":"user","note":"部署=mini 虚拟机"}
+{"ts":"2026-11-25T00:00:00+09:00","step":0,"event":"phase_report","agent":"main","model":"opus","verdict":"PASS","note":"P0 done: pytest 2585 pass, cdisc 0.9917, study 0.875"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.1,"event":"subagent_done","agent":"oh-my-claudecode:executor","model":"opus","verdict":"PASS","note":"3 gates pass"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.1,"event":"subagent_done","agent":"oh-my-claudecode:code-reviewer","model":"opus","verdict":"CONDITIONAL","note":"PASS-with-fixes; M1 defer 1.5, M2 to runbook, L1-L5 fixed"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.1,"event":"step_done","agent":"main","verdict":"PASS","note":"commit 33ac656"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.2,"event":"checkpoint_open","agent":"main","note":"prod cutover needs user"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.2,"event":"step_done","agent":"main","verdict":"PASS","note":"prod chroma migrated via test-port candidate; 140q 0 diff"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.3,"event":"subagent_done","agent":"oh-my-claudecode:executor","model":"opus","verdict":"PASS"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.3,"event":"subagent_done","agent":"oh-my-claudecode:code-reviewer","model":"opus","verdict":"CONDITIONAL","note":"PASS-with-fixes, all to 1.5/1.6"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.3,"event":"step_done","agent":"main","verdict":"PASS","note":"B pushed private gitea, actions off"}

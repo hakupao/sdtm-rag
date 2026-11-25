@@ -1,0 +1,13 @@
+# step 1.5a reviewer — code-reviewer (opus), independent of the writer
+
+Read-only. Review the 4 local, unpushed commits on repo B /Volumes/DevSSD/Project/sdtm-rag: `git -C /Volumes/DevSSD/Project/sdtm-rag log origin/main..HEAD` (a5fff0a, a252d50, e11c2bd, 50d8c76). Brief the writer followed: /Volumes/DevSSD/Project/sdtm-pedia/.work/10_split_and_public/evidence/subagent_prompts/step_1.5a_executor.md. Context: B was just extracted (flattened) from monorepo /Volumes/DevSSD/Project/sdtm-pedia; production still deploys from the monorepo; B's Gitea Actions are disabled until this lands. KB will come via a git submodule of repo A in step 1.4 (planned at `vendor/sdtm-pedia`, kb_root default then `vendor/sdtm-pedia/knowledge_base` — note this differs from the writer's assumption `<B root>/knowledge_base`; flag what must change).
+
+Focus:
+1. Red-line gate policy change: `BILI` added to KNOWN_PUBLIC_COLLISIONS in scripts/oidscan_evidence.py. Is it really a public CDISC code (check knowledge_base terminology at /Volumes/DevSSD/Project/sdtm-pedia/knowledge_base)? Does adding it weaken detection of a real study OID leak (the study catalog is at /Volumes/DevSSD/Project/sdtm-rag/data/study/st01/catalog.json — you may load it to check what BILI maps to, but NEVER print other OID/label values)? Is there a narrower fix (path-scoped ALLOWLIST entry) that should be preferred?
+2. Fail-closed semantics: oidscan now aborts rc=2 when KB vocab empty — check the hook still blocks properly and gives a clear message; check CI doesn't depend on it.
+3. Container: Dockerfile/compose/dockerignore correctness for the new /app layout — study/data paths, .env path, ui service, healthcheck, nothing references /Volumes/... anymore (grep), uv/venv placement, image doesn't include data/ or .env or evidence/.
+4. Workflow: triggers (path filters incl. submodule pointer), submodule checkout, test step (runner has no data/ → local_data marker skips), rollback path, concurrency, health check, `if` guard; anything that could deploy before 1.4 lands if Actions were enabled.
+5. `local_data` marker: are the 53 skipped tests exactly the ones needing local data, and does it ever skip locally when data exists (conftest logic)? Any test that silently no-ops?
+6. Anything still assuming the monorepo layout (`..`, `parents[N]`, `sdtm-pedia`) in code paths (not prose).
+7. CLAUDE.md / docs/PROGRESS.md / docs/RULES.md: accurate, lean, paths exist; stale statements (e.g. "launchd" in the Phase 7 row) flagged.
+Output: PASS / PASS-with-fixes / FAIL; findings by severity with file:line and fix. Under 700 words. English.
