@@ -263,6 +263,7 @@ def test_default_targets_include_source_trees():
     from scripts.oidscan_evidence import DEFAULT_TARGETS, REPO_ROOT
 
     assert REPO_ROOT / "scripts" in DEFAULT_TARGETS
+    assert REPO_ROOT / "eval" in DEFAULT_TARGETS
     assert REPO_ROOT / "server" in DEFAULT_TARGETS
 
 

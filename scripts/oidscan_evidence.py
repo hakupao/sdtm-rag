@@ -14,7 +14,7 @@ activity 的 OID 或 label/name。
 
     target 可给 0 个、1 个或多个文件/目录 (目录递归展开)。**不给时用固定的默认
     扫描面** (与 cwd 无关, 见下方"默认扫描面"): `<仓根>/evidence/`、
-    `<仓根>/docs/`、`scripts/`、`server/`、以及本脚本自身 —— 覆盖 spec §8
+    `<仓根>/docs/`、`scripts/`、`server/`、`eval/`、以及本脚本自身 —— 覆盖 spec §8
     第 1/3 条点名的证据/文档/spec/plan 位置, 外加闸自扫。给了 target 时按 CWD
     解析 (标准 CLI 行为), 不受下面的"默认扫描面用 git 根锚定"规则约束。
 
@@ -123,6 +123,9 @@ DEFAULT_TARGETS: tuple[Path, ...] = (
     # precommit_oidscan.py 的说明); 手动审计能接受, 这也正是 hook 不用默认面的原因。
     REPO_ROOT / "scripts",
     REPO_ROOT / "server",
+    # eval/ (2026-11-25 加入): 题面 yml / 评测脚本也进 git, 此前不在默认面, 存量撞车无人发现;
+    # 实测 158 文件 +3.7s (`time python scripts/oidscan_evidence.py eval`)。
+    REPO_ROOT / "eval",
     _SELF_PATH,
 )
 
@@ -159,6 +162,8 @@ KNOWN_PUBLIC_COLLISIONS: dict[str, str] = {
     "BILI": "CDISC LBTESTCD 公开码 (C38037 Bilirubin), eval/error_test_set.py 的 LB 合成数据用到",
     "有害事象": "CDISC AE domain 的标准日文译名 (\"不良事件\"), 用作 routing_signals.py 的"
               "通用术语关键词与 gold 题面示例, 与 AE/DM 等标准 domain 码同类, 非私密标识",
+    "臨床検査": "CDISC LB domain (Laboratory Test Results) 的通用日文术语 (\"临床检验\"), 与"
+              "有害事象 同类; eval/routing_gold_ja_supplement.yml 题面用到, 非私密标识",
     "SCRT": "公开肿瘤学治疗方案缩写 (Short Course RadioTherapy) 与本研究真实 form/"
             "event/activity name 字面重合 —— 见上方大段警告, 这是有意保留的全局盲区",
     "CTCAE": "公开 NCI/FDA 不良事件分级标准 (Common Terminology Criteria for Adverse "
