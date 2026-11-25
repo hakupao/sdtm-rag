@@ -32,7 +32,7 @@ sdtm-rag 是一个面向 CDISC SDTM（Study Data Tabulation Model，研究数据
   - 上传研究数据集后做跨 domain 校验，结果只作提示（`server/graph_validator.py`，`POST /api/validate-study`）；
   - 离线单文件 KG 查看器（源码在 `viewer/`，生成到 `viewer/dist/kg_viewer.html`）。
 - **评测工具**：用标准题集评测，可以只评检索（不调用 LLM 回答），也可以用 LLM 当裁判评回答（`eval/run_eval.py`）。
-- **共享部署加固**：可选的共享口令登录、限流和安全响应头，默认全部关闭（`server/auth.py`）。
+- **共享部署加固**：可选的共享口令登录和限流（默认关闭），以及 CSP 等安全响应头（默认开启）（`server/auth.py`）。
 
 ## 架构
 
@@ -48,13 +48,13 @@ webchat/ ──SSE──▶ FastAPI (server/router.py)
 
 ## 快速开始
 
-需要：Python 3.11 及以上、[uv](https://docs.astral.sh/uv/)、一个 OpenAI API key（用于生成向量），以及至少一个回答模型的 key（默认用 Anthropic 或 DeepSeek，见 `.env.example`）。
+需要：Python 3.11 及以上、[uv](https://docs.astral.sh/uv/)、一个 OpenAI API key（用于生成向量），以及回答模型用的 Anthropic API key（DeepSeek key 可选，仅作回退，见 `.env.example`）。
 
 ```bash
 git clone --recurse-submodules --shallow-submodules https://github.com/hakupao/sdtm-rag.git
 cd sdtm-rag                      # 已有 clone 的话: git submodule update --init --depth 1
 uv sync --extra dev
-cp .env.example .env             # 填 OPENAI_API_KEY, 以及 ANTHROPIC_API_KEY 或 DEEPSEEK_API_KEY
+cp .env.example .env             # 填 OPENAI_API_KEY 和 ANTHROPIC_API_KEY (DEEPSEEK_API_KEY 可选, 仅作回退)
 
 # 用知识库建 Chroma 索引 (调用 OpenAI 生成向量, 写到 data/chroma/)
 .venv/bin/python scripts/ingest.py
@@ -88,7 +88,7 @@ node --test webchat/tests/*.test.mjs
 
 ## 部署
 
-生产环境以容器方式运行（`deploy/container/`）。每次推送到 `main`，CI 会依次测试、构建、部署和健康检查；健康检查不通过时自动回滚。具体步骤和回滚方法见 [deploy/README.md](deploy/README.md)。
+生产环境以容器方式运行（`deploy/container/`）。推送到 `main` 且改动涉及运行时路径时，CI 会依次测试、构建、部署和健康检查；健康检查不通过时自动回滚。具体步骤和回滚方法见 [deploy/README.md](deploy/README.md)。
 
 ## 现状与计划
 

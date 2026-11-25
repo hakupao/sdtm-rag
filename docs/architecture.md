@@ -12,7 +12,7 @@ flowchart TD
     F -->|study / both| S["study RAGEngine<br/>+ S2 study_lookup.py"]
     F -->|off| C
     C --> H["hybrid retrieval:<br/>Chroma dense (text-embedding-3-small)<br/>+ BM25 (bm25s), RRF fusion"]
-    H --> L["S1 structured lookup (structured_lookup.py,<br/>meta.yaml) union-added + per-section quota (diversity.py)"]
+    H --> L["S1 structured lookup (structured_lookup.py,<br/>meta.yaml) union-added"]
     S --> CTX
     L --> CTX["context assembly<br/>+ SP2 structured facts (structured_answer.py)<br/>+ optional study dossier (study_dossier.py)<br/>+ optional form-PDF pages (pdf_context.py, default off)"]
     CTX --> LLM["LiteLLM Router (server/llm_config.py)<br/>selectable models + fallbacks<br/>optional web tool (web_search.py, Tavily)"]
@@ -26,7 +26,7 @@ flowchart TD
 
 | Stage | Module | What it does |
 |---|---|---|
-| Entry | `server/main.py` | FastAPI app; lifespan warms the engines; serves `webchat/` at `/` and `/static`; `install_security` adds an optional login gate, rate limit and security headers (all off by default) |
+| Entry | `server/main.py` | FastAPI app; lifespan warms the engines; serves `webchat/` at `/` and `/static`; `install_security` adds an optional login gate and rate limit (off by default) plus security headers (on by default) |
 | Routes | `server/router.py` | `/api/ask`, `/api/ask_stream`, `/api/ask_compare`, `/api/validate`, `/api/validate-study`, `/api/flag`, `/api/info`, `/api/health` |
 | Corpus routing | `server/federation.py` | Two `RAGEngine`s (CDISC KB, optional study corpus). `decide_corpus` uses the LLM `light` group with strict-JSON whitelist validation; any error falls back to "both". Results from "both" are merged by per-corpus quota, not by cross-corpus score |
 | Retrieval | `server/rag.py` | Dense Chroma search plus BM25 over the same chunks, fused with RRF (or weighted). The S1 structured lookup adds deterministic hits for CT codes and variable/domain relationships that embeddings miss |

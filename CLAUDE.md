@@ -20,7 +20,8 @@ FastAPI (`server/`) + Chroma + BM25 + Chat UI (`webchat/`) + Streamlit 调试 UI
 | 「P2 开始」 | 读 `.work/10_split_and_public/PLAN.md` §2 P2 + §6 并行分线 (先 P2.0 接缝, 再 L1-L4) |
 | 「收尾」 | 执行下方收尾清单 |
 | 「部署」 | 按 `deploy/README.md`: 只构建 (deploy 取消勾选) → 测试端口验证 → 正式部署 |
-| 「KB 更新」 | 升 submodule `vendor/sdtm-pedia` → `scripts/check_index_freshness.py` 判是否重 ingest → 跑下方两条检索闸 + pytest |
+| ⚠ 自动部署 | 改 server/ui/webchat/scripts/eval/README.md/pyproject 等运行时路径的 push 即部署; 只改文档/测试的提交加 `[skip ci]` |
+| 「KB 更新」 | 升 submodule → `.venv/bin/python -m scripts.check_index_freshness`; STALE 则 `-m scripts.ingest` (本机 + 生产 data/ 都要) → 两条检索闸 + pytest → push (会部署) |
 
 ## 规则 (每条必守)
 

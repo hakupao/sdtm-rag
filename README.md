@@ -32,7 +32,7 @@ Each feature below is implemented in the module named next to it.
   - an advisory cross-domain validator for uploaded study datasets (`server/graph_validator.py`, `POST /api/validate-study`);
   - an offline single-file KG viewer (`viewer/` → `viewer/dist/kg_viewer.html`).
 - **Evaluation harness**: gold question sets with retrieval-only scoring (no LLM answer calls) and LLM-judge modes (`eval/run_eval.py`).
-- **Sharing hardening**: an optional shared-password login gate, rate limit and security headers, all off by default (`server/auth.py`).
+- **Sharing hardening**: an optional shared-password login gate and rate limit (off by default), plus security headers such as CSP (on by default) (`server/auth.py`).
 
 ## Architecture
 
@@ -48,13 +48,13 @@ Full request flow with a Mermaid diagram: [docs/architecture.md](docs/architectu
 
 ## Quickstart
 
-Requirements: Python ≥ 3.11, [uv](https://docs.astral.sh/uv/), an OpenAI API key for embeddings, and a key for at least one answer model (Anthropic or DeepSeek by default; see `.env.example`).
+Requirements: Python ≥ 3.11, [uv](https://docs.astral.sh/uv/), an OpenAI API key for embeddings, and an Anthropic API key for the answer models (a DeepSeek key is optional and only used as the fallback; see `.env.example`).
 
 ```bash
 git clone --recurse-submodules --shallow-submodules https://github.com/hakupao/sdtm-rag.git
 cd sdtm-rag                      # in an existing clone: git submodule update --init --depth 1
 uv sync --extra dev
-cp .env.example .env             # fill OPENAI_API_KEY + ANTHROPIC_API_KEY and/or DEEPSEEK_API_KEY
+cp .env.example .env             # fill OPENAI_API_KEY + ANTHROPIC_API_KEY (DEEPSEEK_API_KEY optional: fallback only)
 
 # Build the Chroma index from the knowledge base (OpenAI embeddings, writes data/chroma/)
 .venv/bin/python scripts/ingest.py
@@ -88,7 +88,7 @@ Design notes, plans, retrospectives and the full evidence trail are under [docs/
 
 ## Deployment
 
-Production runs as a container (`deploy/container/`). On every push to `main`, CI tests, builds, deploys and health-checks the service, and rolls it back automatically if the check fails. Procedure and rollback: [deploy/README.md](deploy/README.md).
+Production runs as a container (`deploy/container/`). On pushes to `main` that touch runtime paths, CI tests, builds, deploys and health-checks the service, and rolls it back automatically if the check fails. Procedure and rollback: [deploy/README.md](deploy/README.md).
 
 ## Status and roadmap
 

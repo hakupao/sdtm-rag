@@ -1,9 +1,9 @@
 {
   "project": "10_split_and_public",
   "tier": 3,
-  "status": "P1_1.7_PREP_DONE",
-  "current_step": "1.7 目录交换 (用户执行)",
-  "next_step": "用户: 关会话→mv 交换目录→新会话 (B 仓) 跑 1.8 P1 审查 + 1.9 KB→RAG 同步",
+  "status": "R1_R2_REORG_DONE",
+  "current_step": "1.8",
+  "next_step": "1.8 P1 整体独立审查 → 1.9 KB→RAG 同步管线 (含 lan-services Caddy 的 kg_viewer.html 拷贝源改为 viewer/dist/) → P2",
   "completed": [
     {
       "step": "recon",
@@ -86,8 +86,29 @@
       "date": "2026-11-25",
       "artifact": "evidence/checkpoints/r1_reorg.md",
       "note": "B 仓目录重组 (docs/ 归档, tests/, viewer/dist/, README 英/中 + LICENSE MIT); 闸 1/2/6 逐题一致"
+    },
+    {
+      "step": "1.7",
+      "status": "PASS",
+      "note": "本地目录交换: sdtm-pedia=新 A, 旧仓→sdtm-pedia-monorepo-archive (no_push)"
+    },
+    {
+      "step": "R2",
+      "status": "PASS-with-fixes→fixed",
+      "note": "sdtm-pedia 重组 milestones→releases/+archive/, README/METHODOLOGY; 已推 1c0495a"
+    },
+    {
+      "step": "R1",
+      "status": "PASS-with-fixes→fixed",
+      "note": "sdtm-rag 重组 tests/, docs/{design,plans,retrospectives,evidence,history}, README EN/CN, MIT, architecture.md; 闸: pytest 2609/0, 140q+48q 0 差, 红线 860 文件 CLEAN, 断链 0, 裸 clone CI 0 失败"
     }
   ],
   "recovery_hint": "新会话在 /Volumes/DevSSD/Project/sdtm-rag 打开: 读本文件 → PLAN.md §2 P1 1.8/1.9 → 续跑",
-  "decisions_2026_11_25_late": "两仓都公开; B 经 Gitea push-mirror 到 GitHub hakupao/sdtm-rag; B 内网信息接受公开; A 仍推重写版"
+  "decisions_2026_11_25_late": "两仓都公开; B 经 Gitea push-mirror 到 GitHub hakupao/sdtm-rag; B 内网信息接受公开; A 仍推重写版",
+  "todo_later": [
+    "lan-services Caddy assets/kg_viewer.html 拷贝源改为 viewer/dist/kg_viewer.html",
+    "Cloudflare Pages watch paths → web/** + releases/v1.4/** (用户在面板确认)",
+    "pyproject authors 真名 vs LICENSE holder hakupao (用户裁定)",
+    "P4: VM 磁盘自动清理规则"
+  ]
 }
