@@ -10,4 +10,4 @@
   - `/api/ask` "What are the valid values for AESEV?" → 1846 字, sources 为 KB 相对路径
   - 测试容器与 chroma 副本已删。
 - 命令模板同 `p1_step1.5_deploy_switch.md` (测试端口先验)。
-- 正式部署: 待用户确认 (本会话自动权限拦下生产部署)。部署命令: workflow_dispatch tag=<cb5fd06 完整 SHA> deploy=true; 健康检查失败自动退回 ee41a3c。
+- 正式部署 (用户确认): Gitea run 245 (tag=cb5fd06 deploy=true) success; 线上 sdtm-rag-api/ui = cb5fd06, api healthy, freshness OK, entries=171 chunks=4329, 局域网 `curl http://192.168.100.150:8000/api/health` 200。回滚: workflow_dispatch tag=ee41a3c… deploy=true。

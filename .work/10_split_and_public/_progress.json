@@ -2,7 +2,7 @@
   "project": "10_split_and_public",
   "tier": 3,
   "status": "P1_1.8_DONE",
-  "current_step": "1.9 设计 v0.1 已存 (evidence/checkpoints/p1_step1.9_design.md), 待前置: 用户在 mini 跑生产 freshness + 重组后 HEAD build-only→测试端口",
+  "current_step": "1.9 实现 (设计 v0.1 已裁定, 前置全满足: 生产 stamp 含指纹, 重组后镜像已上线)",
   "next_step": "1.9 设计+演练 (只演练私有实例; 公开实例 P3.3 才建) → P2",
   "completed": [
     {
@@ -108,6 +108,13 @@
       "status": "PASS-with-fixes→fixed",
       "date": "2026-11-25",
       "note": "P1 整体审查 code-reviewer (step_1.8_reviewer.md); 修复 executor dcdee7f/1eedfc4 (ACMR + 变异验证, 全仓审计面扩到 1091 文件 CLEAN); 主会话复核: 改回 ACM 新测试 1 failed; 全新 GitHub clone pytest 0 failed"
+    },
+    {
+      "step": "kb-tag+reorg-deploy",
+      "status": "PASS",
+      "date": "2026-11-25",
+      "prod_image": "cb5fd06",
+      "note": "submodule→kb-2026.11.25; build-only run 244 → 测试端口 0 差 → run 245 部署; artifact evidence/checkpoints/p1_kb_tag_and_reorg_image.md"
     }
   ],
   "recovery_hint": "新会话在 /Volumes/DevSSD/Project/sdtm-rag 打开: 读本文件 → PLAN.md §2 P1 1.8/1.9 → 续跑",
@@ -117,7 +124,6 @@
     "Cloudflare Pages watch paths → web/** + releases/v1.4/** (用户在面板确认)",
     "pyproject authors 真名 vs LICENSE holder hakupao (用户裁定)",
     "P4: VM 磁盘自动清理规则",
-    "用户在 mini 上跑: 生产容器 check_index_freshness, 确认 stamp 含 kb_fingerprint (1.9 前置)",
     "lan-services: deploy/caddy/Dockerfile:13 注释旧路径 (改了会触发 caddy 重建, 随下次 caddy 改动一起); /Volumes/DevSSD/mini-home/lan-services 是无远端老副本, 用户定去留; 确认 mini 上 com.sdtmrag.* launchd 未加载",
     "P4: 删 deploy/deploy.sh + deploy/.env.service.template (launchd 遗留)"
   ],
