@@ -16,3 +16,7 @@
 {"ts":"2026-11-25T00:00:00+09:00","step":1.3,"event":"subagent_done","agent":"oh-my-claudecode:executor","model":"opus","verdict":"PASS"}
 {"ts":"2026-11-25T00:00:00+09:00","step":1.3,"event":"subagent_done","agent":"oh-my-claudecode:code-reviewer","model":"opus","verdict":"CONDITIONAL","note":"PASS-with-fixes, all to 1.5/1.6"}
 {"ts":"2026-11-25T00:00:00+09:00","step":1.3,"event":"step_done","agent":"main","verdict":"PASS","note":"B pushed private gitea, actions off"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.6,"event":"subagent_done","agent":"oh-my-claudecode:security-reviewer","model":"opus","verdict":"CONDITIONAL","note":"GO C1-C5"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.5,"event":"subagent_done","agent":"oh-my-claudecode:code-reviewer","model":"opus","verdict":"CONDITIONAL","note":"1.5a PASS-with-fixes; rollback APP_DIR HIGH"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.6,"event":"checkpoint_ack","agent":"user","note":"两仓公开; push A rewritten"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.6,"event":"step_done","agent":"main","verdict":"PASS","note":"GitHub force-pushed ebf0c8a + 10 tags"}

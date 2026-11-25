@@ -1,9 +1,9 @@
 {
   "project": "10_split_and_public",
   "tier": 3,
-  "status": "P1_1.3_DONE",
-  "current_step": "1.5a ‖ 1.6",
-  "next_step": "双线: B 侧 1.5 非 CI 修复 ‖ A 侧 1.6 清理 + 1.6b 重写准备 (不推送)",
+  "status": "P1_1.6b_GITHUB_DONE",
+  "current_step": "1.4+1.5b",
+  "next_step": "1.4 submodule vendor/sdtm-pedia + 1.5b 审查修复 → 开 Actions → B 测试端口先验接管部署 → Gitea sdtm-pedia 强推 → B 镜像 GitHub 公开",
   "completed": [
     {
       "step": "recon",
@@ -37,7 +37,27 @@
       "date": "2026-11-25",
       "b_head": "5dd6ac1",
       "artifact": "evidence/checkpoints/p1_step1.3.md"
+    },
+    {
+      "step": "1.3b",
+      "status": "PASS",
+      "note": ".work/10 迁入 B 75bd3bd"
+    },
+    {
+      "step": "1.5a",
+      "status": "PASS-with-fixes",
+      "b_commits": "a5fff0a..50d8c76"
+    },
+    {
+      "step": "1.6",
+      "status": "PASS",
+      "a_head": "ebf0c8a"
+    },
+    {
+      "step": "1.6b-github",
+      "status": "PASS"
     }
   ],
-  "recovery_hint": "新 session: 1) 读本文件 current_step/next_step; 2) 读 PLAN.md 对应 step; 3) 跳过 completed 中 PASS; 4) 从 next_step 续跑"
+  "recovery_hint": "新 session: 1) 读本文件 current_step/next_step; 2) 读 PLAN.md 对应 step; 3) 跳过 completed 中 PASS; 4) 从 next_step 续跑",
+  "decisions_2026_11_25_late": "两仓都公开; B 经 Gitea push-mirror 到 GitHub hakupao/sdtm-rag; B 内网信息接受公开; A 仍推重写版"
 }
