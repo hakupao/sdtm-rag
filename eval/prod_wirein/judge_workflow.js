@@ -7,13 +7,12 @@ export const meta = {
   ],
 }
 
-// Paths the lenses read (absolute, so CWD-independent).
-const ROOT = '/Users/bojiangzhang/MyProject/sdtm-pedia'
-const RAG = `${ROOT}/sdtm-rag`
+// Paths the lenses read — relative to the sdtm-rag repo root (run from there).
+const RAG = '.'
 const FORENSIC = `${RAG}/eval/prod_wirein/forensic_guardrail.json`   // full off/on text, 16q subset
 const FORENSIC_DROPS = `${RAG}/eval/prod_wirein/forensic_drops.json` // full off/on text for the 10 fact DROPS
 const PAIRED = `${RAG}/eval/prod_wirein/guardrail_paired_analysis.txt` // analyze_paired OFF vs ON (all 102q)
-const KB = `${ROOT}/knowledge_base`
+const KB = 'vendor/sdtm-pedia/knowledge_base' // sdtm-pedia submodule
 
 // MEASURED temp=0 noise floor (OFF-run1 vs OFF-run2, identical config, NO guardrail change):
 // fact avg 94.8% -> 95.7% (+0.9); 4 drops + 8 gains from pure non-determinism; per-category

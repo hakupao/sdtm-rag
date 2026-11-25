@@ -1,7 +1,7 @@
 # sdtm-rag — SDTM 知识库 RAG + KG 服务
 
 FastAPI (`server/`) + Chroma + BM25 + Chat UI (`webchat/`) + Streamlit 调试 UI (`ui/`)。CDISC KB 来自 sdtm-pedia 仓
-(`knowledge_base/` submodule; 未挂上时设 `SDTM_RAG_KB_ROOT_OVERRIDE`)。生产 = mini 虚拟机容器, 见 `deploy/README.md`。
+(submodule `vendor/sdtm-pedia`, KB = `vendor/sdtm-pedia/knowledge_base`; clone 后 `git submodule update --init --depth 1`)。生产 = mini 虚拟机容器, 见 `deploy/README.md`。
 2026-11 从 monorepo `sdtm-pedia/sdtm-rag/` 拆出; 证据文档里的 `sdtm-rag/x` 即本仓 `x`, 旧 SHA 用 `docs/history/monorepo_commit_map.txt` 换算。
 
 ## Session Startup
@@ -24,20 +24,22 @@ FastAPI (`server/`) + Chroma + BM25 + Chat UI (`webchat/`) + Streamlit 调试 UI
 ## 红线 pre-commit 闸
 
 `git config core.hooksPath .githooks` (每个 clone 一次; 或 `sh .githooks/install.sh`)。hook 用 `.venv/bin/python -m scripts.precommit_oidscan`
-扫暂存文件; venv / catalog / KB 任一缺失 → 拦下 (fail-closed)。KB submodule 未挂时提交前 `export SDTM_RAG_KB_ROOT_OVERRIDE=<KB>`。
+扫暂存文件; venv / catalog / KB 任一缺失 → 拦下 (fail-closed)。KB 缺失 → `git submodule update --init --depth 1`。
 命中先 `scripts/oidscan_evidence.py <文件> --show-values` 本机排查; 撞车加 ALLOWLIST 并附理由。禁止 `--no-verify`。
 
 ## 测试 / 评测
 
 ```bash
-uv sync --extra dev
-.venv/bin/python -m pytest -m "not slow" -q -o addopts=""          # CI 同款; 无 data/study 时 local_data 测试自动 skip
+git submodule update --init --depth 1 && uv sync --extra dev
+.venv/bin/python -m pytest -m "not slow" -q -o addopts="" -rs      # CI 同款; -rs 列出 skip 原因
 .venv/bin/python -m eval.run_eval eval/test_set_v3.yml --retrieval-only --hybrid --structured-lookup --output <out>   # CDISC 140q
 .venv/bin/python -m eval.run_eval data/study/st01/eval/test_set_study_v2.yml --retrieval-only --hybrid --study-lookup \
   --collection study_st01 --kb-root data/study/st01/cards --output data/study/st01/eval/runs/<tag>/study48.json  # 输出含 OID, 只放 gitignored 处
 node --test webchat/tests/*.test.mjs
 ```
 
+CI 有 KB (submodule) 无 data/ (study / chroma / .env): 53 个 `local_data` 测试 (study catalog / workflow 解析 / study 接线 /
+gold 红线, 见 `-rs` 输出) 在 CI skip; CDISC 140q / study 48q 检索闸 CI 不跑, 改检索须本机跑上面两条。
 改 `eval/run_eval.py` 判据前后跑 `python -m eval.tests_support.gold_semantics_diff`; study gold 改动跑 `eval/lint_gold.py`。
 
 ## Key Paths
