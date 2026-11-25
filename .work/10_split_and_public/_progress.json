@@ -1,9 +1,9 @@
 {
   "project": "10_split_and_public",
   "tier": 3,
-  "status": "R1_R2_REORG_DONE",
-  "current_step": "1.8",
-  "next_step": "1.8 P1 整体独立审查 → 1.9 KB→RAG 同步管线 (含 lan-services Caddy 的 kg_viewer.html 拷贝源改为 viewer/dist/) → P2",
+  "status": "P1_1.8_DONE",
+  "current_step": "1.9 KB→RAG 同步管线 (设计中)",
+  "next_step": "1.9 设计+演练 (只演练私有实例; 公开实例 P3.3 才建) → P2",
   "completed": [
     {
       "step": "recon",
@@ -102,6 +102,12 @@
       "step": "R1",
       "status": "PASS-with-fixes→fixed",
       "note": "sdtm-rag 重组 tests/, docs/{design,plans,retrospectives,evidence,history}, README EN/CN, MIT, architecture.md; 闸: pytest 2609/0, 140q+48q 0 差, 红线 860 文件 CLEAN, 断链 0, 裸 clone CI 0 失败"
+    },
+    {
+      "step": "1.8",
+      "status": "PASS-with-fixes→fixed",
+      "date": "2026-11-25",
+      "note": "P1 整体审查 code-reviewer (step_1.8_reviewer.md); 修复 executor dcdee7f/1eedfc4 (ACMR + 变异验证, 全仓审计面扩到 1091 文件 CLEAN); 主会话复核: 改回 ACM 新测试 1 failed; 全新 GitHub clone pytest 0 failed"
     }
   ],
   "recovery_hint": "新会话在 /Volumes/DevSSD/Project/sdtm-rag 打开: 读本文件 → PLAN.md §2 P1 1.8/1.9 → 续跑",
@@ -110,6 +116,9 @@
     "lan-services Caddy assets/kg_viewer.html 拷贝源改为 viewer/dist/kg_viewer.html",
     "Cloudflare Pages watch paths → web/** + releases/v1.4/** (用户在面板确认)",
     "pyproject authors 真名 vs LICENSE holder hakupao (用户裁定)",
-    "P4: VM 磁盘自动清理规则"
+    "P4: VM 磁盘自动清理规则",
+    "用户在 mini 上跑: 生产容器 check_index_freshness, 确认 stamp 含 kb_fingerprint (1.9 前置)",
+    "lan-services: deploy/caddy/Dockerfile:13 注释旧路径 (改了会触发 caddy 重建, 随下次 caddy 改动一起); /Volumes/DevSSD/mini-home/lan-services 是无远端老副本, 用户定去留; 确认 mini 上 com.sdtmrag.* launchd 未加载",
+    "P4: 删 deploy/deploy.sh + deploy/.env.service.template (launchd 遗留)"
   ]
 }

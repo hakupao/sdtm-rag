@@ -26,3 +26,4 @@
 {"ts":"2026-11-25T00:00:00+09:00","step":1.7,"event":"phase_report","agent":"main","note":"P1 core done: A rewritten+pushed (GH+Gitea), B public GH + deploys prod; remaining 1.7 swap, 1.8 review, 1.9 sync"}
 {"ts": "2026-11-25T00:00:00+09:00", "step": "R1", "event": "step_done", "agent": "executor", "verdict": "PENDING_REVIEW", "note": "repo reorg; gates 1/2/6 identical to baseline"}
 {"ts":"2026-11-25T00:00:00+09:00","step":"R1","event":"step_done","agent":"main","verdict":"PASS","note":"R1 gates rerun by orchestrator after session break; reviewer PASS-with-fixes applied"}
+{"ts": "2026-11-25T22:00:00+09:00", "step": 1.8, "event": "step_done", "agent": "main", "verdict": "PASS-with-fixes→fixed", "note": "reviewer code-reviewer, fixer executor, main re-verified mutation"}
