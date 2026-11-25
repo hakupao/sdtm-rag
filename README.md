@@ -39,8 +39,7 @@
 ```
 sdtm-rag/
 ├── pyproject.toml          PEP 621 manifest, Python >= 3.11
-├── Dockerfile              python:3.11-slim base
-├── docker-compose.yml      api + ui services
+├── deploy/container/      Dockerfile + compose (生产)
 ├── .env.example            填好 .env 用 (NEVER commit .env)
 ├── .gitignore              data/chroma/ + .env + caches
 ├── scripts/
@@ -91,34 +90,10 @@ streamlit run ui/streamlit_app.py
 # Open http://localhost:8501
 ```
 
-## Quick Start — Docker Compose (local self-host)
+## Deploy (container)
 
-> Prereq: Docker + Docker Compose v2. 单用户/单租户本地部署 (云部署 defer per H-2).
-> Run from this dir (`sdtm-rag/`).
-
-```bash
-# 1. Environment — OPENAI_API_KEY 是硬性必需 (embedding, 无 fallback);
-#    DEEPSEEK_API_KEY 当前是实际主答 (Anthropic credits 耗尽 → Router 回退 DeepSeek).
-cp .env.example .env        # 然后填入 key (见下方 Environment Variables 表)
-
-# 2. Build + start (api :8000, ui :8501; api healthcheck 通过后 ui 才起)
-docker compose up --build -d
-
-# 3. 向量库 chroma:
-#    (a) 复用已 ingest 的 ./data/chroma (4146 chunks, 通过 volume 挂入) → 无需重 ingest, 直接可用; 或
-#    (b) 全新 ingest (需 OPENAI_API_KEY, ~80s):
-docker compose exec api python scripts/ingest.py
-
-# 4. 验证
-curl -fsS http://localhost:8000/api/health          # {"status":"ok"}
-curl -s   http://localhost:8000/api/info            # 应见 structured_lookup/hybrid/prompt_guardrail = true
-# API docs: http://localhost:8000/docs   |   UI: http://localhost:8501
-```
-
-- **检索/答题杠杆默认全开** (structured_lookup + hybrid + 答题侧 grounding 护栏); `SDTM_RAG_*` env 可单独关。
-- Knowledge base 通过只读 volume `../../../knowledge_base:/app/knowledge_base:ro` 挂入 (H-1 read-only 硬约束)。
-- `data/` (chroma 持久化 + 上传数据集) 是 bind volume, 不烘进镜像 (见 `.dockerignore`); secrets 经 `env_file` 运行时注入, 永不入镜像。
-- **Anthropic credits 耗尽时**: 默认 model = Sonnet 4.6, 但 Router 自动回退 `deepseek/deepseek-v4-pro` (实测 `model_used=deepseek-v4-pro`); 补足 credits 后自动走 Sonnet, 无需改配置。
+生产部署 = mini 虚拟机里的容器 (push main → Gitea Actions), 见 [`deploy/README.md`](deploy/README.md)。
+根目录的旧 `Dockerfile` / `docker-compose.yml` 已于 2026-11 删除。
 
 ## API Endpoints
 
