@@ -1,0 +1,22 @@
+# R2 writer — executor (opus): reorganize repo sdtm-pedia into a clean, GitHub-showcase-standard layout
+
+Repo: /Volumes/DevSSD/Project/sdtm-pedia (branch main; push URLs = GitHub hakupao/sdtm-pedia (public) + Gitea). DO NOT push. Commit locally only; each commit message ends with:
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01DWp6VwgUn7w9cMEki8hgQv
+Do NOT touch /Volumes/DevSSD/Project/sdtm-pedia-monorepo-archive (read-only archive) and do not modify knowledge_base/ content at all (it is the product; repo sdtm-rag pins it as a submodule). Read CLAUDE.md, .work/MANIFEST.md, .work/AGENT_GUIDE.md first. User goals: low maintenance; public portfolio piece. The RAG service is now a separate PUBLIC repo https://github.com/hakupao/sdtm-rag (CLAUDE.md/README still say "私有仓" in places — fix).
+
+Target layout (user-approved):
+- root: README.md (English, primary) + README_CN.md, LICENSE (existing CC BY 4.0 — keep), METHODOLOGY.md, DISCLAIMER.md, CLAUDE.md, .gitignore, .nvmrc, .mcp.json (keep), and dirs knowledge_base/ releases/ web/ tools/ docs/ archive/ .work/ (hidden process records).
+- `git mv milestones/release releases`; `git mv milestones/06_deep_verification archive/deep_verification`; `git mv milestones/ai_platforms archive/ai_platforms`; `git mv milestones/jp_delivery archive/jp_delivery`; `git mv milestones/archive archive/legacy`; anything else under milestones/ → decide and report; milestones/ must be gone.
+- Update everything that resolves these paths: web/src/content.config.ts (RELEASE_DIR), web/scripts/*, tools/build_release.sh, scripts under archive/ai_platforms/*/scripts, archive/jp_delivery, archive/deep_verification scripts, .work scripts — grep every old prefix (`milestones/release`, `milestones/06_deep_verification`, `milestones/ai_platforms`, `milestones/jp_delivery`, `milestones/archive`, `../milestones`). Behavior must be identical.
+- Links: rewrite ALL relative markdown links in tracked .md that point into moved dirs (script it + write a link checker; report broken-link count before/after; must end at 0 for links that resolved before — pre-existing broken links: list them, don't invent targets). Bare path mentions: rewrite in live docs (README*, CLAUDE.md, METHODOLOGY.md, .work/MANIFEST.md, .work/AGENT_GUIDE.md, docs/PROGRESS.md, docs/*.md); historical prose inside archive/ and .work/ phase dirs left as is + add docs/PATH_MAP.md (old → new, dated 2026-11-25; also note RAG paths moved to hakupao/sdtm-rag).
+- README.md (English, showcase quality, factual): keep the existing good parts (pitch, features table, badges) but fix the repo-structure section to the new layout; add "Ecosystem" section: website https://sdtm-pedia.pages.dev/, releases (GitHub Releases v1.0/v1.1/v1.4 platform bundles), Q&A service repo hakupao/sdtm-rag (public demo planned — no URL yet); how to use the KB (AI platforms / direct Markdown); quality/verification section citing METHODOLOGY.md and the deep-verification numbers that already exist in docs (coverage 99.02% etc. — only numbers present in the repo, with the file they come from). README_CN.md = faithful Chinese version. No internal IPs/hostnames.
+- CLAUDE.md: update every path (Key Paths table), keep ≤ 150 lines (aim ≤ 110), remove stale state; add「跨会话路由词」section: 「KB 更新」(edit knowledge_base → Chain D traceability → commit → push both remotes → then in sdtm-rag repo say 「KB 更新」 to bump the submodule), 「网站更新」(web/ build + Pages check), 「收尾」(wrap-up). Update .work/MANIFEST.md chains & .work/AGENT_GUIDE.md paths accordingly.
+Gates (report exact commands + numbers):
+1. `git diff --stat <start>..HEAD -- knowledge_base` empty; KB tree hash unchanged (`git rev-parse HEAD:knowledge_base` before/after equal).
+2. `cd web && npm ci && npm run build` → same page count as before (46) and the guide pages from releases/v1.4 present.
+3. `bash -n` all modified shell scripts; run tools/build_release.sh in a dry/skip mode if it has one, else statically verify every path it uses exists.
+4. Link checker: 0 newly broken relative links.
+5. grep: no tracked file outside archive/ and .work/ historical prose still references `milestones/` as a live path.
+6. `git status` clean; root `ls` shows only approved entries (+ gitignored source/ .claude/ .omc/ web/node_modules web/dist).
+Failures → .work/meta/failures? — use .work/10_reorg_failures/step_R2_attempt_1.md in this repo (create), stop. Small logical commits (moves, then path fixes, then docs). Final report < 600 words, English.
