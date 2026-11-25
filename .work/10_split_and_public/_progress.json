@@ -1,9 +1,9 @@
 {
   "project": "10_split_and_public",
   "tier": 3,
-  "status": "P1_1.6b_GITHUB_DONE",
-  "current_step": "1.4+1.5b",
-  "next_step": "1.4 submodule vendor/sdtm-pedia + 1.5b 审查修复 → 开 Actions → B 测试端口先验接管部署 → Gitea sdtm-pedia 强推 → B 镜像 GitHub 公开",
+  "status": "P1_DEPLOY_SWITCHED",
+  "current_step": "1.6c/1.7/1.8/1.9",
+  "next_step": "B 镜像 GitHub 公开 (需 token 决定) → 1.7 本地目录切换+记忆 → 1.8 P1 审查 → 1.9 KB→RAG 同步",
   "completed": [
     {
       "step": "recon",
@@ -55,6 +55,19 @@
     },
     {
       "step": "1.6b-github",
+      "status": "PASS"
+    },
+    {
+      "step": "1.4",
+      "status": "PASS"
+    },
+    {
+      "step": "1.5",
+      "status": "PASS",
+      "prod_image": "ee41a3c"
+    },
+    {
+      "step": "1.6b-gitea",
       "status": "PASS"
     }
   ],

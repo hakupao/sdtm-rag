@@ -20,3 +20,6 @@
 {"ts":"2026-11-25T00:00:00+09:00","step":1.5,"event":"subagent_done","agent":"oh-my-claudecode:code-reviewer","model":"opus","verdict":"CONDITIONAL","note":"1.5a PASS-with-fixes; rollback APP_DIR HIGH"}
 {"ts":"2026-11-25T00:00:00+09:00","step":1.6,"event":"checkpoint_ack","agent":"user","note":"两仓公开; push A rewritten"}
 {"ts":"2026-11-25T00:00:00+09:00","step":1.6,"event":"step_done","agent":"main","verdict":"PASS","note":"GitHub force-pushed ebf0c8a + 10 tags"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.5,"event":"step_fail","agent":"ci","attempt":1,"note":"pdf fixture order"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.5,"event":"step_fail","agent":"ci","attempt":2,"note":"VM disk full"}
+{"ts":"2026-11-25T00:00:00+09:00","step":1.5,"event":"step_done","agent":"main","verdict":"PASS","note":"prod on B image ee41a3c via test-port-first; gitea sdtm-pedia force-pushed"}
