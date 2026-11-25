@@ -43,3 +43,18 @@ FAIL (按 brief 停)。代码改动本身未见回归: 迁移后的副本上检�
 3. 上线前核实生产 chroma 确为相对形 (`p1_step1.2.md` 声明), 否则新镜像 lifespan 预热 raise
 4. `check_index_freshness` 对这份不可用的索引打印 OK —— 只比 KB 指纹不查 source 格式, 记为已知盲区
 5. `deploy/README.md`「启动失败」段的 `--kb-root <KB>` 应写明 = 索引里实际存的旧前缀, 不是新 KB 位置
+
+---
+
+## attempt 2 结果 (2026-11-25, 追加) — PASS
+编排者: 本机 `data/chroma` 原地迁移 (备份 `data/chroma_backup_pre_rel_20261125`); 生产 chroma 核实 4329 条 0 绝对路径。
+本 attempt 改动: dc5e76d crossref 索引闸按 `_source_where` 同口径 (+ 相对/绝对二择一单测, 改回只认绝对形 → 2 failed 变异已验);
+f07a690 LB 通用日文术语进 KNOWN_PUBLIC_COLLISIONS + 默认扫描面加 `eval/` (+3.7s); a47cb0c `check_index_freshness` 抽样 source
+(kb_root 之外的绝对路径 → rc=1, 对迁移前备份实测报 1000/1000) + README `--kb-root` 写明是索引里存的旧前缀。
+| 闸 | 结果 (HEAD a47cb0c, 无任何 override) |
+|---|---|
+| 1 pytest `-m "not slow" -q -o addopts="" -rs` | 2609 passed / 2 skipped (playwright) / 0 failed |
+| 2 CDISC 140q / study 48q | 逐题 0 差 (140/140, 51/51); <1.0 仍只有 q38/q126; 输出 `data/study/st01/eval/runs/split10_p14/*_a2.json` |
+| 3 裸 clone (`env -i`, CI 同款) | 2550 passed / 61 skipped / 0 failed |
+| 4 Docker 静态 | COPY 源全在; 构建上下文 vendor/ 只含 knowledge_base |
+| 5 hook | 全部提交 CLEAN; 全 tracked 文件扫描 858 文件 CLEAN, 默认面 938 文件 CLEAN |
