@@ -77,6 +77,12 @@ def main(argv=None, staged=None) -> int:
     rc = oidscan_evidence.main([*(str(t) for t in targets), "--catalog", str(args.catalog)])
     if rc == 0:
         return 0
+    if rc == 2:
+        # 闸拒绝给结论 (ABORT, 原因见上) —— 不是命中, 别往 ALLOWLIST 方向引。最常见: KB submodule 未挂。
+        print(f"\n[oidscan] ⛔ 拦下提交 (闸 rc=2: 拒绝给结论, 原因见上方 ABORT)。\n"
+              f"          最常见是 KB 缺失 → git submodule update --init --depth 1\n"
+              f"          (或设 SDTM_RAG_KB_ROOT_OVERRIDE 指向 KB)。")
+        return 1
     print(f"\n[oidscan] ⛔ 拦下提交 (闸 rc={rc})。上面是掩码明细, 定位够用但不泄漏真值。\n"
           f"          真要看真值 (仅限本机排查):\n"
           f"              ./.venv/bin/python scripts/oidscan_evidence.py <文件> --show-values\n"

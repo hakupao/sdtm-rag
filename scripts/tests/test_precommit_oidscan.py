@@ -85,3 +85,16 @@ def test_allows_commit_when_staged_files_are_clean(tmp_path, capsys):
     rc = main(["--catalog", str(cat), "--repo-root", str(tmp_path)], staged=["ok.md"])
     assert rc == 0
     assert "CLEAN" in capsys.readouterr().out
+
+
+def test_kb_missing_abort_prints_submodule_hint_not_allowlist(tmp_path, monkeypatch, capsys):
+    """闸 rc=2 (KB 公开词汇缺失 → 拒绝给结论) 时 hook 要指向 submodule, 不能引人去加 ALLOWLIST。"""
+    import scripts.oidscan_evidence as mod
+    monkeypatch.setattr(mod, "load_cdisc_domain_codes", lambda *a, **k: set())
+    cat = _catalog(tmp_path, items=[("偽ITEM01", "偽項目標籤甲")])
+    (tmp_path / "ok.md").write_text("这里没有任何敏感串", encoding="utf-8")
+    rc = main(["--catalog", str(cat), "--repo-root", str(tmp_path)], staged=["ok.md"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "git submodule update --init --depth 1" in out
+    assert "ALLOWLIST" not in out

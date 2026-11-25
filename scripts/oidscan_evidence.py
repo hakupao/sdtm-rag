@@ -23,7 +23,8 @@ activity 的 OID 或 label/name。
 锚定本文件所在仓根, 不依赖调用时的 cwd。(拆仓 2026-11 前本仓嵌在 monorepo 的 sdtm-rag/
 子目录里, 仓库根与服务根不同, 两处 docs/ 都要扫; 拍平后二者合一。)
 
-公开 CDISC 词汇 (domain 码 / 变量名) 读 `settings.kb_root` (KB submodule); 读不到就
+公开 CDISC 词汇 (domain 码 / 变量名) 读 `settings.kb_root` (默认 `<仓根>/vendor/sdtm-pedia/
+knowledge_base`, sdtm-pedia 仓的 submodule); 读不到就
 rc=2 拒绝给结论, 不带着空词汇集继续 (那会把讨论 AE/DM 等标准 domain 的文件全判 LEAK,
 或在别的改动下悄悄改变判定口径)。
 
@@ -370,7 +371,7 @@ def main(argv=None) -> int:
         # → 拒绝给结论, 不降级成"带警告继续" (KB 是 submodule, 漏 `git submodule update` 最常见)。
         print(f"ABORT: KB 公开词汇缺失 (domains={_CDISC_DOMAINS_DIR} → {len(cdisc_domains)} 个, "
               f"VARIABLE_INDEX={_VARIABLE_INDEX_PATH} → {len(cdisc_variables)} 个) —— 拒绝给结论。"
-              "先 `git submodule update --init`, 或设 SDTM_RAG_KB_ROOT_OVERRIDE。")
+              "先 `git submodule update --init --depth 1`, 或设 SDTM_RAG_KB_ROOT_OVERRIDE。")
         return 2
 
     # pattern 提前到这里编译 (原来在 target 解析之后) —— 下面 ABORT 分支要打印的
