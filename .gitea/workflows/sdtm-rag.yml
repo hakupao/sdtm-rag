@@ -1,19 +1,21 @@
 # sdtm-rag（SDTM 知识库助手）：push 到 main 后构建镜像，推送到 Gitea 镜像仓库，部署到 mini 虚拟机。
-# 部署配置在 sdtm-rag/deploy/container/；运维说明见 lan-services 仓库（第 6 步）。
+# 部署配置在 deploy/container/；运维说明见 lan-services 仓库（第 6 步）。
 # 回滚：在 Actions 页面手动运行本工作流，tag 填已有镜像的 commit SHA，跳过构建，直接部署该版本。
 name: sdtm-rag
 on:
   push:
     branches: [main]
     paths:
-      - "knowledge_base/**"
-      - "sdtm-rag/server/**"
-      - "sdtm-rag/ui/**"
-      - "sdtm-rag/webchat/**"
-      - "sdtm-rag/scripts/**"
-      - "sdtm-rag/pyproject.toml"
-      - "sdtm-rag/uv.lock"
-      - "sdtm-rag/deploy/container/**"
+      # knowledge_base 是 submodule: 升级 submodule 时变的是 gitlink 路径本身, 不是 knowledge_base/** 下的文件
+      - "knowledge_base"
+      - ".gitmodules"
+      - "server/**"
+      - "ui/**"
+      - "webchat/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "deploy/container/**"
       - ".gitea/workflows/sdtm-rag.yml"
   workflow_dispatch:
     inputs:
@@ -38,6 +40,19 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # 回滚 (手动填 tag) 时跳过测试: 回滚的是旧镜像, 不该被当前 HEAD 的测试拦住。
+      # 不依赖 runner 预装 uv: 装与 Dockerfile 同版本。data/study、chroma、.env 均不在 checkout 里,
+      # 依赖它们的测试带 local_data 标记, 由 scripts/tests/conftest.py 自动 skip (见 CLAUDE.md「测试」)。
+      - name: 测试
+        if: inputs.tag == ''
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.17/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          uv sync --frozen --extra dev
+          .venv/bin/python -m pytest -m "not slow" -q -o addopts=""
 
       - name: 登录镜像仓库
         env:
@@ -61,13 +76,13 @@ jobs:
       - name: 构建并推送
         if: inputs.tag == ''
         run: |
-          docker build -f sdtm-rag/deploy/container/Dockerfile -t "$IMAGE:${{ steps.tag.outputs.tag }}" .
+          docker build -f deploy/container/Dockerfile -t "$IMAGE:${{ steps.tag.outputs.tag }}" .
           docker push "$IMAGE:${{ steps.tag.outputs.tag }}"
 
       - name: 部署
         run: |
           docker pull "$IMAGE:${{ steps.tag.outputs.tag }}"
-          IMAGE_TAG="${{ steps.tag.outputs.tag }}" docker compose -f sdtm-rag/deploy/container/compose.yml up -d
+          IMAGE_TAG="${{ steps.tag.outputs.tag }}" docker compose -f deploy/container/compose.yml up -d
           docker inspect sdtm-rag-api sdtm-rag-ui --format '{{.Name}} 运行镜像：{{.Config.Image}}'
 
       - name: 健康检查

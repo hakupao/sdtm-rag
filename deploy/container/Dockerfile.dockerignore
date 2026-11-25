@@ -1,18 +1,19 @@
-# 构建上下文是仓库根目录；只放进镜像需要的部分（BuildKit 读 <Dockerfile>.dockerignore）
+# 构建上下文是本仓根目录；只放进镜像需要的部分（BuildKit 读 <Dockerfile>.dockerignore）
 *
 !knowledge_base/**
-!sdtm-rag/pyproject.toml
-!sdtm-rag/uv.lock
-!sdtm-rag/README.md
-!sdtm-rag/server/**
-!sdtm-rag/ui/**
-!sdtm-rag/webchat/**
-!sdtm-rag/scripts/**
-!sdtm-rag/eval/**
+!pyproject.toml
+!uv.lock
+!README.md
+!server/**
+!ui/**
+!webchat/**
+!scripts/**
+!eval/**
 **/__pycache__
 **/*.pyc
 **/.DS_Store
-sdtm-rag/eval/runs/
-sdtm-rag/eval/ablation_t1/
-sdtm-rag/eval/prod_wirein/
-sdtm-rag/webchat/tests/
+knowledge_base/.git
+eval/runs/
+eval/ablation_t1/
+eval/prod_wirein/
+webchat/tests/

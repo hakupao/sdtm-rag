@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# ⚠ 遗留 (launchd 时代, 2026-11-04 起生产改为容器, 见 deploy/README.md) —— 删除候选, 仅留作本机自用。
 # Deploy the SDTM RAG service from the repo tree into a self-contained service directory
 # (~/MyProject/sdtm-rag-service by default) and `uv sync` there. DEPLOY_PLAN.md §3.
 #
@@ -15,9 +16,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC="$(cd "$HERE/.." && pwd)"             # .../sdtm-rag
-REPO_ROOT="$(cd "$SRC/../../.." && pwd)"  # sdtm-pedia repo root
-KB="$REPO_ROOT/knowledge_base"
+SRC="$(cd "$HERE/.." && pwd)"             # repo root
+KB="${SDTM_RAG_KB_ROOT_OVERRIDE:-$SRC/knowledge_base}"  # 与 settings.kb_root 同一口径
 DEST="${SDTM_RAG_SERVICE_DIR:-$HOME/MyProject/sdtm-rag-service}"
 
 DRY=()
@@ -64,8 +64,7 @@ if [[ -z "${DRY[*]}" ]]; then
     echo "WARNING: 向量库与 knowledge_base 不同步 —— 上线前请先跑 ingest 并重启服务。"
   fi
   echo "Deploy complete."
-  echo "NEXT (go-live, after IT signoff): see deploy/README.md — fill .env, load the"
-  echo "service-dir LaunchAgent (--host 0.0.0.0), pmset, firewall."
+  echo "NEXT: fill $DEST/.env, then start uvicorn from $DEST (launchd plist templates were removed in 2026-11)."
 else
   echo "[dry-run] nothing changed; uv sync skipped."
 fi

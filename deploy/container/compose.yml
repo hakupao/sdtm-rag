@@ -2,7 +2,7 @@
 # 正式端口（2026-11-04 起取代 mini 本机 launchd 版）：API 8000（Lima 转发到 mini 的 0.0.0.0:8000），Streamlit 8501（只转发到 mini 的 127.0.0.1）。
 # 两个挂载都在虚拟机里：
 #   - data/：mini 的 /Volumes/DevSSD/deploy-data/sdtm-rag/data（Lima 可写挂载，不是项目目录）
-#   - .env：虚拟机本地的 /opt/sdtm-rag/.env（600，不在任何宿主机挂载里），只读挂到代码目录
+#   - .env：虚拟机本地的 /opt/sdtm-rag/.env（600，不在任何宿主机挂载里），只读挂到 /app/.env
 name: sdtm-rag
 x-common: &common
   image: 192.168.100.58/bojiang/sdtm-rag:${IMAGE_TAG:?需要 IMAGE_TAG}
@@ -11,12 +11,12 @@ x-common: &common
   volumes:
     - type: bind
       source: /Volumes/DevSSD/deploy-data/sdtm-rag/data
-      target: /Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag/data
+      target: /app/data
       bind:
         create_host_path: false
     - type: bind
       source: /opt/sdtm-rag/.env
-      target: /Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag/.env
+      target: /app/.env
       read_only: true
       bind:
         create_host_path: false
