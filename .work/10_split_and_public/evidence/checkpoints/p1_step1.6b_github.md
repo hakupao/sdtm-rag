@@ -7,3 +7,6 @@
 - C1: monorepo `origin`/`gitea` push URL 均设 `no_push`
 - **未做 (按 C2 推迟)**: Gitea `bojiang/sdtm-pedia` 强推 — 待 B 仓接管部署后
 - 已知局限: GitHub 上旧提交 (含 192.168.100.24/28/32、bojiang.local) 在 GC 前仍可按 SHA 访问; 彻底清除需 GitHub 支持
+
+## 切换部署前置 (预检 2026-11-25)
+- `/opt/sdtm-rag/.env` 25 个键中只有 `SDTM_RAG_DOGFOOD_LOG_OVERRIDE` 的值含旧绝对路径 (只列键名, 未读值)。切 B 镜像 (/app) 前: `cp -a /opt/sdtm-rag/.env /opt/sdtm-rag/.env.bak-20261125`, 再只替换该行前缀 `/Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag/` → `/app/` (sed, 不打印); 回滚旧镜像时还原 .env.bak。
