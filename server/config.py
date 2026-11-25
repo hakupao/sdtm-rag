@@ -399,8 +399,10 @@ class Settings(BaseSettings):
     @property
     def kb_root(self) -> Path:
         # CDISC KB 根的唯一事实源: server / scripts / tests 都从这里取 (SDTM_RAG_KB_ROOT_OVERRIDE)。
-        # 默认 = 仓根下的 knowledge_base/ (git submodule; 容器里即 /app/knowledge_base)。
-        return Path(self.kb_root_override) if self.kb_root_override else _SDTM_RAG_ROOT / "knowledge_base"
+        # 默认 = <仓根>/vendor/sdtm-pedia/knowledge_base (sdtm-pedia 仓的 git submodule, 浅克隆;
+        # 容器里即 /app/vendor/sdtm-pedia/knowledge_base)。
+        return (Path(self.kb_root_override) if self.kb_root_override
+                else _SDTM_RAG_ROOT / "vendor" / "sdtm-pedia" / "knowledge_base")
 
     @property
     def meta_path(self) -> Path:

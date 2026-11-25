@@ -1,0 +1,4 @@
+[submodule "vendor/sdtm-pedia"]
+	path = vendor/sdtm-pedia
+	url = https://github.com/hakupao/sdtm-pedia.git
+	shallow = true

@@ -193,7 +193,7 @@ def test_ingest_persists_relative_source(tmp_path, kb, monkeypatch):
 def test_kb_root_default_is_submodule_under_repo_root(monkeypatch):
     monkeypatch.delenv("SDTM_RAG_KB_ROOT_OVERRIDE", raising=False)
     repo_root = Path(config_mod.__file__).resolve().parents[1]
-    assert config_mod.Settings().kb_root == repo_root / "knowledge_base"
+    assert config_mod.Settings().kb_root == repo_root / "vendor" / "sdtm-pedia" / "knowledge_base"
 
 
 def test_kb_root_honors_override(monkeypatch, tmp_path):
