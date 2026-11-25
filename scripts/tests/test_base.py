@@ -20,13 +20,13 @@ from scripts.chunkers.base import (
     heading_positions,
     kb_commit_sha,
 )
-
+from server.config import settings
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
-KB_ROOT = Path(__file__).resolve().parents[3] / "knowledge_base"
+KB_ROOT = settings.kb_root
 TA_EXAMPLES = KB_ROOT / "domains" / "TA" / "examples.md"
 PC_EXAMPLES = KB_ROOT / "domains" / "PC" / "examples.md"
 

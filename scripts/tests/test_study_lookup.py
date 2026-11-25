@@ -1,6 +1,7 @@
 """S2 StudyLookup 单元测试 — 合成 catalog, 零真实 OID/label (红线)."""
 import json
 import re
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -365,15 +366,25 @@ def _chunk(cid, source):
     return SimpleNamespace(chunk_id=cid, source=source, via_lookup=False)
 
 
+def _src(where):
+    """rag._source_where 的相对形 ({"source": {"$in": [abs, rel]}} 的 rel)。"""
+    return where["source"]["$in"][1]
+
+
+def _src_where(rel):
+    return {"source": {"$in": [str(Path("/kb", rel).resolve()), rel]}}
+
+
 def _engine(lookup, search_log):
     eng = rag_mod.RAGEngine.__new__(rag_mod.RAGEngine)
+    eng.kb_root = Path("/kb")
     eng._study_lookup = lookup
     eng._structured_lookup = None
 
     def fake_search(query, n, where=None, query_embedding=None):
         search_log.append((n, where))
         if where and "source" in where:
-            return [_chunk(f"lk:{where['source']}", where["source"])]
+            return [_chunk(f"lk:{_src(where)}", _src(where))]
         if where and "form_oid" in where:
             return [_chunk(f"sc:{where['form_oid']}:{i}", f"x{i}.md") for i in range(n)]
         return []
@@ -393,7 +404,7 @@ def test_apply_study_lookup_prepends_cards_and_scopes_dedup_to_k():
     assert [c.chunk_id for c in out[1:4]] == ["sc:FRM_Z:0", "sc:FRM_Z:1", "sc:FRM_Z:2"]
     assert len(out) == 15
     assert len([c for c in out if c.chunk_id == "lk:stx__F__A.md"]) == 1  # 去重
-    assert (1, {"source": "stx__F__A.md"}) in log
+    assert (1, _src_where("stx__F__A.md")) in log
     assert (3, {"form_oid": "FRM_Z"}) in log
 
 
@@ -403,7 +414,7 @@ def test_apply_study_lookup_filters_source_by_bare_filename():
     log = []
     eng = _engine(_StubLookup(cards=["stx__F__A.md"]), log)
     eng._apply_study_lookup("q", [], 15, query_embedding=None)
-    assert log == [(1, {"source": "stx__F__A.md"})]
+    assert log == [(1, _src_where("stx__F__A.md"))]
 
 
 def test_apply_study_lookup_injects_scope_when_no_cards():
@@ -452,7 +463,7 @@ def test_apply_study_lookup_falls_back_when_lookup_chunks_empty():
     cosine = [_chunk(f"c{i}", f"c{i}.md") for i in range(20)]
     out = eng._apply_study_lookup("q", cosine, 15, query_embedding=None)
     assert [c.chunk_id for c in out] == [f"c{i}" for i in range(15)]
-    assert log == [(1, {"source": "gone.md"})]
+    assert log == [(1, _src_where("gone.md"))]
 
 
 def test_ctor_rejects_both_lookups(tmp_path):
@@ -470,6 +481,7 @@ def test_ctor_rejects_both_lookups(tmp_path):
 def _retrieve_engine(query_expansion="none", cards=("stx__F__A.md",)):
     """retrieve() 走通 S2 分支所需的最小 RAGEngine 状态 (不建 Chroma / 不发 embedding)."""
     eng = rag_mod.RAGEngine.__new__(rag_mod.RAGEngine)
+    eng.kb_root = Path("/kb")
     eng._structured_lookup = None
     eng.domain_expander = None   # DM1 D3 关: 本文件量的是 S2 注入契约, 不是扩写
     eng._study_lookup = SimpleNamespace(
@@ -494,7 +506,7 @@ def test_retrieve_routes_through_study_lookup():
     def fake_search(q, n, where=None, query_embedding=None):
         emb_seen.append(query_embedding)
         if where and "source" in where:
-            return [_chunk("lk:card", where["source"])]
+            return [_chunk("lk:card", _src(where))]
         return [_chunk(f"c{i}", f"c{i}.md") for i in range(n)]
 
     eng._search = fake_search
@@ -517,7 +529,7 @@ def test_retrieve_embeds_original_query_for_study_lookup_on_hyde_path():
     def fake_search(q, n, where=None, query_embedding=None):
         if where and "source" in where:
             inject_emb.append(query_embedding)
-            return [_chunk("lk:card", where["source"])]
+            return [_chunk("lk:card", _src(where))]
         return [_chunk(f"c{i}", f"c{i}.md") for i in range(n)]
 
     eng._search = fake_search

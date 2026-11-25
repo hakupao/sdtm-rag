@@ -13,7 +13,7 @@ from server.domain_expand import DomainExpander
 from server.meta_store import MetaStore
 from server.structured_lookup import StructuredLookup
 
-KB_ROOT = Path(__file__).resolve().parents[3] / "knowledge_base"
+KB_ROOT = settings.kb_root
 
 
 @pytest.fixture(scope="module")

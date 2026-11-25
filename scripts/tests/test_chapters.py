@@ -10,8 +10,9 @@ from pathlib import Path
 import pytest
 
 from scripts.chunkers.chapters import ChaptersChunker
+from server.config import settings
 
-KB_ROOT = Path(__file__).resolve().parents[3] / "knowledge_base"
+KB_ROOT = settings.kb_root
 CHAPTERS_DIR = KB_ROOT / "chapters"
 
 

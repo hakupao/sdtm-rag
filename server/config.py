@@ -385,7 +385,7 @@ class Settings(BaseSettings):
 
     # Self-contained service dir overrides (DEPLOY_PLAN §1 + §7 open item): deploy.sh
     # copies knowledge_base/ and data/chroma into ~/MyProject/sdtm-rag-service/ so the service no
-    # longer depends on the repo tree. Set SDTM_RAG_KB_ROOT / SDTM_RAG_CHROMA_DIR there.
+    # longer depends on the repo tree. Set SDTM_RAG_KB_ROOT_OVERRIDE / SDTM_RAG_CHROMA_DIR_OVERRIDE there.
     # Empty (default) = use the repo-relative paths below (dev / current localhost).
     kb_root_override: str = ""
     chroma_dir_override: str = ""
@@ -399,6 +399,7 @@ class Settings(BaseSettings):
 
     @property
     def kb_root(self) -> Path:
+        # CDISC KB 根的唯一事实源: server / scripts / tests 都从这里取 (SDTM_RAG_KB_ROOT_OVERRIDE)。
         return Path(self.kb_root_override) if self.kb_root_override else _REPO_ROOT / "knowledge_base"
 
     @property

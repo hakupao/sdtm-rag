@@ -10,8 +10,9 @@ from pathlib import Path
 import pytest
 
 from scripts.chunkers.model import ModelChunker
+from server.config import settings
 
-KB_ROOT = Path(__file__).resolve().parents[3] / "knowledge_base"
+KB_ROOT = settings.kb_root
 MODEL_DIR = KB_ROOT / "model"
 
 MODEL_FILES = [

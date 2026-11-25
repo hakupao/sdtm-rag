@@ -11,8 +11,9 @@ from pathlib import Path
 import pytest
 
 from scripts.chunkers.variable_index import VariableIndexChunker
+from server.config import settings
 
-KB_ROOT = Path(__file__).resolve().parents[3] / "knowledge_base"
+KB_ROOT = settings.kb_root
 VAR_INDEX_FILE = KB_ROOT / "VARIABLE_INDEX.md"
 
 

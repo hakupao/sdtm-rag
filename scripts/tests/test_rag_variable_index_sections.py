@@ -63,7 +63,9 @@ def test_map_is_cached_after_first_build():
 def test_map_query_filters_on_variable_index_source():
     eng = _engine()
     eng._vi_section_map()
-    assert eng.collection.get_calls[0] == {"source": str(Path("/kb/VARIABLE_INDEX.md"))}
+    assert eng.collection.get_calls[0] == {
+        "source": {"$in": [str(Path("/kb/VARIABLE_INDEX.md")), "VARIABLE_INDEX.md"]}
+    }
 
 
 def test_one_family_lost_fails_loud():
@@ -144,7 +146,7 @@ def test_ct_anchor_injects_exact_section():
     assert [c.chunk_id for c in out] == ["vi:§三 CT 交叉引用: C99073"]
     assert out[0].via_lookup
     assert log[0][0] == 1
-    assert log[0][1] == {"$and": [{"source": {"$eq": str(Path(VI_ABS))}},
+    assert log[0][1] == {"$and": [{"source": {"$in": [str(Path(VI_ABS)), "VARIABLE_INDEX.md"]}},
                                   {"section": {"$eq": "§三 CT 交叉引用: C99073"}}]}
     assert log[0][2] == [0.1]      # 复用已算好的 embedding, 零新增 round-trip
 

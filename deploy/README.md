@@ -48,9 +48,13 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.sdtmrag.api.plist
 # 5. 验证: 服务真的起来了 (不是崩溃重启循环)
 launchctl list | grep com.sdtmrag.api                # 第 2 列 last-exit-status 必须是 0
 #    非 0 → 看 logs/api.launchd.log。最常见死因: chroma 里存的 source 是**构建树**的
-#    绝对路径, 而 SDTM_RAG_KB_ROOT 指到了服务目录 → S1 的 VI section 映射建不出来 →
+#    绝对路径, 而 SDTM_RAG_KB_ROOT_OVERRIDE 指到了服务目录 → S1 的 VI section 映射建不出来 →
 #    lifespan 预热 raise → 启动失败 (KeepAlive 会每 10s 重试一次, 端口始终拒连)。
-#    解法: 在服务目录重灌索引 (.venv/bin/python -m scripts.ingest), 别只 rsync data/chroma。
+#    解法: **先停服务** (chroma 的 sqlite/HNSW 不支持双进程同时写), 再把 source 改写成 KB 相对路径 (.venv/bin/python -m scripts.migrate_source_relative
+#    <chroma_dir> --kb-root <构建树 knowledge_base 绝对路径> --apply), 或在服务目录重灌索引。
+#    已有服务目录的 .env 若仍写旧名 SDTM_RAG_KB_ROOT / SDTM_RAG_CHROMA_DIR (旧模板, deploy.sh 不覆盖 .env),
+#    须手动改成 *_OVERRIDE, 否则静默不生效。
+#    回滚注意: 迁移后的 chroma 不能配迁移前的旧代码 (旧代码只按绝对路径过滤 → 启动失败), 回滚须**同时**恢复旧 chroma 副本与旧版本。
 #    这条闸是有意的: 同样的错配在旧版本下会静默退化成纯 cosine, 服务照常出答案。
 
 # 5b. 验证: 登录门生效

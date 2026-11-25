@@ -8,15 +8,13 @@ Covers: pre-existing behaviors (locked), plus the three v3-driven fixes:
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from server.config import settings
 from server.meta_store import MetaStore
 from server.structured_lookup import StructuredLookup
 
-KB_ROOT = Path(__file__).resolve().parents[3] / "knowledge_base"
+KB_ROOT = settings.kb_root
 
 
 @pytest.fixture(scope="module")

@@ -33,12 +33,14 @@ from pathlib import Path
 
 # Repo paths (script lives at sdtm-rag/scripts/ingest.py)
 SDTM_RAG_ROOT = Path(__file__).resolve().parent.parent
-REPO_ROOT = SDTM_RAG_ROOT.parent  # sdtm-rag → repo root
-KB_ROOT = REPO_ROOT / "knowledge_base"
 CHROMA_DIR = SDTM_RAG_ROOT / "data" / "chroma"
 
 # Inject sdtm-rag root so `from scripts.chunkers import ...` resolves.
 sys.path.insert(0, str(SDTM_RAG_ROOT))
+
+from server.config import settings  # noqa: E402
+
+KB_ROOT = settings.kb_root
 
 import chromadb  # noqa: E402
 import litellm  # noqa: E402
@@ -336,7 +338,11 @@ def persist_to_chroma(
         for c in chunks
     ]
     documents = [c.text for c in chunks]
-    metadatas = [_coerce_metadata(c.to_metadata()) for c in chunks]
+    # source 存 KB 相对路径 (与 id 同口径), 索引不绑定某台机器的 KB 目录。
+    metadatas = [
+        _coerce_metadata({**c.to_metadata(), "source": Path(c.source).relative_to(KB_ROOT).as_posix()})
+        for c in chunks
+    ]
 
     # Chroma 1.5.x add() — single bulk call works for ~5K, but slice for safety log
     CHUNK_BATCH = 1000

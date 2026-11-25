@@ -20,10 +20,9 @@ sys.path.insert(0, str(_SDTM_RAG))
 from scripts.chunkers.chapters import ChaptersChunker
 from scripts.chunkers.terminology import TerminologyChunker
 from scripts.chunkers.variable_index import VariableIndexChunker
+from server.config import settings  # noqa: E402
 
-# KB root is 4 levels up:
-#   _smoke_batch_c.py -> chunkers/ -> scripts/ -> sdtm-rag/ -> sdtm-pedia/
-_KB_ROOT = _HERE.parents[3] / "knowledge_base"
+_KB_ROOT = settings.kb_root
 assert _KB_ROOT.exists(), f"KB root not found: {_KB_ROOT}"
 
 print(f"KB root: {_KB_ROOT}")

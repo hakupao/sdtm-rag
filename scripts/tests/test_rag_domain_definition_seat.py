@@ -20,13 +20,15 @@ class _FakeCollection:
         self.rows = rows  # list of (id, doc, meta)
 
     def get(self, where=None, include=None, **_):
-        def val(v):
-            # chroma 的 {"$eq": x} 与裸 x 等价 (见 rag.py:648-649 的既有写法)
-            return v["$eq"] if isinstance(v, dict) and "$eq" in v else v
+        def match(actual, v):
+            # chroma 的 {"$eq": x} 与裸 x 等价; {"$in": [...]} 为成员判定 (rag._source_where)
+            if isinstance(v, dict) and "$in" in v:
+                return actual in v["$in"]
+            return actual == (v["$eq"] if isinstance(v, dict) and "$eq" in v else v)
 
         def ok(meta):
             conds = where.get("$and", [where]) if where else []
-            return all(meta.get(k) == val(v) for c in conds for k, v in c.items())
+            return all(match(meta.get(k), v) for c in conds for k, v in c.items())
 
         sel = [r for r in self.rows if ok(r[2])]
         return {"ids": [r[0] for r in sel], "documents": [r[1] for r in sel],

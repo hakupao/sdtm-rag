@@ -13,9 +13,10 @@ import sys
 from pathlib import Path
 
 from scripts.kb_freshness import check_freshness
+from server.config import settings
 
 _ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_KB = _ROOT.parent / "knowledge_base"
+_DEFAULT_KB = settings.kb_root
 _DEFAULT_STAMP = _ROOT / "data" / "chroma" / "ingested_at_commit.txt"
 
 

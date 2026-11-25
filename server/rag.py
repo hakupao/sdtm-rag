@@ -549,7 +549,7 @@ class RAGEngine:
             return cosine[:k]
         lookup_chunks: list[RetrievedChunk] = []
         for src in res.cards[: self._STUDY_MAX_CARDS]:
-            for ch in self._search(query, 1, {"source": src}, query_embedding=query_embedding):
+            for ch in self._search(query, 1, self._source_where(src), query_embedding=query_embedding):
                 ch.via_lookup = True
                 lookup_chunks.append(ch)
         for form in res.form_scopes:
@@ -588,20 +588,26 @@ class RAGEngine:
         query_embedding: list[float] | None = None,
     ) -> list[RetrievedChunk]:
         """Up to `n` best (highest query-cosine) chunks whose source is exactly
-        `rel_path`. Filters Chroma on the absolute source path, reusing the precomputed
+        `rel_path`. Filters Chroma on the source path (see `_source_where`), reusing the precomputed
         query embedding (no fresh embedding call) so the injected chunks are the most
         relevant slices of that file. Empty list if the file has no chunks."""
+        return self._search(query, n, self._source_where(rel_path), query_embedding=query_embedding)
+
+    def _source_where(self, rel_path: str) -> dict:
+        """Chroma `where`: source 等于 `rel_path` 的绝对形或 KB 相对形 (二者择一命中)。
+
+        旧索引存绝对路径, 迁移后 (scripts/migrate_source_relative.py) 存 KB 相对路径;
+        过渡期同一份代码须对两种索引都成立。绝对形与旧写法逐字相同。"""
         abs_source = str((self.kb_root / rel_path).resolve())
-        return self._search(query, n, {"source": abs_source}, query_embedding=query_embedding)
+        return {"source": {"$in": [abs_source, rel_path]}}
 
     def _definition_chunk(self, rel_path: str) -> RetrievedChunk | None:
         """The domain-definition chunk of `rel_path` (section item_1, else overview).
         Literal section pin, no similarity search: the definition is always the first
         item and a cosine pick inside assumptions.md tends to land on examples."""
-        abs_source = str((self.kb_root / rel_path).resolve())
         for section in ("item_1", "overview"):
             res = self.collection.get(
-                where={"$and": [{"source": {"$eq": abs_source}},
+                where={"$and": [self._source_where(rel_path),
                                 {"section": {"$eq": section}}]},
                 include=["documents", "metadatas"],
             )
@@ -617,7 +623,7 @@ class RAGEngine:
                     chunk_id=res["ids"][idx],
                     # 与 _search / _bm25_search 同口径: source 对外一律是 KB 相对路径。
                     # 漏掉这步, 本机绝对路径会漏进引用头 / API sources / 落盘报告。
-                    source=self._relative_source(meta.get("source", abs_source)),
+                    source=self._relative_source(meta.get("source", rel_path)),
                     domain=meta.get("domain"), file_type=meta.get("file_type"),
                     section=meta.get("section"), similarity=1.0,
                     text=res["documents"][idx], via_lookup=True,
@@ -625,7 +631,7 @@ class RAGEngine:
         return None
 
     def _relative_source(self, source_raw: str) -> str:
-        """chunk 元数据里的绝对 source -> KB 相对路径 (kb_root 之外的原样返回)。
+        """chunk 元数据里的 source -> KB 相对路径 (已是相对 / kb_root 之外的原样返回)。
         `_search` / `_bm25_search` / `_definition_chunk` 三处共用同一口径。"""
         try:
             return Path(source_raw).relative_to(self.kb_root).as_posix()
@@ -655,8 +661,9 @@ class RAGEngine:
         if self._vi_sections is not None:
             return self._vi_sections
 
-        abs_source = str((self.kb_root / self._VARIABLE_INDEX_REL).resolve())
-        rows = self.collection.get(where={"source": abs_source}, include=["metadatas"])
+        rows = self.collection.get(
+            where=self._source_where(self._VARIABLE_INDEX_REL), include=["metadatas"]
+        )
         mapping: dict[str, str] = {}
         for meta in rows.get("metadatas") or []:
             section = (meta or {}).get("section")
@@ -681,7 +688,7 @@ class RAGEngine:
         n_ct = sum(1 for k in mapping if self._VI_CT_RE.match(k))
         if not n_ct or n_ct == len(mapping):
             raise RuntimeError(
-                f"VARIABLE_INDEX section map 不完整 ({abs_source}): "
+                f"VARIABLE_INDEX section map 不完整 ({self.kb_root / self._VARIABLE_INDEX_REL}): "
                 f"CT 码 {n_ct} 条 / 通用变量 {len(mapping) - n_ct} 条, 两族必须都在。"
                 " 索引缺该文件, 或 ingest 侧 section 命名已改 —— 静默回落 cosine 会把"
                 "检索退化伪装成无回归。"
@@ -707,7 +714,6 @@ class RAGEngine:
                 query, self._VARIABLE_INDEX_REL, 1, query_embedding=query_embedding
             )
 
-        abs_source = str((self.kb_root / self._VARIABLE_INDEX_REL).resolve())
         section_map = self._vi_section_map()
         # 先 resolve 再 cap: 解不出 section 的锚点不占名额 (见 _MAX_VI_SECTIONS 注释)
         sections = [section_map[a] for a in anchors if a in section_map]
@@ -715,7 +721,7 @@ class RAGEngine:
         for section in sections[: self._MAX_VI_SECTIONS]:
             out.extend(self._search(
                 query, 1,
-                {"$and": [{"source": {"$eq": abs_source}},
+                {"$and": [self._source_where(self._VARIABLE_INDEX_REL),
                           {"section": {"$eq": section}}]},
                 query_embedding=query_embedding,
             ))

@@ -6,8 +6,8 @@
 #   ./deploy/deploy.sh --dry-run  # show what would change, touch nothing
 #
 # Self-contained: code + data/chroma + knowledge_base are copied in, so the running
-# service no longer depends on the active git tree (set SDTM_RAG_KB_ROOT /
-# SDTM_RAG_CHROMA_DIR in the service .env — see deploy/.env.service.template).
+# service no longer depends on the active git tree (set SDTM_RAG_KB_ROOT_OVERRIDE /
+# SDTM_RAG_CHROMA_DIR_OVERRIDE in the service .env — see deploy/.env.service.template).
 #
 # SAFETY: this script is ADDITIVE for secrets — it NEVER overwrites $DEST/.env or touches
 # $DEST/.venv. Stop the service (or accept a brief read during the chroma copy) before a
