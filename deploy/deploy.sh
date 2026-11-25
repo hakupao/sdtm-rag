@@ -6,7 +6,7 @@
 #   ./deploy/deploy.sh            # sync + uv sync
 #   ./deploy/deploy.sh --dry-run  # show what would change, touch nothing
 #
-# Self-contained: code + data/chroma + knowledge_base are copied in, so the running
+# Self-contained: code + data/chroma + the KB (vendor/sdtm-pedia/knowledge_base → $DEST/knowledge_base) are copied in, so the running
 # service no longer depends on the active git tree (set SDTM_RAG_KB_ROOT_OVERRIDE /
 # SDTM_RAG_CHROMA_DIR_OVERRIDE in the service .env — see deploy/.env.service.template).
 #
@@ -17,7 +17,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$(cd "$HERE/.." && pwd)"             # repo root
-KB="${SDTM_RAG_KB_ROOT_OVERRIDE:-$SRC/knowledge_base}"  # 与 settings.kb_root 同一口径
+KB="${SDTM_RAG_KB_ROOT_OVERRIDE:-$SRC/vendor/sdtm-pedia/knowledge_base}"  # 与 settings.kb_root 同一口径 (submodule)
 DEST="${SDTM_RAG_SERVICE_DIR:-$HOME/MyProject/sdtm-rag-service}"
 
 DRY=()

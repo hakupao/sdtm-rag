@@ -1,6 +1,7 @@
 # 构建上下文是本仓根目录；只放进镜像需要的部分（BuildKit 读 <Dockerfile>.dockerignore）
 *
-!knowledge_base/**
+# vendor/ 下只放行 KB (sdtm-pedia 仓的其余目录、.git 均不进构建上下文)
+!vendor/sdtm-pedia/knowledge_base/**
 !pyproject.toml
 !uv.lock
 !README.md
@@ -12,7 +13,6 @@
 **/__pycache__
 **/*.pyc
 **/.DS_Store
-knowledge_base/.git
 eval/runs/
 eval/ablation_t1/
 eval/prod_wirein/

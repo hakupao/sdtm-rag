@@ -7,10 +7,10 @@
 
 | 文件 | 作用 |
 |------|------|
-| `container/Dockerfile` | 构建上下文 = 本仓根 (checkout 须含 `knowledge_base` submodule); 代码 `/app`, KB `/app/knowledge_base` |
+| `container/Dockerfile` | 构建上下文 = 本仓根 (checkout 须含 submodule: `git submodule update --init --depth 1`); 代码 `/app`, KB `/app/vendor/sdtm-pedia/knowledge_base` (只拷 KB, sdtm-pedia 其余不进镜像) |
 | `container/Dockerfile.dockerignore` | 只放镜像需要的目录 |
-| `container/compose.yml` | `api` 8000 + `ui` Streamlit 8501 (只转发到 mini 本机); `data/` → `/app/data`, `.env` → `/app/.env` (只读) |
-| `../.gitea/workflows/sdtm-rag.yml` | push main → 测试 → 构建 → 推镜像 → 部署 → 健康检查 |
+| `container/compose.yml` | `api` 8000 + `ui` Streamlit 8501 (只转发到 mini 本机); `data/` → `$APP_DIR/data`, `.env` → `$APP_DIR/.env` (只读; `APP_DIR` 缺省 `/app`) |
+| `../.gitea/workflows/sdtm-rag.yml` | push main → 测试 → 构建 → 推镜像 → 部署 → 健康检查; checkout `submodules: true` (公开 GitHub 仓, 无需凭据) |
 | `deploy.sh` + `.env.service.template` | **遗留** (launchd 时代服务目录同步), 删除候选 |
 
 宿主侧: 数据 `/Volumes/DevSSD/deploy-data/sdtm-rag/data` (chroma / study / 反馈记录); 密钥 虚拟机 `/opt/sdtm-rag/.env` (600)。
@@ -27,6 +27,11 @@ push 到 Gitea `main` (路径过滤见 workflow) → 自动部署, 镜像标签 
 ## 回滚
 
 Actions 页面手动运行 `sdtm-rag` 工作流, `tag` 填已有镜像的完整 commit SHA → 跳过测试与构建, 直接部署该版本。
+
+跨 step 1.5a 边界: 之前 (monorepo 时代) 的镜像 WorkingDir = `/Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag`, 代码按
+`__file__` 找 `data/` `.env`, KB 打在镜像内同一绝对路径下。部署步骤 pull 后取
+`APP_DIR=$(docker image inspect -f '{{.Config.WorkingDir}}' <镜像>)` (空则 `/app`) 传给 compose, 挂载目标随之切换,
+新旧镜像都能挂对。手工回滚同理: `APP_DIR=<WorkingDir> IMAGE_TAG=<sha> docker compose -f deploy/container/compose.yml up -d`。
 
 ⚠ chroma 的 `source` 元数据在 step 1.2 (2026-11) 已改写为 KB 相对路径。回滚到 1.2 之前的镜像须**同时**恢复迁移前的
 chroma 副本 (旧代码只按绝对路径过滤 → 启动失败); 备份 `/Volumes/DevSSD/backups/sdtm-pedia-pre-split-2026-11/`。

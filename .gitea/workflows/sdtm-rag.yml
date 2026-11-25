@@ -6,13 +6,15 @@ on:
   push:
     branches: [main]
     paths:
-      # knowledge_base 是 submodule: 升级 submodule 时变的是 gitlink 路径本身, 不是 knowledge_base/** 下的文件
-      - "knowledge_base"
+      # KB 是 submodule (vendor/sdtm-pedia): 升级 submodule 时变的是 gitlink 路径本身, 不是其下的文件
+      - "vendor/sdtm-pedia"
       - ".gitmodules"
       - "server/**"
       - "ui/**"
       - "webchat/**"
       - "scripts/**"
+      - "eval/**"
+      - "README.md"
       - "pyproject.toml"
       - "uv.lock"
       - "deploy/container/**"
@@ -39,6 +41,7 @@ jobs:
     if: gitea.ref == 'refs/heads/main'
     timeout-minutes: 60
     steps:
+      # submodule 是公开 GitHub 仓 (https), 无需凭据; .gitmodules 设了 shallow = true
       - uses: actions/checkout@v4
         with:
           submodules: true
@@ -52,7 +55,7 @@ jobs:
           curl -LsSf https://astral.sh/uv/0.11.17/install.sh | sh
           export PATH="$HOME/.local/bin:$PATH"
           uv sync --frozen --extra dev
-          .venv/bin/python -m pytest -m "not slow" -q -o addopts=""
+          .venv/bin/python -m pytest -m "not slow" -q -o addopts="" -rs
 
       - name: 登录镜像仓库
         env:
@@ -82,6 +85,12 @@ jobs:
       - name: 部署
         run: |
           docker pull "$IMAGE:${{ steps.tag.outputs.tag }}"
+          # 挂载目标跟随镜像的 WorkingDir: step 1.5a 前 (monorepo 时代) 的镜像是
+          # /Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag, 之后是 /app —— 回滚旧镜像时 data/.env 才挂得对
+          APP_DIR=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMAGE:${{ steps.tag.outputs.tag }}")
+          [ -n "$APP_DIR" ] || APP_DIR=/app
+          export APP_DIR
+          echo "挂载目标目录：$APP_DIR"
           IMAGE_TAG="${{ steps.tag.outputs.tag }}" docker compose -f deploy/container/compose.yml up -d
           docker inspect sdtm-rag-api sdtm-rag-ui --format '{{.Name}} 运行镜像：{{.Config.Image}}'
 

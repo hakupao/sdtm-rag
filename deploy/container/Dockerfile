@@ -1,6 +1,7 @@
-# sdtm-rag 容器（mini 虚拟机部署，见 lan-services）。构建上下文 = 本仓根目录（checkout 须含 knowledge_base submodule）。
+# sdtm-rag 容器（mini 虚拟机部署，见 lan-services）。构建上下文 = 本仓根目录（checkout 须含 vendor/sdtm-pedia submodule：
+# git submodule update --init --depth 1）。只拷 submodule 里的 knowledge_base/，sdtm-pedia 仓其余内容不进镜像。
 # chroma 元数据存的是 KB 相对路径（step 1.2 起），代码和 KB 位置不再需要与构建机一致：
-# 代码在 /app，KB 在 /app/knowledge_base（settings.kb_root 默认值）。
+# 代码在 /app，KB 在 /app/vendor/sdtm-pedia/knowledge_base（settings.kb_root 默认值）。
 # data/（chroma、study、反馈记录）和 .env（密钥）不进镜像，运行时由 compose 挂到 /app/data、/app/.env。
 FROM ghcr.io/astral-sh/uv:0.11.17 AS uv
 
@@ -21,7 +22,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-install-project
 
-COPY knowledge_base ./knowledge_base
+COPY vendor/sdtm-pedia/knowledge_base ./vendor/sdtm-pedia/knowledge_base
 COPY server ./server
 COPY ui ./ui
 COPY webchat ./webchat
