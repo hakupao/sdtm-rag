@@ -10,7 +10,7 @@
 
 ## What it is
 
-sdtm-rag is a retrieval-augmented question-answering service for CDISC SDTM (Study Data Tabulation Model). Its corpus is the Markdown knowledge base in [hakupao/sdtm-pedia](https://github.com/hakupao/sdtm-pedia), which covers 63 domains, controlled terminology, model concepts and implementation-guide chapters. This repo pins that knowledge base as the git submodule `vendor/sdtm-pedia`.
+sdtm-rag is a retrieval-augmented question-answering service for CDISC SDTM (Study Data Tabulation Model). Its corpus is the Markdown knowledge base in [hakupao/sdtm-pedia](https://github.com/hakupao/sdtm-pedia), which covers 63 domains, controlled terminology, model concepts and implementation-guide chapters. This repo pins that knowledge base as the git submodule `vendor/sdtm-pedia`, always at a KB release tag `kb-YYYY.MM.DD` (currently `kb-2026.11.25`), so every deployment maps to a named KB version.
 
 On top of plain RAG it adds a structured knowledge graph built from the same knowledge base (`data/meta/meta.yaml`), deterministic lookups for query types that embeddings miss, and gates that check answers after generation. It can also serve a second, private study corpus (EDC forms and study documents) next to the CDISC corpus. That data never enters git.
 

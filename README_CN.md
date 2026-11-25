@@ -10,7 +10,7 @@
 
 ## 这是什么
 
-sdtm-rag 是一个面向 CDISC SDTM（Study Data Tabulation Model，研究数据制表模型）的检索增强问答（RAG）服务。语料是 [hakupao/sdtm-pedia](https://github.com/hakupao/sdtm-pedia) 仓库里的 Markdown 知识库，覆盖 63 个 domain、受控术语、模型概念和实施指南各章。本仓把这个知识库作为 git submodule 固定在 `vendor/sdtm-pedia`。
+sdtm-rag 是一个面向 CDISC SDTM（Study Data Tabulation Model，研究数据制表模型）的检索增强问答（RAG）服务。语料是 [hakupao/sdtm-pedia](https://github.com/hakupao/sdtm-pedia) 仓库里的 Markdown 知识库，覆盖 63 个 domain、受控术语、模型概念和实施指南各章。本仓把这个知识库作为 git submodule 固定在 `vendor/sdtm-pedia`，且只钉到知识库的发布 tag `kb-YYYY.MM.DD`（当前 `kb-2026.11.25`），每次部署都对应一个有名字的 KB 版本。
 
 在普通 RAG 的基础上，本服务还做了三件事：用同一份知识库构建结构化知识图谱（`data/meta/meta.yaml`）；对向量检索容易漏掉的几类问题，用确定性规则直接查找；回答生成后再做一轮确定性校验。服务还可以在 CDISC 语料之外，再挂一套私有的研究语料（EDC 表单和研究文档）。这部分数据从不进 git。
 

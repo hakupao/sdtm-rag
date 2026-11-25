@@ -21,7 +21,7 @@ FastAPI (`server/`) + Chroma + BM25 + Chat UI (`webchat/`) + Streamlit 调试 UI
 | 「收尾」 | 执行下方收尾清单 |
 | 「部署」 | 按 `deploy/README.md`: 只构建 (deploy 取消勾选) → 测试端口验证 → 正式部署 |
 | ⚠ 自动部署 | 改 server/ui/webchat/scripts/eval/README.md/pyproject 等运行时路径的 push 即部署; 只改文档/测试的提交加 `[skip ci]` |
-| 「KB 更新」 | 升 submodule → `.venv/bin/python -m scripts.check_index_freshness`; STALE 则 `-m scripts.ingest` (本机 + 生产 data/ 都要) → 两条检索闸 + pytest → push (会部署) |
+| 「KB 更新」 | 升 submodule 到 A 仓 tag `kb-YYYY.MM.DD` (`cd vendor/sdtm-pedia && git fetch --depth 1 origin tag <tag> && git checkout <tag>`) → `.venv/bin/python -m scripts.check_index_freshness`; STALE 则 `-m scripts.ingest` + `-m scripts.build_meta` (本机 + 生产 data/ 都要, 指纹不变则都免) → 两条检索闸 + pytest → push (submodule 变更会触发部署; 1.9 前用 `[skip ci]` + 「部署」流程) |
 
 ## 规则 (每条必守)
 
