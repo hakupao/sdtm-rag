@@ -234,8 +234,7 @@ def test_default_targets_are_absolute_and_git_root_anchored():
     # 拆仓拍平后仓库根 = 服务根; docs/ 只有一棵, 不重复扫 (重复会让命中数翻倍), 闸自身也在内
     assert GIT_ROOT == REPO_ROOT
     assert len(set(DEFAULT_TARGETS)) == len(DEFAULT_TARGETS)
-    assert REPO_ROOT / "evidence" in DEFAULT_TARGETS
-    assert REPO_ROOT / "docs" in DEFAULT_TARGETS
+    assert REPO_ROOT / "docs" in DEFAULT_TARGETS    # 含 docs/evidence/ (证据目录)
     assert any(t.name == "oidscan_evidence.py" for t in DEFAULT_TARGETS)
 
 
@@ -263,6 +262,7 @@ def test_default_targets_include_source_trees():
     from scripts.oidscan_evidence import DEFAULT_TARGETS, REPO_ROOT
 
     assert REPO_ROOT / "scripts" in DEFAULT_TARGETS
+    assert REPO_ROOT / "tests" in DEFAULT_TARGETS
     assert REPO_ROOT / "eval" in DEFAULT_TARGETS
     assert REPO_ROOT / "server" in DEFAULT_TARGETS
 

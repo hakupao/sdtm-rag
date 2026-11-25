@@ -114,7 +114,7 @@ DEFAULT_CATALOG = REPO_ROOT / "data" / "study" / "st01" / "catalog.json"
 # 当 allowlist 键, 若闸不自扫, 这 2 项就"因为在扫描面外而巧合地清白", 不是走正规
 # allowlist 路径判出来的)。
 DEFAULT_TARGETS: tuple[Path, ...] = (
-    REPO_ROOT / "evidence",
+    # 证据目录 2026-11-25 (R1 重组) 从仓根 evidence/ 移到 docs/evidence/, 由 docs 覆盖
     REPO_ROOT / "docs",
     # 源码树 (2026-08-26 加入): C1 那次真实泄漏就在 `scripts/tests/` 里, 而当时默认面
     # 只有 evidence/ + docs/ —— "手跑一次闸"这个动作天然看不见它。pre-commit 只管新
@@ -122,6 +122,8 @@ DEFAULT_TARGETS: tuple[Path, ...] = (
     # 代价: 默认面 205 → 538 文件, 实测 10.0s → 11.3s (每文件约 62ms, 见
     # precommit_oidscan.py 的说明); 手动审计能接受, 这也正是 hook 不用默认面的原因。
     REPO_ROOT / "scripts",
+    # 测试树 2026-11-25 (R1 重组) 从 scripts/tests/ 移到仓根 tests/, 扫描面随之保留
+    REPO_ROOT / "tests",
     REPO_ROOT / "server",
     # eval/ (2026-11-25 加入): 题面 yml / 评测脚本也进 git, 此前不在默认面, 存量撞车无人发现;
     # 实测 158 文件 +3.7s (`time python scripts/oidscan_evidence.py eval`)。
@@ -180,7 +182,7 @@ KNOWN_PUBLIC_COLLISIONS: dict[str, str] = {
 # needle 偶然撞车), 或闸源码自己因构造 allowlist/collisions 说明文字而必然写出的
 # needle 字面量; token 本身放哪都安全的公开词汇走上面 KNOWN_PUBLIC_COLLISIONS 那档。
 ALLOWLIST: dict[tuple[str, str], str] = {
-    ("scripts/tests/test_build_field_cards.py", "EMVI"): (
+    ("tests/test_build_field_cards.py", "EMVI"): (
         "真实 item OID, 但用作直肠癌 MRI 通用临床判读用语 "
         "(test_flat_preserves_bare_less_than_in_real_criteria), "
         "早于本任务已存在于仓库, 非本次改动引入"
