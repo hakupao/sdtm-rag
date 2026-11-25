@@ -45,10 +45,11 @@ from pathlib import Path
 
 import yaml
 
-# sdtm-rag/ 仓根 (本文件在 eval/tests_support/ 下)
+# 仓根 (本文件在 eval/tests_support/ 下)
 ROOT = Path(__file__).resolve().parents[2]
-# 旧版本在 git 里的路径是**仓根相对**的, 而本文件所在的 python 包根是 sdtm-rag/
-GIT_PATH = "sdtm-rag/eval/run_eval.py"
+# 旧版本在 git 里的路径 (仓根相对)。拆仓 (2026-11) 前的 monorepo 提交里是 sdtm-rag/eval/run_eval.py,
+# 那些 SHA 在本仓已改写, 按 docs/history/monorepo_commit_map.txt 换算后再传 --old-ref。
+GIT_PATH = "eval/run_eval.py"
 
 # ---- 输入网格 ---------------------------------------------------------------
 SRC_SETS: list[list[str]] = [

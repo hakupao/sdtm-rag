@@ -30,7 +30,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from server.config import settings  # noqa: E402
 from server.study_dossier import build_dossier  # noqa: E402
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
 QIDS = ("dm01", "dm02", "dm05")
 MODELS = ("opus-5", "sonnet-5")
 # 答案很长且可能自动续写多轮; 读超时按最坏情况给 15 分钟, 不是按平均给.
@@ -264,7 +263,7 @@ def _write_judge_pack(out_dir: Path, runs, questions: dict[str, dict]) -> None:
     for qid, model, rec in runs:
         q = questions[qid]
         gold = [s for s in q["expected_sources"] if not s.startswith("domains/")]
-        defn = REPO_ROOT / "knowledge_base" / "domains" / q["domain"] / "assumptions.md"
+        defn = settings.kb_root / "domains" / q["domain"] / "assumptions.md"
         pack_runs.append({
             "qid": qid,
             "model": model,

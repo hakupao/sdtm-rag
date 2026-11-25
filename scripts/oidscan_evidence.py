@@ -13,18 +13,19 @@ activity 的 OID 或 label/name。
                                                   [--catalog PATH] [--show N]
 
     target 可给 0 个、1 个或多个文件/目录 (目录递归展开)。**不给时用固定的默认
-    扫描面** (与 cwd 无关, 见下方"默认扫描面"): `<sdtm-rag>/evidence/`、
-    `<git 仓库根>/docs/`、`<sdtm-rag>/docs/`、以及本脚本自身 —— 覆盖 spec §8
+    扫描面** (与 cwd 无关, 见下方"默认扫描面"): `<仓根>/evidence/`、
+    `<仓根>/docs/`、`scripts/`、`server/`、以及本脚本自身 —— 覆盖 spec §8
     第 1/3 条点名的证据/文档/spec/plan 位置, 外加闸自扫。给了 target 时按 CWD
     解析 (标准 CLI 行为), 不受下面的"默认扫描面用 git 根锚定"规则约束。
 
-默认扫描面 (为什么不能用 cwd 相对路径): `evidence/` 只存在于 `<sdtm-rag>/evidence/`
-一处, 但 `docs/` **在两处都存在且内容不同** —— `<git 仓库根>/docs/superpowers/`
-放着本仓全部 spec/plan (spec §8 第 1 条点名的对象), `<sdtm-rag>/docs/` 是另一棵
-独立小树 (只有 1 个无关文件)。若默认扫描面用 cwd 相对的 `"docs"`, 按文档教的
-`cd sdtm-rag` 方式调用时只会展开成 `<sdtm-rag>/docs/`, repo 根的 spec/plan 整棵
-**不在扫描面内**, 而闸打印的 `CLEAN` 会让人误信"spec/plan 也扫过了"。故默认目标
-一律解析成绝对路径, 用从本文件向上找 `.git` 定位的仓库根锚定, 不依赖调用时的 cwd。
+默认扫描面 (为什么不能用 cwd 相对路径): cwd 不在仓根时, cwd 相对的 `"docs"` 会展开到
+别处或不存在, 而闸打印的 `CLEAN` 会让人误信"都扫过了"。故默认目标一律解析成绝对路径,
+锚定本文件所在仓根, 不依赖调用时的 cwd。(拆仓 2026-11 前本仓嵌在 monorepo 的 sdtm-rag/
+子目录里, 仓库根与服务根不同, 两处 docs/ 都要扫; 拍平后二者合一。)
+
+公开 CDISC 词汇 (domain 码 / 变量名) 读 `settings.kb_root` (KB submodule); 读不到就
+rc=2 拒绝给结论, 不带着空词汇集继续 (那会把讨论 AE/DM 等标准 domain 的文件全判 LEAK,
+或在别的改动下悄悄改变判定口径)。
 
 判定规则:
     needle 来源 : --catalog 指向的 catalog.json, 两个独立的 needle 池:
@@ -84,6 +85,8 @@ import re
 import sys
 from pathlib import Path
 
+from server.config import settings
+
 
 def _find_git_root(start: Path) -> Path:
     """从 start 向上找含 `.git` 的目录 —— 默认扫描面靠这个锚定, 不依赖调用时 cwd
@@ -101,18 +104,16 @@ def _find_git_root(start: Path) -> Path:
 # (由 test_*_are_reachable_under_default_min_len 两条元测试看守)。
 DEFAULT_MIN_LEN = 4
 
-REPO_ROOT = Path(__file__).resolve().parent.parent    # sdtm-rag/
-GIT_ROOT = _find_git_root(Path(__file__))              # sdtm-pedia/ (可能与上面不同)
+REPO_ROOT = Path(__file__).resolve().parent.parent    # 仓根
+GIT_ROOT = _find_git_root(Path(__file__))              # 拆仓 (2026-11) 后与 REPO_ROOT 相同
 _SELF_PATH = Path(__file__).resolve()
 
 DEFAULT_CATALOG = REPO_ROOT / "data" / "study" / "st01" / "catalog.json"
-# 全部解析成绝对路径 (见模块 docstring"默认扫描面"段): evidence/ 只在 sdtm-rag/ 下有,
-# docs/ 两处都有且内容不同, 都要覆盖; 闸自扫见 N-系列复审 (闸源码自己含 2 个真实 OID
+# 全部解析成绝对路径 (见模块 docstring"默认扫描面"段); 闸自扫见 N-系列复审 (闸源码自己含 2 个真实 OID
 # 当 allowlist 键, 若闸不自扫, 这 2 项就"因为在扫描面外而巧合地清白", 不是走正规
 # allowlist 路径判出来的)。
 DEFAULT_TARGETS: tuple[Path, ...] = (
     REPO_ROOT / "evidence",
-    GIT_ROOT / "docs",
     REPO_ROOT / "docs",
     # 源码树 (2026-08-26 加入): C1 那次真实泄漏就在 `scripts/tests/` 里, 而当时默认面
     # 只有 evidence/ + docs/ —— "手跑一次闸"这个动作天然看不见它。pre-commit 只管新
@@ -131,11 +132,11 @@ DEFAULT_TARGETS: tuple[Path, ...] = (
 # (具体假阳性数字不写死在这里 —— 数字随扫描面/needle 集版本漂移, 写死的绝对数在
 # 复审第 4 轮被证明复现不出来, 见仓规矩"假实测比缺陷更害人"; 要看当前实际影响,
 # 拿 --show-values 关掉三层排除各自跑一遍自行核对, 不要引用本文件里的历史数字)。
-_CDISC_DOMAINS_DIR = GIT_ROOT / "knowledge_base" / "domains"
+_CDISC_DOMAINS_DIR = settings.kb_root / "domains"
 # 同理: 标准 SDTM 变量名 (STUDYID/AGE/VISIT/...) 也是公开词汇, 且 EDC item_oid 常
 # 直接借用变量名 (item 是"这题录入哪个变量"的载体)。来源同一份已生成产物, 不新
 # 引入数据依赖。
-_VARIABLE_INDEX_PATH = GIT_ROOT / "knowledge_base" / "VARIABLE_INDEX.md"
+_VARIABLE_INDEX_PATH = settings.kb_root / "VARIABLE_INDEX.md"
 _VARIABLE_ROW_RE = re.compile(r"^\| ([A-Z0-9_]+) \|", re.M)
 
 # 全局排除 (不分文件, 对整个仓库任何位置都放行) —— 只留"token 本身不含研究识别
@@ -154,6 +155,7 @@ KNOWN_PUBLIC_COLLISIONS: dict[str, str] = {
     "RECIST": "公开肿瘤学标准 (Response Evaluation Criteria in Solid Tumors), 非私密标识",
     "WEIGHT": "CDISC 标准 Controlled Terminology 取值 (VSTESTCD codelist 里的公开码, 如 C49678)",
     "HEIGHT": "同上 (VSTESTCD codelist, 如 C49679)",
+    "BILI": "CDISC LBTESTCD 公开码 (C38037 Bilirubin), eval/error_test_set.py 的 LB 合成数据用到",
     "有害事象": "CDISC AE domain 的标准日文译名 (\"不良事件\"), 用作 routing_signals.py 的"
               "通用术语关键词与 gold 题面示例, 与 AE/DM 等标准 domain 码同类, 非私密标识",
     "SCRT": "公开肿瘤学治疗方案缩写 (Short Course RadioTherapy) 与本研究真实 form/"
@@ -166,18 +168,18 @@ KNOWN_PUBLIC_COLLISIONS: dict[str, str] = {
 }
 
 # 明确不算泄漏的 (相对 git 仓库根的路径, needle) —— 每条必须附一句话理由, 供审计
-# 追溯。路径相对 GIT_ROOT (仓库根, 即 sdtm-pedia/), 用 posix 分隔符 —— 与默认扫描面
+# 追溯。路径相对 GIT_ROOT (仓库根), 用 posix 分隔符 —— 与默认扫描面
 # 现在能覆盖仓库根内任意位置一致。这一档管的是"只在特定文件里才成立"的例外 (如
 # 测试固件里刻意保留的真实临床用语、计划文档里的合成 fixture 值、模板占位符与真实
 # needle 偶然撞车), 或闸源码自己因构造 allowlist/collisions 说明文字而必然写出的
 # needle 字面量; token 本身放哪都安全的公开词汇走上面 KNOWN_PUBLIC_COLLISIONS 那档。
 ALLOWLIST: dict[tuple[str, str], str] = {
-    ("sdtm-rag/scripts/tests/test_build_field_cards.py", "EMVI"): (
+    ("scripts/tests/test_build_field_cards.py", "EMVI"): (
         "真实 item OID, 但用作直肠癌 MRI 通用临床判读用语 "
         "(test_flat_preserves_bare_less_than_in_real_criteria), "
         "早于本任务已存在于仓库, 非本次改动引入"
     ),
-    ("sdtm-rag/scripts/oidscan_evidence.py", "EMVI"): (
+    ("scripts/oidscan_evidence.py", "EMVI"): (
         "本闸把上面那条 allowlist 的 needle 字面量写进了自己的源码 (字典键必须是"
         "真实字符串才能匹配) —— 闸源码现已纳入默认扫描面自扫, 这条自引用因此需要"
         "走正规 allowlist, 不能靠「不在扫描面内」侥幸清白"
@@ -363,12 +365,13 @@ def main(argv=None) -> int:
         print(f"ABORT: {catalog_path} 的 OID 池与 label 池合并后为空 —— "
               "拒绝给结论 (同上, fail-closed)。")
         return 2
-    if not cdisc_domains:
-        print(f"警告: 未找到 {_CDISC_DOMAINS_DIR}, 未剔除标准 CDISC domain 码 —— "
-              "若目标文件讨论标准 domain (AE/DM/...), 可能出现假阳性。")
-    if not cdisc_variables:
-        print(f"警告: 未找到 {_VARIABLE_INDEX_PATH}, 未剔除标准 CDISC 变量名 —— "
-              "若目标文件讨论标准变量 (AGE/VISIT/...), 可能出现假阳性。")
+    if not cdisc_domains or not cdisc_variables:
+        # 公开词汇集为空 = 闸的判定口径变了 (标准 domain 码/变量名全被当 needle), 结论不可比
+        # → 拒绝给结论, 不降级成"带警告继续" (KB 是 submodule, 漏 `git submodule update` 最常见)。
+        print(f"ABORT: KB 公开词汇缺失 (domains={_CDISC_DOMAINS_DIR} → {len(cdisc_domains)} 个, "
+              f"VARIABLE_INDEX={_VARIABLE_INDEX_PATH} → {len(cdisc_variables)} 个) —— 拒绝给结论。"
+              "先 `git submodule update --init`, 或设 SDTM_RAG_KB_ROOT_OVERRIDE。")
+        return 2
 
     # pattern 提前到这里编译 (原来在 target 解析之后) —— 下面 ABORT 分支要打印的
     # 缺失路径本身也可能含真名 (用户手滑传了真实卡片路径但打错了字), 必须先有

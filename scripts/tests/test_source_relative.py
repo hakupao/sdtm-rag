@@ -190,10 +190,10 @@ def test_ingest_persists_relative_source(tmp_path, kb, monkeypatch):
 
 # ---- D. KB 根唯一事实源 ------------------------------------------------------
 
-def test_kb_root_default_is_sibling_of_sdtm_rag(monkeypatch):
+def test_kb_root_default_is_submodule_under_repo_root(monkeypatch):
     monkeypatch.delenv("SDTM_RAG_KB_ROOT_OVERRIDE", raising=False)
-    sdtm_rag = Path(config_mod.__file__).resolve().parents[1]
-    assert config_mod.Settings().kb_root == sdtm_rag.parent / "knowledge_base"
+    repo_root = Path(config_mod.__file__).resolve().parents[1]
+    assert config_mod.Settings().kb_root == repo_root / "knowledge_base"
 
 
 def test_kb_root_honors_override(monkeypatch, tmp_path):

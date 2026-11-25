@@ -18,11 +18,11 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.spec_loader import SpecLoader
+from server.config import settings
 from server.validator import validate, ValidationResult
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-KB_ROOT = REPO_ROOT / "knowledge_base"
+KB_ROOT = settings.kb_root
 
 
 @dataclass

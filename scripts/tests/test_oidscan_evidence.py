@@ -231,11 +231,25 @@ def test_default_targets_are_absolute_and_git_root_anchored():
     from scripts.oidscan_evidence import DEFAULT_TARGETS, GIT_ROOT, REPO_ROOT
 
     assert all(t.is_absolute() for t in DEFAULT_TARGETS)
-    # evidence/ 只在 sdtm-rag/ 下, docs/ 两处都要覆盖 (repo 根 + sdtm-rag/), 闸自身也在内
+    # 拆仓拍平后仓库根 = 服务根; docs/ 只有一棵, 不重复扫 (重复会让命中数翻倍), 闸自身也在内
+    assert GIT_ROOT == REPO_ROOT
+    assert len(set(DEFAULT_TARGETS)) == len(DEFAULT_TARGETS)
     assert REPO_ROOT / "evidence" in DEFAULT_TARGETS
-    assert GIT_ROOT / "docs" in DEFAULT_TARGETS
     assert REPO_ROOT / "docs" in DEFAULT_TARGETS
     assert any(t.name == "oidscan_evidence.py" for t in DEFAULT_TARGETS)
+
+
+@pytest.mark.parametrize("missing", ["load_cdisc_domain_codes", "load_cdisc_variable_names"])
+def test_missing_kb_public_vocabulary_aborts(tmp_path, monkeypatch, capsys, missing):
+    """KB (submodule) 读不到 → 公开词汇集为空 → rc=2 拒绝给结论, 不带着空集继续扫。"""
+    import scripts.oidscan_evidence as mod
+    monkeypatch.setattr(mod, missing, lambda *a, **k: set())
+    cat = _write_catalog(tmp_path, forms=["偽FRM01"])
+    target = tmp_path / "doc.md"
+    target.write_text("无命中", encoding="utf-8")
+    rc = main([str(target), "--catalog", str(cat)])
+    assert rc == 2
+    assert "ABORT" in capsys.readouterr().out
 
 
 def test_default_targets_include_source_trees():

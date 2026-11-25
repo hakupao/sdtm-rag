@@ -23,10 +23,10 @@ sys.path.insert(0, str(HERE.parent.parent))  # repo .../sdtm-rag
 
 from scripts.chunkers.base import find_mermaid_blocks, find_table_blocks  # noqa: E402
 from scripts.chunkers.examples import ExamplesChunker  # noqa: E402
+from server.config import settings  # noqa: E402
 
-# KB path (this script lives 3 dirs deep: sdtm-pedia/sdtm-rag/scripts/chunkers)
-KB_ROOT = HERE.parent.parent.parent  # → sdtm-pedia/
-KB_DOMAINS = KB_ROOT / "knowledge_base" / "domains"
+KB_ROOT = settings.kb_root.parent  # chunker 的 kb_root 参数 = KB 目录的父目录 (同 batch_a/c)
+KB_DOMAINS = settings.kb_root / "domains"
 
 
 SAMPLES = [

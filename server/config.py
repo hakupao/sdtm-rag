@@ -13,7 +13,6 @@ from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
 _SDTM_RAG_ROOT = Path(__file__).resolve().parent.parent
-_REPO_ROOT = _SDTM_RAG_ROOT.parent  # sdtm-pedia repo root
 
 load_dotenv(_SDTM_RAG_ROOT / ".env")
 
@@ -400,7 +399,8 @@ class Settings(BaseSettings):
     @property
     def kb_root(self) -> Path:
         # CDISC KB 根的唯一事实源: server / scripts / tests 都从这里取 (SDTM_RAG_KB_ROOT_OVERRIDE)。
-        return Path(self.kb_root_override) if self.kb_root_override else _REPO_ROOT / "knowledge_base"
+        # 默认 = 仓根下的 knowledge_base/ (git submodule; 容器里即 /app/knowledge_base)。
+        return Path(self.kb_root_override) if self.kb_root_override else _SDTM_RAG_ROOT / "knowledge_base"
 
     @property
     def meta_path(self) -> Path:
