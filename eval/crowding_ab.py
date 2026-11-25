@@ -29,7 +29,7 @@ tie 由插入序决定 ⇒ 深融合输出的前 15 名恒等于浅融合输出 
   .venv/bin/python -m eval.crowding_ab --dry-run
   # 正式跑 (12 题 × 3 组答题 + judge)
   .venv/bin/python -m eval.crowding_ab --fuse-out 60 \\
-    --output evidence/checkpoints/crowding_layer2.json
+    --output docs/evidence/checkpoints/crowding_layer2.json
 """
 from __future__ import annotations
 
@@ -408,13 +408,13 @@ def summarize(path):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description="层② context A/B1/B2 对照")
-    p.add_argument("--layer1", default="evidence/checkpoints/crowding_layer1.json")
+    p.add_argument("--layer1", default="docs/evidence/checkpoints/crowding_layer1.json")
     p.add_argument("--test-set", default="eval/test_set_v3.yml")
     p.add_argument("--top-k", type=int, default=15)
     p.add_argument("--fuse-out", type=int, default=60,
                    help="融合输出放长到多少再施配额 (Task 5: 放长安全, 加深池不安全)")
     p.add_argument("--model", default=None, help="答题模型; 默认 settings.default_model")
-    p.add_argument("--output", default="evidence/checkpoints/crowding_layer2.json")
+    p.add_argument("--output", default="docs/evidence/checkpoints/crowding_layer2.json")
     p.add_argument("--dry-run", action="store_true",
                    help="只跑退化检查与席位统计, 零 LLM 调用")
     p.add_argument("--dry-run-output", default=None)

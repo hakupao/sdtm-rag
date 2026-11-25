@@ -2,7 +2,7 @@
 """OID/label 泄漏扫描 —— 检查拟进 git 的证据/文档文件是否含真实 form/item/event/
 activity 的 OID 或 label/name。
 
-红线背景 (2026-08-25, C1): `evidence/failures/t4_step7_retrieval_regression.md` 把
+红线背景 (2026-08-25, C1): `docs/evidence/failures/t4_step7_retrieval_regression.md` 把
 17 处真实 OID (form 2 + item 11 + activity 4) 提交进了 git —— 本仓此前对"零真名"的
 纪律靠人工审查维持, `leakscan_evidence.py` 只扫 gold **题面**, 对 OID 泄漏天然盲
 (独立复核对这份文件跑过, 结果 CLEAN, 但真名照样在里面)。本脚本把"零真实 OID/label"
@@ -57,7 +57,7 @@ rc=2 拒绝给结论, 不带着空词汇集继续 (那会把讨论 AE/DM 等标�
                   这类拼接式命名) 本身都靠下划线分隔; 真用 `\b` 会漏掉
                   `st01__偽FORM__偽ITEM.md` 里的 `偽FORM`/`偽ITEM` (下划线紧贴, `\b`
                   判定成"词内", 不算边界) —— 这正是本闸要防的那类泄漏最常见的出现
-                  形态 (已用真实回归案例复核过, 见 evidence/failures/
+                  形态 (已用真实回归案例复核过, 见 docs/evidence/failures/
                   t4_step7_retrieval_regression.md 的 C1 修复记录)。故边界定义为
                   "前后不是 [A-Za-z0-9]", 下划线和其他符号都算作边界外, 允许被下划线
                   包夹的 needle 命中。label 池的多字/带空格取值同样适用 (边界只检查
@@ -116,7 +116,7 @@ DEFAULT_CATALOG = REPO_ROOT / "data" / "study" / "st01" / "catalog.json"
 DEFAULT_TARGETS: tuple[Path, ...] = (
     # 证据目录 2026-11-25 (R1 重组) 从仓根 evidence/ 移到 docs/evidence/, 由 docs 覆盖
     REPO_ROOT / "docs",
-    # 源码树 (2026-08-26 加入): C1 那次真实泄漏就在 `scripts/tests/` 里, 而当时默认面
+    # 源码树 (2026-08-26 加入): C1 那次真实泄漏就在 `scripts/tests/` (现 `tests/`) 里, 而当时默认面
     # 只有 evidence/ + docs/ —— "手跑一次闸"这个动作天然看不见它。pre-commit 只管新
     # 进 git 的文件, 存量面只能靠不带参数的全仓审计, 故默认面必须含源码。
     # 代价: 默认面 205 → 538 文件, 实测 10.0s → 11.3s (每文件约 62ms, 见
@@ -194,7 +194,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ),
 }
 
-# 明显非文本的扩展名, 不尝试解码 (evidence/docs 下实测含 .png)
+# 明显非文本的扩展名, 不尝试解码 (docs/ 含 docs/evidence/ 下实测含 .png)
 _BINARY_EXT = {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".xlsx", ".zip"}
 
 
@@ -223,7 +223,7 @@ def load_needles(catalog_path: Path, exclude: set[str] | None = None,
 
     `min_len` 剔除过短取值 (默认 4, 与 label 池同值): 2-3 字符 OID 与大写缩写 /
     build 模板占位符 / Python 变量名 / CDISC 公开变量名大量撞车。**实测依据**
-    (`evidence/checkpoints/c1_redline_triage.md`): 本闸对 `scripts/ server/` 报出的
+    (`docs/evidence/checkpoints/c1_redline_triage.md`): 本闸对 `scripts/ server/` 报出的
     26 处命中**全部**来自 4 个 2-3 字符 OID needle, 逐条判定无一是真泄漏 ——
     假阳性率 **87.5% (28/32)**。这个噪声水平下闸无法接进 pre-commit/CI: 它会长期
     红着, 然后必然被人为忽略, 与"纸面规则等于没规则"同一种死法。
@@ -290,7 +290,7 @@ def load_label_needles(catalog_path: Path, exclude: set[str] | None = None,
 def compile_needle_pattern(needles: set[str]) -> re.Pattern:
     """把整个 needle 集编译成**一条**交替正则, 而不是"每个 needle 一条正则, 逐个
     对每行 search" —— 后者是 O(needle 数 × 行数), needle 集上千、目标文件上万行时
-    (实测 evidence/checkpoints/*.json 单文件近万行) 会话把交互命令拖出 120s 超时。
+    (实测 docs/evidence/checkpoints/*.json 单文件近万行) 会话把交互命令拖出 120s 超时。
     单条交替正则一次 `finditer` 扫完一行是 O(行数), 快了两个数量级。
     最长优先排列只是让交替分支里子串更专一的 needle 先试, 不影响本设计的正确性
     (整词边界已保证不会有"短 needle 抢到长 needle 的一部分"这类问题)。

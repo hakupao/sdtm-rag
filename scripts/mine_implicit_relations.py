@@ -304,8 +304,8 @@ def main() -> None:
         print(f"[dry-run] {n} edges, {len(result['_rejected'])} rejected")
         return
     write_outputs(result, Path(args.out),
-                  root / "evidence" / "checkpoints" / "implicit_relations_audit.md",
-                  root / "failures")
+                  root / "docs" / "evidence" / "checkpoints" / "implicit_relations_audit.md",
+                  root / "docs" / "evidence" / "failures")
     print(f"wrote {args.out} ({n} edges)")
 
 

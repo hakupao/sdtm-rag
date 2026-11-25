@@ -1,7 +1,7 @@
 """SP5 real-data integration: run the graph checks over a small sample extracted from
 the public CDISC pilot study (CDISCPILOT01, phuse-org/phuse-scripts). Guards the
 real-data-driven behavior — genuine SDTM column/value shapes, extensible-codelist skip,
-and RELREC completeness — against regression. See evidence/checkpoints/sp5_real_data_validation.md.
+and RELREC completeness — against regression. See docs/evidence/checkpoints/sp5_real_data_validation.md.
 """
 from __future__ import annotations
 

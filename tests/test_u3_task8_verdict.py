@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[2] / "eval" / "u3_task8_verdict.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "eval" / "u3_task8_verdict.py"
 FINAL_IDS = ("docs_v1_q15", "docs_v1_q17", "docs_v1_q53")
 
 # 一份四条条款全部 PASS 的干净底稿; 每个用例只动其中一个维度, 好让「哪条条款红」可归因。

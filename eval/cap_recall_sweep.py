@@ -50,9 +50,9 @@ S1 注入 >= 1 的题, source recall 对**被 S1 钉死的那几条 gold** 仍�
 
 跑批 (从 sdtm-rag/ 起, 零 LLM 调用):
     .venv/bin/python -m eval.cap_recall_sweep \\
-        --output evidence/checkpoints/cap_recall_sweep.json
+        --output docs/evidence/checkpoints/cap_recall_sweep.json
     # 从落盘 JSON 零成本重算 (证据文档里的数字都出自这里)
-    .venv/bin/python -m eval.cap_recall_sweep --summarize evidence/checkpoints/cap_recall_sweep.json
+    .venv/bin/python -m eval.cap_recall_sweep --summarize docs/evidence/checkpoints/cap_recall_sweep.json
 """
 from __future__ import annotations
 
@@ -386,7 +386,7 @@ def main(argv=None) -> int:
     p.add_argument("--fuse-out", type=int, default=60,
                    help="融合输出放长到多少再施配额 (与层② 同口径; 放长安全, 加深池不安全)")
     p.add_argument("--limit", type=int, default=None, help="只跑前 N 题 (冒烟用)")
-    p.add_argument("--output", default="evidence/checkpoints/cap_recall_sweep.json")
+    p.add_argument("--output", default="docs/evidence/checkpoints/cap_recall_sweep.json")
     p.add_argument("--summarize", default=None, metavar="JSON")
     p.add_argument("--fused-profile", default=None, metavar="QIDS",
                    help="逗号分隔题号: 只报融合候选池的簇构成 (零 LLM, 不跑配额)")

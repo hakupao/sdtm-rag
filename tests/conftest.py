@@ -1,4 +1,4 @@
-"""Pytest config for sdtm-rag chunker / server tests."""
+"""Pytest config for sdtm-rag tests (repo-root `tests/`)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 # Make `scripts.*` / `server.*` importable without install (dev mode)
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 

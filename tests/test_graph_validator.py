@@ -59,7 +59,7 @@ def test_completeness_unknown_domain_no_crash(engine):
 # ── Task 2: check_ct_cascade ──────────────────────────────────────────────
 # NOTE: plan used AESER/MHSER; MHSER binds no codelist (verified against meta.yaml),
 # so the second-domain variable is MHPRESP, which binds C66742 like AESER.
-# See evidence/failures/sp5_attempt_1.md.
+# See docs/evidence/failures/sp5_attempt_1.md.
 
 
 def test_ct_cascade_flags_inconsistent_values(engine):
@@ -85,7 +85,7 @@ def test_ct_cascade_silent_single_domain(engine):
 def test_ct_cascade_skips_extensible_codelist(engine):
     # C71620 (Unit) is extensible — domains legitimately use different unit subsets
     # (CM dose units vs EX/LB units), so divergence must NOT warn (real-data false positive
-    # found on CDISCPILOT01; see evidence/checkpoints/sp5_real_data_validation.md).
+    # found on CDISCPILOT01; see docs/evidence/checkpoints/sp5_real_data_validation.md).
     cm = pd.DataFrame({"DOMAIN": ["CM"], "CMDOSU": ["mg"]})
     ex = pd.DataFrame({"DOMAIN": ["EX"], "EXDOSU": ["CAPSULE"]})
     findings = check_ct_cascade({"CM": cm, "EX": ex}, engine)

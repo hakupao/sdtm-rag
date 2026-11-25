@@ -24,7 +24,7 @@ probe 词」。**没有一道**检查: **答案本身是不是也完整落在别
 ## 输出口径
 
 只回 qid / chunk 文件名 / 分数。**不回正文, 不回 fact 原文** —— 输出会被贴进
-`evidence/checkpoints/` (进 git, 红线零正文零真名), 且 chunk 正文实测含研究者姓名与
+`docs/evidence/checkpoints/` (进 git, 红线零正文零真名), 且 chunk 正文实测含研究者姓名与
 联系方式, 整段引用是红线事故。
 """
 from __future__ import annotations

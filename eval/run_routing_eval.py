@@ -140,7 +140,7 @@ def load_v2_final(path: Path) -> list[dict]:
     items = {q["id"]: q for q in load_test_set(str(path))}
     missing = sorted(set(V2_FINAL_IDS) - set(items))
     # 只打 id 与路径: 该题集是 gitignored 的 study 内容, 异常消息会随 pytest traceback
-    # 进入本仓惯例贴进 evidence/ 的实测输出 (同 load_docs_routing_gold 处的红线)。
+    # 进入本仓惯例贴进 docs/evidence/ 的实测输出 (同 load_docs_routing_gold 处的红线)。
     if missing:
         raise ValueError(f"{path}: v2 final 题缺失 {missing} —— 条款 5 报告对象不完整, 拒绝继续")
     return [{"id": i, "question": items[i]["question"], "gold": "study", "group": "final"}
@@ -158,7 +158,7 @@ def load_docs_routing_gold(path: Path) -> list[dict]:
     for i, q in enumerate(items):
         if not q.get("id") or not q.get("question"):
             # **红线**: 这个 path 是 gitignored 的手順書 gold, `{q!r}` 会把整条 item (含题面)
-            # 写进异常消息 —— 而异常消息会随 pytest traceback 进入本仓惯例贴进 evidence/ 的
+            # 写进异常消息 —— 而异常消息会随 pytest traceback 进入本仓惯例贴进 docs/evidence/ 的
             # 实测输出。只打序号 / id, 定位够用, 值不出门。(实测: 修前 --tb=short 泄 1 条。)
             raise ValueError(f"{path}: 第 {i} 条缺 id/question (id={q.get('id')!r})")
         if q.get("gold") not in VALID_GOLD:

@@ -1,4 +1,4 @@
-# scripts/tests/test_aggregate_answer.py
+# tests/test_aggregate_answer.py
 import pytest
 
 from server.aggregate_answer import AggregateAnswerer, detect_aggregate_intents

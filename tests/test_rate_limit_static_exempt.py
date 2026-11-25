@@ -6,7 +6,7 @@
 一条精确路径 `/api/health` ⇒ 每次刷新都有 2-3 个模块文件随机吃 429, 页面根本起不来。
 
 缓存救不了: 静态壳子按设计发 `Cache-Control: no-cache` (见
-scripts/tests/test_webchat_cache_headers.py), 每次都必须回源校验, 请求数一个不少。
+tests/test_webchat_cache_headers.py), 每次都必须回源校验, 请求数一个不少。
 
 这条缺陷骗人的地方: 挂掉的模块是随机的 (谁排在 burst 耗尽之后谁死), 表现像"前端偶发白屏 /
 某个功能时有时无", 而不是"限流配额算错了对象"。

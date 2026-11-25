@@ -4,7 +4,7 @@
 EPOCH …) 正文逐字近似, 对含该字面的问句齐刷刷高分, 会占满 top-k。
 q38 实测: top-15 里 14 席是 §DOMAIN, 只剩 1 席给别的内容。
 
-是否启用由证据决定, 见 evidence/checkpoints/crowding_layer2.md。
+是否启用由证据决定, 见 docs/evidence/checkpoints/crowding_layer2.md。
 """
 from __future__ import annotations
 

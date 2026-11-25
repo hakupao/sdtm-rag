@@ -1,6 +1,6 @@
 """I2-3: PDF 旁路触发判定 (P1 §3 R1/R2/R3 + 反例 N1-N3)。
 
-题面用 P1 预登记的原文 (`evidence/checkpoints/c2r_pre_registration.md` §1/§2) —— 判据
+题面用 P1 预登记的原文 (`docs/evidence/checkpoints/c2r_pre_registration.md` §1/§2) —— 判据
 先于实现登记, 实现不得改判据。卡片 fixture 是**合成**的 (假 OID / 假 label): 触发只看
 卡片的**形状** (非表示アクティビティ 有几个 / 有没有「式は別ソース」), 不看具体研究值。
 """

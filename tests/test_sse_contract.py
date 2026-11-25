@@ -7,12 +7,12 @@ import re
 from pathlib import Path
 
 from server.config import Settings
-from scripts.tests.test_ask_stream_web import (
+from tests.test_ask_stream_web import (
     _AlwaysToolRouter, _FakeSearcher, _ScriptedRouter, _ToolThenTextRouter,
     _client, _events, _of, _text_chunk, _tool_chunk,
 )
 
-_ROOT = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[1]
 WEBCHAT = _ROOT / "webchat"
 # 前端 2026-09-08 拆成 ES 模块, 这三样各自搬了家: SSE dispatch → js/stream.js,
 # tool_result 文案表 → js/render.js, done 事件的字段读取还在 app.js。抽取形状一字未动。
@@ -260,8 +260,8 @@ def test_done_usage_key_contract():
     """done.usage 的键集合 (研读包 prompt cache 之后): 基础三键 + 可选 partial + 可选 cache 两键。
     cache 两键只在研读包挂上且 provider 报过时出现 (口径见 test_router_dossier_prompt_cache);
     存档 / dm2_e2e_run.py 的 summary 行按这两个名字读。"""
-    from scripts.tests.test_router_dossier_gate import BAD, GOOD, _gated_client, _stream
-    from scripts.tests.test_router_dossier_prompt_cache import _CacheUsageRouter, _u
+    from tests.test_router_dossier_gate import BAD, GOOD, _gated_client, _stream
+    from tests.test_router_dossier_prompt_cache import _CacheUsageRouter, _u
     c, app = _gated_client([])
     app.state.llm_router = _CacheUsageRouter([(BAD, "stop"), (GOOD, "stop")],
                                              [_u(cw=3, cr=0), _u(cw=0, cr=3)])

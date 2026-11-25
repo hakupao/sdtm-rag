@@ -1,4 +1,4 @@
-# scripts/tests/test_graph_answer.py
+# tests/test_graph_answer.py
 import pytest
 
 from server.config import settings

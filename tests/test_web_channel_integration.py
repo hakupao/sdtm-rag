@@ -44,7 +44,7 @@ def test_search_result_content_is_not_filtered_for_ct_codes(monkeypatch):
     test_web_search.py 里唯一看那个槽位的 test_search_truncates_content 喂的是
     `"x" * 5000` (输入里没有任何码), 结构上不可能发现码被洗掉, 所以这里单独
     钉一条: 真实网页结果里的 Cxxxxx 经过 search() 后必须原样存活。"""
-    from scripts.tests.test_web_search import _FakeResp, _payload, _searcher
+    from tests.test_web_search import _FakeResp, _payload, _searcher
     sr = _searcher(monkeypatch, lambda *a, **k: _FakeResp(_payload([
         {"url": "https://blog.example.com/x", "title": "T", "content": "C99999 is the code."},
     ])))

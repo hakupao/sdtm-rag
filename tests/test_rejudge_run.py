@@ -107,7 +107,7 @@ def test_main_missing_judge_model_key_fails_loud(monkeypatch, tmp_path):
         rr.main(argv)
 
 
-# ── 抽检方 B 变异补网 (见 evidence/step_u5_audit_mutation.md) ──
+# ── 抽检方 B 变异补网 (见 docs/evidence/step_u5_audit_mutation.md) ──
 
 def _recorder(monkeypatch, recall=1.0):
     """记录 judge 每次收到的实参, 供入参绑定类断言用."""

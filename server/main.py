@@ -269,7 +269,7 @@ async def lifespan(app: FastAPI):
                 #     (metadata 存绝对路径), 对 study/docs 侧**不成立**: 两库的 source
                 #     metadata 是裸文件名 (st01__doc01__s10_1.md), relative_to 恒抛 ValueError
                 #     被同处的 except 接住回落原值。实测同一 docs collection 换 kb_root,
-                #     source 与 chunk_id 逐位相同 (evidence/step_u2_mutation.md「kb_root 零
+                #     source 与 chunk_id 逐位相同 (docs/evidence/step_u2_mutation.md「kb_root 零
                 #     影响」附复跑命令)。别据此以为 U1 的上界数字依赖 kb_root 取值 —— 不依赖。
                 kb_root=s.study_kb_root,
                 collection_name=s.study_docs_collection_name,
@@ -443,7 +443,7 @@ def create_app(app_settings=None) -> FastAPI:
     application.state.settings = app_settings  # single config source (lifespan + routes read this)
     application.include_router(api_router)
 
-    # Static hosting for the ChatGPT-style chat UI (DESIGN_chat_ui.md §1). `/static` and
+    # Static hosting for the ChatGPT-style chat UI (docs/design/DESIGN_chat_ui.md §1). `/static` and
     # `GET /` do not collide with the api_router's `/api/*` prefix. Guard with exists() so
     # a missing webchat/ during build-out never crashes boot.
     # Both halves need the revalidation header, and for the same reason: a stale index.html

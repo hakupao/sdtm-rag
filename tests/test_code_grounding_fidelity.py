@@ -2,7 +2,7 @@
 
 ⚠ 本文件零 chroma / 零 LLM 调用 —— 测的是纯函数。
 
-事故 (evidence/checkpoints/verified_spotcheck_2026-09.md):
+事故 (docs/evidence/checkpoints/verified_spotcheck_2026-09.md):
 `check_code_grounding.py::prod_engine()` 写死 `structured_lookup_enabled=True,
 hybrid_enabled=True`, 而 2026-09-02 那轮 opus-5 生成时两者都关。于是它重建出来的 top-15
 不是模型看见的那个 —— 实测**102 题里 0 题还原得上** (同口径重建则 102/102)。

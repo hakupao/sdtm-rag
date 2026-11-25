@@ -11,7 +11,7 @@ hybrid_enabled=True`, 而 `run_eval.py` 这两个 lever 默认关。两者口径
 
 跑法 (从 sdtm-rag/):
   .venv/bin/python eval/prod_wirein/diag_code_grounding_same_config.py \
-      evidence/checkpoints/verified_runs/run_opus-5.json
+      docs/evidence/checkpoints/verified_runs/run_opus-5.json
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def generation_matched_engine() -> RAGEngine:
 
 def main() -> int:
     report_path = Path(sys.argv[1] if len(sys.argv) > 1
-                       else "evidence/checkpoints/verified_runs/run_opus-5.json")
+                       else "docs/evidence/checkpoints/verified_runs/run_opus-5.json")
     if not report_path.is_absolute():
         report_path = ROOT / report_path
     report = json.loads(report_path.read_text())

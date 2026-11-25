@@ -1,4 +1,4 @@
-"""多模型切换 (U1) 的闸。spec docs/superpowers/specs/2026-09-01-model-switching-design.md"""
+"""多模型切换 (U1) 的闸。spec docs/plans/specs/2026-09-01-model-switching-design.md"""
 import json
 import re
 import shutil
@@ -33,7 +33,7 @@ def test_selectable_models_all_anthropic_direct():
 
 def test_verified_flags_match_spotcheck_record():
     """verified 语义 = 该模型跑过反捏造抽检并通过。值钉在 2026-09 兑现抽检的结果表
-    (evidence/checkpoints/verified_spotcheck_2026-09.md): opus-5 过,
+    (docs/evidence/checkpoints/verified_spotcheck_2026-09.md): opus-5 过,
     sonnet-5 (a) 层 1 条 ungrounded ⇒ false。两个方向都钉住 —— sonnet-5 是 Claude 不代表
     验过, 免得有人顺手全填 true; 改任一值须先有新一轮抽检记录。"""
     s = Settings()
@@ -153,7 +153,7 @@ def _fallbacks(router) -> dict:
 def test_every_selectable_group_falls_back_to_the_default_fallback_group():
     """闸 G4 (spec §9 D5): U1 那轮 UI 从"永发 default 组"改成"永发显式 id",
     而四个新派生组没有 fallback 条目 ⇒ **主模型没变, 容灾网没了**。
-    DEPLOY_PLAN.md 记着实测「Anthropic credits 耗尽 → DeepSeek 自动回退」真的生效过。
+    docs/history/DEPLOY_PLAN.md 记着实测「Anthropic credits 耗尽 → DeepSeek 自动回退」真的生效过。
     """
     from server.llm_config import create_router
     s = Settings()
@@ -962,7 +962,7 @@ def test_ask_stream_actually_dispatches_the_selected_model():
 # 徽章文案 modelBadgeText 搬进 js/render.js。下面三条静态闸只换了读哪个文件, 切片锚点
 # ("function flagModelName" / "function modelBadgeText" 前面多了个 export, 子串照样命中)
 # 与断言形状一字未动。
-_WEBCHAT = Path(__file__).resolve().parents[2] / "webchat"
+_WEBCHAT = Path(__file__).resolve().parents[1] / "webchat"
 FLAG_JS = _WEBCHAT / "js" / "flag.js"
 RENDER_JS = _WEBCHAT / "js" / "render.js"
 _FLAG_PROBE = Path(__file__).resolve().parent / "fixtures" / "flag_attribution_probe.mjs"

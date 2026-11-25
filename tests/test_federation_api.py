@@ -119,7 +119,7 @@ def test_ask_routed_cdisc_keeps_answerer():
 
 def test_ask_stream_sources_event_carries_routed_corpus():
     # ask_stream 用 async llm; 复用 test_ask_stream.py 的 _FakeRouter 形态
-    from scripts.tests.test_ask_stream import _FakeRouter
+    from tests.test_ask_stream import _FakeRouter
     app = FastAPI()
     app.include_router(api_router)
     app.state.rag = None
@@ -150,7 +150,7 @@ def test_empty_federation_context_falls_back_to_sentinel():
 
 
 def test_ask_stream_empty_federation_context_falls_back_to_sentinel():
-    from scripts.tests.test_ask_stream import _FakeRouter
+    from tests.test_ask_stream import _FakeRouter
     from server.router import _NO_CONTEXT
 
     fed = _FakeFed(routed="both", context="")

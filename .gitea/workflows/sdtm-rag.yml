@@ -54,7 +54,7 @@ jobs:
 
       # 回滚 (手动填 tag) 时跳过测试: 回滚的是旧镜像, 不该被当前 HEAD 的测试拦住。
       # 不依赖 runner 预装 uv: 装与 Dockerfile 同版本。data/study、chroma、.env 均不在 checkout 里,
-      # 依赖它们的测试带 local_data 标记, 由 scripts/tests/conftest.py 自动 skip (见 CLAUDE.md「测试」)。
+      # 依赖它们的测试带 local_data 标记, 由 tests/conftest.py 自动 skip (见 CLAUDE.md「测试」)。
       - name: 测试
         if: inputs.tag == ''
         run: |

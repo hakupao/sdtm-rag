@@ -7,7 +7,7 @@
 #   凡 N > 15 的码表, 问"哪些变量引用它", gold fact 取位置 > 15 的条目 (字母序末位)。
 #   规则作用于 9 个宽码表全体 (C66742/C71620/C99079/C66789/C66728/C74456/C78735/
 #   C85492/C99073); 此处只落 2 道控体量, 其余 7 个由
-#   scripts/tests/test_kb_crossref_completeness.py 的数据不变量全覆盖。
+#   tests/test_kb_crossref_completeness.py 的数据不变量全覆盖。
 #
 # 判别力声明: source recall 对本题集**失明** (gold section 本来就命中, 与正文是否被截
 # 无关), 判别力只在 fact 侧。用 --judge 或 fact_recall 读成绩, 不要看 source recall。

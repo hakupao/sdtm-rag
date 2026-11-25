@@ -9,9 +9,9 @@ from pathlib import Path
 sys.path.insert(0, "eval/prod_wirein"); sys.path.insert(0, ".")
 from class_authority import load_class_authority
 tag = sys.argv[1]
-packet = Path(f"evidence/checkpoints/human_packet_{tag}.md").read_text()
+packet = Path(f"docs/evidence/checkpoints/human_packet_{tag}.md").read_text()
 order = re.findall(r"^### \d+\. `([^`]+)`", packet, re.M)
-rep = json.load(open(f"evidence/checkpoints/verified_runs/run_{tag}.json"))
+rep = json.load(open(f"docs/evidence/checkpoints/verified_runs/run_{tag}.json"))
 ans = {r["id"]: r for r in rep["results"]}
 auth = load_class_authority()
 out = [f"# 人判对照索引 — {tag} (b) 层 8 条", "",
@@ -33,5 +33,5 @@ for i, qid in enumerate(order, 1):
     else:
         out.append("(答案中未出现任何权威表键)")
     out += ["", "---", ""]
-Path(f"evidence/checkpoints/human_packet_{tag}_index.md").write_text("\n".join(out))
+Path(f"docs/evidence/checkpoints/human_packet_{tag}_index.md").write_text("\n".join(out))
 print(tag, "order:", order)

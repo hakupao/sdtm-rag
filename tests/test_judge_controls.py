@@ -48,7 +48,7 @@ def test_positive_answer_is_the_gold_facts_joined():
 #
 # 上面四条是 plan 逐字给的。按 Global Constraint 12 做方向②(「这行改坏了谁会红」)与
 # 方向③(「断言的逻辑形状有什么盲区」)变异时实测: **16 条变异有 11 条存活**, 其中 9 条是
-# 真缺口 —— `main()` 整个函数在四条断言下是零覆盖 (逐条见 evidence/step_u2_mutation_task7.md)。
+# 真缺口 —— `main()` 整个函数在四条断言下是零覆盖 (逐条见 docs/evidence/step_u2_mutation_task7.md)。
 # 最危险的两条都是**对调型**, 全绿存活:
 #   C1 阳性/阴性两臂互换 —— 产出答案的集合一字不变, 只有配对方向翻转;
 #   C2 judge 的 question/answer 两个位置参数互换 —— 同为 str, 不抛 TypeError。
@@ -193,7 +193,7 @@ def test_positive_answer_preserves_gold_fact_order_and_line_separation():
     assert positive_answer(q).splitlines() == q["expected_facts"]
 
 
-# ─────────────────────── U2 抽检方 B 缺口 (evidence/step_u2_mutation_remediation.md) ───────
+# ─────────────────────── U2 抽检方 B 缺口 (docs/evidence/step_u2_mutation_remediation.md) ───────
 #
 # 抽检方 B 独立复跑本文件的变异时发现: 上面 11 条测试有 7 条把 judge **整个 monkeypatch
 # 掉**, 于是「用的是哪把尺子 / 抽了几题 / 均值怎么算」三件事在全量套件里零断言 —— 逐条实测

@@ -45,7 +45,7 @@ class Settings(BaseSettings):
 
     # 用户可选答题模型 (spec §3.2)。只作用于**答题**; 判库(light)/检索改写不受影响 (C1)。
     # verified 的语义写死: 跑过反捏造抽检并通过。2026-09 兑现抽检 (102q, 预登记判据
-    # evidence/checkpoints/verified_spotcheck_2026-09.md): opus-5 过; sonnet-5 (a) 层 1 条
+    # docs/evidence/checkpoints/verified_spotcheck_2026-09.md): opus-5 过; sonnet-5 (a) 层 1 条
     # ungrounded (q35 C66742) ⇒ false。sonnet-5 是 Claude 不代表验过。
     # ⚠ 抽检当时走 Bedrock (同一模型), 2026-11-04 换成 Anthropic 直连后**未重测**;
     # verified 沿用当时的结果。
@@ -104,10 +104,10 @@ class Settings(BaseSettings):
     top_k: int = 15
     collection_name: str = "sdtm_kb_v1"
 
-    # ── Plan B 联邦路由 (spec docs/superpowers/specs/2026-08-04-plan-b-federated-routing-design.md) ──
+    # ── Plan B 联邦路由 (spec docs/plans/specs/2026-08-04-plan-b-federated-routing-design.md) ──
     # 默认开 (2026-08-04, Phase 1 三闸全绿后翻 True): 服务启动时构建 study 引擎 + 联邦层,
     # /api/ask 的 corpus=auto 走 LLM 判库。闸结果与已知边界见
-    # evidence/checkpoints/planb_phase1_federation.md; 需要回退到纯 CDISC 单库时设
+    # docs/evidence/checkpoints/planb_phase1_federation.md; 需要回退到纯 CDISC 单库时设
     # SDTM_RAG_FEDERATION_ENABLED=false (corpus 参数此时被静默忽略, 刻意的前向兼容)。
     federation_enabled: bool = True
     study_collection_name: str = "study_st01"
@@ -127,7 +127,7 @@ class Settings(BaseSettings):
     # collection 不存在而开关开着 = 配置错误, 启动响亮失败 (见 main.py), 不静默降级。
     #
     # 默认 True (2026-08-13 翻转)。收益侧: doc 侧答题 0.0333→0.9517、doc 侧检索 0→1.0
-    # (evidence/step_u2_answerside.md)。代价侧: 卡片侧回归**未被建立** —— ON-ON 对照显示
+    # (docs/evidence/step_u2_answerside.md)。代价侧: 卡片侧回归**未被建立** —— ON-ON 对照显示
     # 驱动自毁条款 3 的 q23r 不复现, ON 臂自身噪声 +2.78pt 已达声称效应量, 四种 OFF×ON
     # 组合跨 −4.17 到 +0.00pt。**自毁条款 3 因此是触发状态**, 由用户 2026-08-13 裁定豁免
     # 后翻转 (不是"未触发", 也不是"验收通过")。回退: SDTM_RAG_STUDY_DOCS_ENABLED=false。
@@ -174,7 +174,7 @@ class Settings(BaseSettings):
     # 稠密/BM25 (见 rag.py `q_ret`)。零 LLM、纯确定性; 问句里没有已知域码时恒等于原句,
     # 所以对绝大多数问法零影响, 可默认开。LLM 看见的仍是原问题。
     # ⚠ 只加 label 不加 structure —— 后者是跨域通用的记录粒度模板, 加了会回归
-    # (evidence/failures/dm1_task5_attempt_1.md)。
+    # (docs/evidence/failures/dm1_task5_attempt_1.md)。
     domain_expand_enabled: bool = True
 
     # Hybrid BM25 (S2): lexical retrieval over the SAME indexed chunks (bm25s, pure
@@ -236,7 +236,7 @@ class Settings(BaseSettings):
     # AGG: aggregate metadata channel (variables-in-min-domains / most-shared
     # codelists), split out of SP3 after the KG value eval (its only positive niche).
     # Default ON since 2026-07-07 (five AGG gates passed, see
-    # evidence/checkpoints/agg_channel_summary.md); env override:
+    # docs/evidence/checkpoints/agg_channel_summary.md); env override:
     # SDTM_RAG_AGGREGATE_ANSWER_ENABLED.
     aggregate_answer_enabled: bool = True
 
@@ -264,7 +264,7 @@ class Settings(BaseSettings):
     compare_timeout_s: float = 120.0
     compare_num_retries: int = 1
 
-    # ── C2R 画面 PDF 按需旁路 (PLAN_c2r_pdf_bypass.md I2-3) ──
+    # ── C2R 画面 PDF 按需旁路 (docs/plans/PLAN_c2r_pdf_bypass.md I2-3) ──
     # 2 份画面 PDF はベクトル庫に**入らない** (C2 の DROP 判定は不変)。命中カードの OID を
     # 鍵に確定的に頁を選び、その頁だけを画像で答題文脈に足す附加通道。
     #
@@ -286,7 +286,7 @@ class Settings(BaseSettings):
     pdf_workflow_path: str = ""
     pdf_annotated_path: str = ""
 
-    # ── DM2 研读包旁路 (docs/superpowers/specs/2026-09-15-study-dossier-design.md) ──
+    # ── DM2 研读包旁路 (docs/plans/specs/2026-09-15-study-dossier-design.md) ──
     # 域级映射题 (「本研究哪些数据进 X 域」) 触发时: 丢 study 侧 top-k, 把 PRT 白名单章原文 +
     # 全 EDC 项目一览整段喂进上下文. 默认 **ON** (用户裁定 2026-09-15); 不触发的路径与
     # 引入前逐字节相同 (test_router_dossier_wiring 钉). kill switch = 这一行.
@@ -295,7 +295,7 @@ class Settings(BaseSettings):
     dossier_enabled: bool = True
     # auto 模式对哪些答题模型真挂 (selectable model id 名单). 名单外 = 命中也不挂
     # (reason "auto:paused"), 手动 on 照挂; 空列表 = 全部暂停.
-    # 来源: 2026-09-25 用户裁定「只对 Opus 恢复」—— evidence/checkpoints/dm2_dossier_e2e.md §2.7
+    # 来源: 2026-09-25 用户裁定「只对 Opus 恢复」—— docs/evidence/checkpoints/dm2_dossier_e2e.md §2.7
     # (attempt 7 opus 主判 6/6); 其余模型未达预登记判据, 仍需手动「研读:开」.
     # 判定按**解析后的模型串** (router._auto_attach_allowed): 请求 "default" 取 default_model,
     # 所以 default 换成名单外模型时自动不挂, 不会静默扩大范围.
@@ -311,7 +311,7 @@ class Settings(BaseSettings):
     # kill switch: False = 逐字节回到旧布局 (研读包在 context, system 为字符串, 无断点).
     dossier_prompt_cache: bool = True
     # PRT 章号白名单 (匹配 section_number 首段). 范围由 T2 token 计量 + 用户裁定
-    # (evidence/checkpoints/dm2_dossier_tokens.md). 改这里 = 改研读包 sha, 存档徽章会变.
+    # (docs/evidence/checkpoints/dm2_dossier_tokens.md). 改这里 = 改研读包 sha, 存档徽章会变.
     dossier_prt_sections: list[str] = ["4", "5", "6", "7", "8", "9", "10", "11", "12"]
     # 超限 = 启动报错, 不截断 (spec §3). 日文 ≈ 1 字 1 token, 这个上限就是 token 上限量级.
     dossier_max_chars: int = 200_000

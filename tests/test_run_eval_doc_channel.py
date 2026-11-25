@@ -6,7 +6,7 @@
 时实测: **把 main() 里整个 doc 通道装配块删掉, 这四条全绿** (1142 passed, 0 failed) ——
 因为 `--study-docs` / `--corpus` 不存在时 argparse 自己就以 "unrecognized arguments" 退出
 SystemExit, 与闸拒绝的 SystemExit 无法区分。故下半部分补装配锁与 stderr 判别断言, 使
-`main()` 里每一行新代码都有能杀死它的断言 (逐行对应见 evidence/step_u2_mutation_task3.md)。
+`main()` 里每一行新代码都有能杀死它的断言 (逐行对应见 docs/evidence/step_u2_mutation_task3.md)。
 """
 from types import SimpleNamespace
 

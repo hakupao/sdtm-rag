@@ -10,7 +10,7 @@ The expanded text is used for retrieval only; the LLM still sees the original qu
 subject") 是**跨域通用**的记录粒度模板。attempt 1 把它一起追加, 实测 140q 的 q47 从
 recall 1.0 掉到 0.5: 那段散文让"讲记录粒度的块" (AE/PC 的 assumptions、ch03) 在稠密与
 BM25 两侧一起上浮, 把问句真正问的 QS 自己的 assumptions 挤出 15 席
-(evidence/failures/dm1_task5_attempt_1.md)。label 是域**专属**的词, structure 不是 ——
+(docs/evidence/failures/dm1_task5_attempt_1.md)。label 是域**专属**的词, structure 不是 ——
 扩写只该加前者。
 
 ⚠ 追加的是**散文** (域的正式名), 不是变量名或码。S1/S2 的 resolve 是 token 级的,

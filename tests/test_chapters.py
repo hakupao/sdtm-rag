@@ -70,7 +70,7 @@ def test_ch01_splits_by_h2(ch01_chunks):
     原策略把 ch01/ch02/ch03 各压成 1 个 chunk, 整章共用一个向量 -> 语义稀释。
     q38 诊断实测: ch02 的 whole_file 块在 dense 检索排 #71 (sim 0.5613), 而回答
     同一问题的 ch04 §4.2.2 是 #1 (sim 0.6970) —— 后者是被 H3 切出来的小节。
-    证据 evidence/checkpoints/chapters_chunking.md。
+    证据 docs/evidence/checkpoints/chapters_chunking.md。
     """
     assert len(ch01_chunks) == 5
     assert all(c.section != "whole_file" for c in ch01_chunks)

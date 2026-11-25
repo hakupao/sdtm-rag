@@ -888,7 +888,7 @@ def test_v2_final_loader_error_message_carries_no_question_text(tmp_path):
     """红线: v2 题集是 gitignored 的 study 内容, 异常消息只许带路径与 id.
 
     与 test_gold_loader_error_message_carries_no_question_text 同一条红线的新来源版本 ——
-    异常消息会随 pytest traceback 进入本仓惯例贴进 evidence/ 的实测输出。
+    异常消息会随 pytest traceback 进入本仓惯例贴进 docs/evidence/ 的实测输出。
     """
     canary = "SYNTHETIC-QUESTION-TEXT-MUST-NOT-APPEAR"
     p = tmp_path / "v2.yml"

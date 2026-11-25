@@ -185,7 +185,7 @@ def test_settings_study_docs_defaults(monkeypatch):
     s = Settings()
     assert s.study_docs_enabled is True
     assert s.study_docs_collection_name == "study_st01_docs"
-    # 席位数 8 是 Task 4 sweep 实测裁定的 (evidence/step_u2_sweep.md §4): 它是召回天花板上
+    # 席位数 8 是 Task 4 sweep 实测裁定的 (docs/evidence/step_u2_sweep.md §4): 它是召回天花板上
     # 的**最小** N —— N=8 满分 30/30 而 N=5 只有 25/30 (丢 11.67pt), N=10/15 零召回增益却
     # 把 context 从 3.17x 推到 3.68x/5.19x。改这个值 = 换掉一个有实测依据的裁定, 要连
     # evidence 一起改。

@@ -35,10 +35,10 @@ class RetrievedChunk:
     corpus: str = ""  # Plan B federation: "cdisc" | "study"; 空串 = 未标注 (单库路径)
 
 
-# ── L1 (PLAN_c2r_pdf_bypass.md): EDC OID → 公式名 の対応表 ─────────────────────
+# ── L1 (docs/plans/PLAN_c2r_pdf_bypass.md): EDC OID → 公式名 の対応表 ─────────────────────
 # study 側だけ、**答題時の文脈組立でだけ**足す。カード本文には一切書かない ——
 # 共有テキストをカードに足すと挤占回帰を起こす実証があるため
-# (evidence/failures/t4_step7_retrieval_regression.md)。検索層 (retrieve/_search/
+# (docs/evidence/failures/t4_step7_retrieval_regression.md)。検索層 (retrieve/_search/
 # _apply_study_lookup) はこの機能に一行も関与しない。
 # 見出しが `####` で、直前に `---` を置かないのは構造上の理由: チャンクは `### [N] src`
 # で始まり `---` で区切られる ⇒ 同じ形にすると対応表が「N+1 番目のチャンク」に見え、

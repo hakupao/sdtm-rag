@@ -29,7 +29,7 @@ def test_resolve_events_does_not_match_on_event_or_activity_names():
     测试 (`test_resolve_events_by_name` / `test_resolve_activity_by_name`), 现在
     断言的是**反面**: 名称查不到了。
 
-    判据 (证据 evidence/checkpoints/study_c3_precision_tradeoff.md §7): Tier 1b 收紧
+    判据 (证据 docs/evidence/checkpoints/study_c3_precision_tradeoff.md §7): Tier 1b 收紧
     之后, 全通道剩余 23 条假阳性里 **19 条 (83%) 来自这一层**; 层内 tp 5 / fp 19。
     机制: 事件与活动的可读名是自然语言短语, 日文没有可用的词边界, 这层不做边界
     判定 —— 只要问题里出现该短语, 哪怕说的是别的意思也会被召回。
@@ -212,7 +212,7 @@ def test_resolve_events_exact_oid_survives_when_a_later_tier_floods_the_cap():
 def test_resolve_events_skips_form_whose_assignment_list_is_not_discriminative():
     """Tier 1b 只在该 form 的 assignment 清单**足够短**时才 fire。
 
-    判据来源 (C3 精度取舍单元, 2026-08-26 实测, 证据 evidence/checkpoints/study_c3_precision_tradeoff.md):
+    判据来源 (C3 精度取舍单元, 2026-08-26 实测, 证据 docs/evidence/checkpoints/study_c3_precision_tradeoff.md):
     Tier 1b 一层贡献 33 题里 220/259 条返回、214/231 条噪声, 层内 precision **2.7%**;
     噪声全部来自 4 个长清单 form (清单长度分布 {1:13, 2:3, 4:1, 14:1, 15:1, 18:1, 40:1})。
     收紧后 precision **10.81% → 54.00%**, 返回 259 → 50, 代价是 33 题里丢 1 题。

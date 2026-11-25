@@ -99,7 +99,7 @@ def test_long_heading_line_is_not_an_anchor():
 
 
 # ---- 回源裁定后新增的两条口径 (实测依据见 split_sections 模块 docstring 与
-#      evidence/checkpoints/study_c1_doc_sections.md) ----
+#      docs/evidence/checkpoints/study_c1_doc_sections.md) ----
 
 def test_body_sentence_starting_with_section_number_is_not_an_anchor():
     """正文里「6.4 項に…する。」这类以节号开头的引用句不是标题。

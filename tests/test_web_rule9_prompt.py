@@ -1,6 +1,6 @@
 """Rule 9 (联网参考的反捏造边界) 进 system prompt 的条件与回滚闸 (spec §5 §9.3)。
 
-`scripts/tests/` 无 make_engine helper (已确认), 故本地直接构造 —— 只测 prompt 组装,
+`tests/` 无 make_engine helper (已确认), 故本地直接构造 —— 只测 prompt 组装,
 用 __new__ 绕开 chroma/embedding 初始化。
 """
 import inspect

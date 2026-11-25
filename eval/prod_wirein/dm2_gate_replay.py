@@ -1,6 +1,6 @@
 """DM2 研读包答案闸 §4 离线回放 —— 零 LLM, 实跑前必过.
 
-spec: docs/superpowers/specs/2026-09-25-dossier-output-gate-design.md §4.
+spec: docs/plans/specs/2026-09-25-dossier-output-gate-design.md §4.
 读 gitignored runs/dm2_e2e_{claude,attempt4,attempt5,attempt6}/judge_pack.json 共 42 份已独立判分的
 答案, 逐份跑 server.dossier_gate.check_answer, 与下面写死的预期 (以判分方逐 run 结论为真值) 比对.
 

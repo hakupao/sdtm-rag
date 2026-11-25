@@ -35,7 +35,7 @@ Chroma 的 HNSW 在向量完全相同的重复 chunk 之间返回谁不由 sim �
 
 跑批 (从 sdtm-rag/ 起):
   .venv/bin/python -m eval.pool_depth_probe --procs 12 \\
-    --output evidence/checkpoints/pool_depth_invariance.json
+    --output docs/evidence/checkpoints/pool_depth_invariance.json
 """
 from __future__ import annotations
 

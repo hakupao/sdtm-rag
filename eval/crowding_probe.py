@@ -5,13 +5,13 @@
 正文逐字近似, 会对含该字面的问句齐刷刷高分, 占满 top-k。
 
 **本探针只描述结构, 不判定好坏。** 挤占是否有害由层② 的 context A/B + judge 判定
-(evidence/checkpoints/crowding_layer2.md) —— 用 gold 判据永远判不出来, 因为 S1
+(docs/evidence/checkpoints/crowding_layer2.md) —— 用 gold 判据永远判不出来, 因为 S1
 前置注入已经确定性地钉死了 gold recall。
 
 已知限制: "同质"只按 section 名字面相同认定, 不含语义近似 (不同域的
 `Related Domains` vs `Overview` 这类照不出来)。刻意的确定性取舍。
 
-**逐题数字的可复现性 (Task 3B 实测, 详见 `evidence/checkpoints/topk_jitter.md`)**:
+**逐题数字的可复现性 (Task 3B 实测, 详见 `docs/evidence/checkpoints/topk_jitter.md`)**:
 top-15 的**成分**跨独立进程会变 (Chroma HNSW 在一批正文逐字节相同的重复 chunk 之间
 选谁, 进程内偏向单一状态 ~95%, 换进程会变)。故:
 
@@ -28,9 +28,9 @@ top-15 的**成分**跨独立进程会变 (Chroma HNSW 在一批正文逐字节�
   `max_cluster_section_tied` 标记, **为 true 即不可引用该字段**。
 
 跑批 (从 sdtm-rag/ 起):
-  .venv/bin/python -m eval.crowding_probe --output evidence/checkpoints/crowding_layer1.json
+  .venv/bin/python -m eval.crowding_probe --output docs/evidence/checkpoints/crowding_layer1.json
   .venv/bin/python -m eval.crowding_probe --cross-process 20 --ids q38,q47,q117 \\
-    --stability-output evidence/checkpoints/crowding_layer1_stability.json
+    --stability-output docs/evidence/checkpoints/crowding_layer1_stability.json
 """
 from __future__ import annotations
 
@@ -260,13 +260,13 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="层① 同质簇挤占结构探针")
     p.add_argument("test_set", nargs="?", default="eval/test_set_v3.yml")
     p.add_argument("--top-k", type=int, default=15)
-    p.add_argument("--output", default="evidence/checkpoints/crowding_layer1.json")
+    p.add_argument("--output", default="docs/evidence/checkpoints/crowding_layer1.json")
     p.add_argument("--ids", default=None,
                    help="逗号分隔题号, 只跑这些题 (缺省全集)")
     p.add_argument("--cross-process", type=int, default=0, metavar="N",
                    help="改跑跨进程验稳: 每题起 N 个独立进程, 报统计取值分布")
     p.add_argument("--stability-output",
-                   default="evidence/checkpoints/crowding_layer1_stability.json")
+                   default="docs/evidence/checkpoints/crowding_layer1_stability.json")
     args = p.parse_args(argv)
 
     from eval.run_eval import load_test_set

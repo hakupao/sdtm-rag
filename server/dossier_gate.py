@@ -1,6 +1,6 @@
 """DM2 研读包答案 生成后确定性闸 —— 纯函数, 零 LLM, 可枚举。
 
-spec: docs/superpowers/specs/2026-09-25-dossier-output-gate-design.md (§2 闸定义, §3 编排, §4 回放)。
+spec: docs/plans/specs/2026-09-25-dossier-output-gate-design.md (§2 闸定义, §3 编排, §4 回放)。
 只在研读包挂上时跑: B 部是穷尽一览, 「不在一览 = 不存在」只在那时成立。
 
 G-OID —— 只在「OID 断言」的位置取 token (`[A-Z][A-Z0-9_]{1,}`), 其余散文里的大写词一概不看:

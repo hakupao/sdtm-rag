@@ -8,7 +8,7 @@ version = "0.1.0a0"
 description = "SDTM Knowledge Base RAG + Dataset Validation Service (Phase 7)"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Proprietary — internal" }
+license = { text = "MIT" }
 authors = [{ name = "Bojiang Zhang" }]
 keywords = ["sdtm", "rag", "chroma", "litellm", "validation"]
 
@@ -61,7 +61,7 @@ fallback = [
     "sas7bdat>=2.2",
 ]
 browser = [
-    # Only scripts/tests/test_webchat_cache_browser.py needs this: the webchat cache defect
+    # Only tests/test_webchat_cache_browser.py needs this: the webchat cache defect
     # is "the server serves the new file, the browser executes an old one", which no in-process
     # HTTP client can reproduce (none of them implement a cache). Its own extra rather than a
     # line in `dev` so that not having it is a visible skip on one file instead of a failure
@@ -103,11 +103,11 @@ strict = false
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-testpaths = ["scripts/tests"]
+testpaths = ["tests"]
 addopts = "-ra -q"
 markers = [
     # 起真实子进程 / 打真实外部 API 的慢测试。默认跑; 要跳过用 -m "not slow"。
     "slow: spawns real subprocesses or hits real APIs",
-    # 依赖 gitignored 本机数据 (data/study/st01 等); 数据缺失时由 scripts/tests/conftest.py 自动 skip (CI)。
+    # 依赖 gitignored 本机数据 (data/study/st01 等); 数据缺失时由 tests/conftest.py 自动 skip (CI)。
     "local_data: needs gitignored local study data (auto-skipped when absent)",
 ]

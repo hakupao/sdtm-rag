@@ -176,7 +176,7 @@ grep -n "Used by variable" scripts/chunkers/terminology.py                      
 | 48 | q38 | concept | `chapters/ch04_general_assumptions.md` | `4.1.6 Additional Guidance on Dataset Naming` | 1 | **遗漏_应补** | 正文给出域码分配的另一条实体规则: 标准域码取自 CT codelist C66734; X/Y/Z 保留给自定义域, 第二位可为任意字母或数字 —— 直答 "两字符域码的规则"。与已补的 4.2.2 互补而非重复。 |
 | 49 | q38 | concept | `domains/SV/spec.md` | `DOMAIN` | 2 | **相关但非权威_不补** | 只是 SV 的 DOMAIN 变量定义("Two-character abbreviation for the domain most relevant to the observation"), 不给域码分配规则。 |
 | 50 | q38 | concept | `domains/TS/spec.md` | `DOMAIN` | 3 | **相关但非权威_不补** | 同上, 单域 DOMAIN 定义, 无字符/分配规则。 |
-| 51 | q39 | concept | `domains/MI/spec.md` | `Model Definition` | 1 | **不相关_不补** | 整段只有一行 KB 交叉链接 "[Findings class definition](../../model/02_observation_classes.md)", 无正文内容。 |
+| 51 | q39 | concept | `domains/MI/spec.md` | `Model Definition` | 1 | **不相关_不补** | 整段只有一行 KB 交叉链接 "`[Findings class definition](../../model/02_observation_classes.md)`", 无正文内容。 |
 | 52 | q39 | concept | `chapters/ch08_relationships.md` | `8.6.3 Guidelines for Differentiating Between Interventions, Events, Findings, and Findings About Events or Interventions` | 2 | **遗漏_应补** | 节首逐字定义 FA "initially created to represent findings about events, but can also be used for findings about interventions", 并给出判定表行区分 "event as a whole"(Events) 与 "multiple time-based findings about an event"(FA)。留观点见 §5。 |
 | 53 | q39 | concept | `domains/DA/spec.md` | `Model Definition` | 3 | **不相关_不补** | 同上, 一行链接桩。 |
 | 54 | q40 | concept | `model/01_concepts_and_terms.md` | `2.1 Model Concepts and Terms — Variables` | 2 | **相关但非权威_不补** | 不讲 collected vs derived, 也不讲 Origin metadata (Origin 在 ch04 §4.1.8)。 |

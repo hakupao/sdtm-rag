@@ -24,7 +24,7 @@ pw_api = pytest.importorskip(
     reason="真浏览器闸需要 playwright (dev-only 可选; 装法见 test_webchat_cache_browser.py)",
 )
 
-_WEBCHAT = Path(__file__).resolve().parents[2] / "webchat"
+_WEBCHAT = Path(__file__).resolve().parents[1] / "webchat"
 
 # 只放前端真读的字段 + SelectableModel 的 `model` (保持与 /api/info 真实形状同构):
 # app.js loadModelName 读 default_model / federation / selectable_models[].{id,label,verified}。

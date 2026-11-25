@@ -1,6 +1,6 @@
 """I2-3: 画面 PDF 旁路を付けるかどうかの**純粋関数** (P1 §3 の R1/R2/R3)。
 
-設計の要 (PLAN_c2r_pdf_bypass.md §0-2): 判定材料は**命中したカードの形**であって、
+設計の要 (docs/plans/PLAN_c2r_pdf_bypass.md §0-2): 判定材料は**命中したカードの形**であって、
 問題文を路由モデルに読ませることではない。よってここは LLM を一切呼ばない ——
 呼べば「なぜ付いた/付かなかった」が再現できなくなり、反例集も回帰にならない。
 
@@ -136,7 +136,7 @@ def should_attach_pdf(question: str, cards: list[CardFacts], *,
       (b) `study_strong_hit` = 問い自体が直查の強通道に当たった (`StudyLookup.strong_hit`)
       (c) `study_form_named` = 問いが study のフォームを名指しした
     (c) は V3 attempt 1 で T6 (純粋な画面レイアウト問い) が (a)(b) のどちらも満たさず
-    不発だったのを受けた改訂 (`evidence/failures/c2r_v3_attempt_1_T6.md`)。
+    不発だったのを受けた改訂 (`docs/evidence/failures/c2r_v3_attempt_1_T6.md`)。
 
     (c) の値は接線 (`server/router.py::maybe_attach_pdf_pages`) が 2 経路の or で作る:
       主 = **頁索引の名前表** `PdfPageIndex.form_named_in` (r3b) —— form OID は境界照合、

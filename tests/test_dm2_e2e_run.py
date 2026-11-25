@@ -6,7 +6,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-_PATH = Path(__file__).resolve().parents[2] / "eval" / "prod_wirein" / "dm2_e2e_run.py"
+_PATH = Path(__file__).resolve().parents[1] / "eval" / "prod_wirein" / "dm2_e2e_run.py"
 _spec = importlib.util.spec_from_file_location("dm2_e2e_run", _PATH)
 run = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(run)

@@ -305,7 +305,7 @@ def probe_binding(questions: list[dict],
 
     ## 为什么只回计数、不回 probe 词本身
 
-    probe 词是研究文档的日文词汇。本函数的输出会被贴进 `evidence/checkpoints/`,
+    probe 词是研究文档的日文词汇。本函数的输出会被贴进 `docs/evidence/checkpoints/`,
     而那个目录**进 git**、红线是"零正文零真名"。回计数 (位置对应 `card_probe_terms`
     的顺序) 就够定位, 且贴进证据不泄漏原文。
 

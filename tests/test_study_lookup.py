@@ -699,7 +699,7 @@ def test_resolve_total_cap_still_truncates_after_the_refactor():
 # 起点の欠陥 (dogfood 2026-09-09): カードの「非表示アクティビティ」行は裸の OID だけで,
 # 回答もその OID をそのまま鸚鵡返しするので人が読めない。名前をカード本文に書き足す案は
 # 却下済み —— 共有テキストは挤占回帰を起こす実証がある
-# (evidence/failures/t4_step7_retrieval_regression.md) ⇒ 修正は答題時の文脈組立だけ。
+# (docs/evidence/failures/t4_step7_retrieval_regression.md) ⇒ 修正は答題時の文脈組立だけ。
 #
 # 零真名 (紅線): 下の catalog は全部偽値。X 接頭辞は実 catalog のどの OID とも衝突しない。
 

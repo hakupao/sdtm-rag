@@ -42,7 +42,7 @@ export function groundingBadgeView(g, dossier) {
 }
 
 // 后端 GateRun.payload() 的键 (重答失败时的完整形状)。前端中断时自己合成同形状的 grounding;
-// scripts/tests/test_router_dossier_gate.py 读这一行与后端对钉, 两边改一边就红。
+// tests/test_router_dossier_gate.py 读这一行与后端对钉, 两边改一边就红。
 export const GROUNDING_KEYS = ["final", "first", "regenerated", "regenerate_error"];
 
 // 重答中途用户停止 / 断流: done 永远不来。首轮已判过 (grounding 事件), 以它为 final 合成与后端

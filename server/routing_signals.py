@@ -15,7 +15,7 @@ recall 归零且不可恢复。
 
 ⚠ 词表与正则已由 Task 9 在可见集 (legacy 181 + dev 12) 上标定并**冻结**, 此后不许再动
 (held-out / amb / final 组全程封存, U3 §6.2 三道防线); 证据与轮次表见
-`evidence/u6_task9_calibration.md`。词表纪律 (红线, 同 U3 §6.1): 只许标准结构词汇,
+`docs/evidence/u6_task9_calibration.md`。词表纪律 (红线, 同 U3 §6.1): 只许标准结构词汇,
 **零临床概念** —— 临床词一进来, 本层就从"结构信号"退化成"题面关键词命中", 那正是 U3
 判死过的路子。
 
@@ -67,7 +67,7 @@ _CT_CODE_RE = re.compile(r"(?<![A-Za-z0-9_])C\d{5,6}(?![A-Za-z0-9_])")      # NC
 # 起点版 (Task 8) 写的是 [A-Z]{4,8}, 它在 study 侧题面上大量误触 —— 试验缩写 (方案名 /
 # 評価尺度名 / システム名) 与 NFKC 把罗马数字归一出来的大写串都是 4-8 位大写, 而它们与
 # 标准结构毫无关系。Task 9 可见集标定实测: 起点版在 legacy 的 study 侧题上误触 6 题
-# (证据 evidence/u6_task9_calibration.md §3), 每一触都是 −1 exact。
+# (证据 docs/evidence/u6_task9_calibration.md §3), 每一触都是 −1 exact。
 #
 # 词源全部是**公开**件 (knowledge_base/, 进 git), 零 study 内容、零临床概念词; 三份表
 # 均由下面这条命令从 VARIABLE_INDEX.md 机械派生, 可逐字复算 (复算命令见 evidence §2):

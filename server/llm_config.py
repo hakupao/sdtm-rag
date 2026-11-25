@@ -223,7 +223,7 @@ def fell_back(s: Settings, model_group: str, reported_models) -> bool | None:
     - **litellm mock 流** (真 `create_router` + litellm `mock_response`, 零外部调用):
       同一次回答里可能出现**两种**拼法 —— 剥掉 provider 前缀的形与配置串原样。
       `get_llm_provider` 只剥掉最前面那一段 provider 前缀。
-    - **deepseek 侧, 实测但只有非流式那一次**: `DEPLOY_PLAN.md` 记的 `/api/ask` 回退到
+    - **deepseek 侧, 实测但只有非流式那一次**: `docs/history/DEPLOY_PLAN.md` 记的 `/api/ask` 回退到
       `deepseek/deepseek-v4-pro` 时 `response.model = deepseek-v4-pro` (provider 前缀被剥掉)。
     - ⚠ **真实 provider 流式 chunk 里写什么, 仍未实测** (spec §7 L1)。上面第一条用的是
       litellm 的 mock 流, 证的是"litellm 的拼法逻辑", 不是"真实 provider 返回什么"。

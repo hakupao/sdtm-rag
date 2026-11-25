@@ -1,4 +1,4 @@
-"""DM2 研读包答案 生成后确定性闸 (spec docs/superpowers/specs/2026-09-25-dossier-output-gate-design.md §2).
+"""DM2 研读包答案 生成后确定性闸 (spec docs/plans/specs/2026-09-25-dossier-output-gate-design.md §2).
 
 纯函数, 零 LLM. ⛔ 本文件只用虚构 OID (FORM_X / ITEM_Y1 / ZQ1_YN …), 不写任何真实 study OID。
 """

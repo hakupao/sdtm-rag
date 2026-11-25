@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from scripts.tests.study_fixtures import build_config_report
+from tests.study_fixtures import build_config_report
 from scripts.study.build_catalog import build_catalog, write_catalog
 from scripts.study.paths import StudyPaths
 
@@ -88,7 +88,7 @@ def test_ledger_per_sheet_counts(sp):
 def test_unknown_field_type_raises(sp, tmp_path):
     """未知结构值 (非脚注形态) 必须响亮失败, 不得静默当脚注吞掉."""
     from dataclasses import replace
-    from scripts.tests.study_fixtures import DEFAULT_ITEMS
+    from tests.study_fixtures import DEFAULT_ITEMS
     bad = ("FAKEFORM1", "偽フォーム一", "Section", "FG9", "") + ("",) * 16
     new = build_config_report(tmp_path / "bad.xlsx",
                               items_rows=list(DEFAULT_ITEMS) + [bad])
@@ -108,7 +108,7 @@ def test_unknown_field_type_raises(sp, tmp_path):
 def test_trailer_rows_in_ledger(sp, tmp_path):
     """脚注行 (含空格形态) 落 trailer:footnote, 不进 forms/items."""
     from dataclasses import replace
-    from scripts.tests.study_fixtures import DEFAULT_FORMS, DEFAULT_ITEMS
+    from tests.study_fixtures import DEFAULT_FORMS, DEFAULT_ITEMS
     trailer_form = ("See the Data checks sheet for details.", "", "", "", "")
     trailer_item = ("See the Data checks sheet for details.", "", "Footnote text",
                     "", "") + ("",) * 16
@@ -212,7 +212,7 @@ def test_catalog_stores_raw_values(norm_sp):
 def test_deactivated_form_shape_raises(sp, tmp_path):
     """form 形态 Id (无空格) + In use 空 = 疑似停用 form, 不得静默按脚注吞掉."""
     from dataclasses import replace
-    from scripts.tests.study_fixtures import DEFAULT_FORMS
+    from tests.study_fixtures import DEFAULT_FORMS
     dead_form = ("FAKEDEAD", "停用フォーム", "", "", "")
     new = build_config_report(tmp_path / "dead.xlsx",
                               forms_rows=list(DEFAULT_FORMS) + [dead_form])
@@ -224,7 +224,7 @@ def test_deactivated_form_shape_raises(sp, tmp_path):
 def test_footnote_form_row_still_trailer(sp, tmp_path):
     """真脚注行 (含空格句子形态 + In use 空) 仍走 trailer, 不误伤."""
     from dataclasses import replace
-    from scripts.tests.study_fixtures import DEFAULT_FORMS
+    from tests.study_fixtures import DEFAULT_FORMS
     footnote = ("See the Data checks sheet for details.", "", "", "", "")
     new = build_config_report(tmp_path / "fn.xlsx",
                               forms_rows=list(DEFAULT_FORMS) + [footnote])
@@ -244,7 +244,7 @@ def test_diff_available_flag(sp):
 def test_blank_id_with_payload_raises(sp, tmp_path):
     """Id 空但 Name/Description 有载荷: 不得静默归脚注 (与 Items 二次闸对称)."""
     from dataclasses import replace
-    from scripts.tests.study_fixtures import DEFAULT_FORMS
+    from tests.study_fixtures import DEFAULT_FORMS
     ghost = ("", "幽霊フォーム", "", "", "")
     new = build_config_report(tmp_path / "ghost.xlsx",
                               forms_rows=list(DEFAULT_FORMS) + [ghost])
@@ -260,7 +260,7 @@ def test_blank_id_with_payload_raises(sp, tmp_path):
 def test_workflow_events_blank_id_with_payload_raises(sp, tmp_path):
     """Events: Id 空但 Event name / Event type 有载荷 — 唯一可达的判据 (oid 形态判据恒假)."""
     from dataclasses import replace
-    from scripts.tests.study_fixtures import DEFAULT_WORKFLOW_EVENTS
+    from tests.study_fixtures import DEFAULT_WORKFLOW_EVENTS
     ghost = ("", "偽イベント零", "", "偽タイプZ", "", "", "", "")
     new = build_config_report(tmp_path / "ev_ghost.xlsx",
                               events_rows=list(DEFAULT_WORKFLOW_EVENTS) + [ghost])
@@ -272,7 +272,7 @@ def test_workflow_events_blank_id_with_payload_raises(sp, tmp_path):
 def test_workflow_activities_blank_id_with_payload_raises(sp, tmp_path):
     """Activities: Id 空但 Study event ID 有载荷 — 唯一可达的判据."""
     from dataclasses import replace
-    from scripts.tests.study_fixtures import DEFAULT_WORKFLOW_ACTIVITIES
+    from tests.study_fixtures import DEFAULT_WORKFLOW_ACTIVITIES
     ghost = ("", "EV_FAKE01", "偽イベント一", "", "", "")
     new = build_config_report(tmp_path / "ac_ghost.xlsx",
                               activities_rows=list(DEFAULT_WORKFLOW_ACTIVITIES) + [ghost])
@@ -284,7 +284,7 @@ def test_workflow_activities_blank_id_with_payload_raises(sp, tmp_path):
 def test_workflow_forms_activity_id_shaped_raises(sp, tmp_path):
     """Forms: Form ID 空但 Activity ID 是 OID 形态 (与 activity_oid 解耦, 判据可达)."""
     from dataclasses import replace
-    from scripts.tests.study_fixtures import DEFAULT_WORKFLOW_FORMS
+    from tests.study_fixtures import DEFAULT_WORKFLOW_FORMS
     ghost = ("", "", "AC_FAKE01", "", "", "", "", "")
     new = build_config_report(tmp_path / "fm_ghost_a.xlsx",
                               workflow_forms_rows=list(DEFAULT_WORKFLOW_FORMS) + [ghost])
@@ -296,7 +296,7 @@ def test_workflow_forms_activity_id_shaped_raises(sp, tmp_path):
 def test_workflow_forms_event_id_shaped_raises(sp, tmp_path):
     """Forms: Form ID 空但 Event ID 是 OID 形态 (第二条判据, 与上一条互相独立)."""
     from dataclasses import replace
-    from scripts.tests.study_fixtures import DEFAULT_WORKFLOW_FORMS
+    from tests.study_fixtures import DEFAULT_WORKFLOW_FORMS
     ghost = ("EV_FAKE01", "", "", "", "", "", "", "")
     new = build_config_report(tmp_path / "fm_ghost_b.xlsx",
                               workflow_forms_rows=list(DEFAULT_WORKFLOW_FORMS) + [ghost])

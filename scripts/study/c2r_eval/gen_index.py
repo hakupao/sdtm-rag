@@ -9,7 +9,7 @@ QS = json.loads((RUNS.parent / "c2r_v3" / "questions.json").read_text())
 QMAP = {**QS["T"], **QS["N"]}
 
 L = ["# C2R V3 原始 run 索引 (gitignored — 含题面真值, 不进 git)", "",
-     "> 生成: `scripts/study/c2r_eval/gen_index.py` · 汇总掩码版见 `evidence/checkpoints/c2r_v3_eval.md`",
+     "> 生成: `scripts/study/c2r_eval/gen_index.py` · 汇总掩码版见 `docs/evidence/checkpoints/c2r_v3_eval.md`",
      "> 文件结构: `_meta` (arm/model/qid/status/attempts/wall_s) + `request` + `response` (完整 AskResponse)",
      "> 命名: `<arm>_<model>_<qid>.json`; arm A = flag OFF (:8010), arm B = `SDTM_RAG_PDF_CONTEXT_ENABLED=true` (:8011)",
      "", "## 题面真值 (qid → 原文)", "", "| qid | 题面 |", "|---|---|"]

@@ -90,7 +90,7 @@ Phase 1-5（知识库构建 + 验证）和 Phase 6 P0-P2（检索优化）全部
 
 | 文件 | 关系 |
 |------|------|
-| [docs/DESIGN_RAG_KG.md](../../docs/DESIGN_RAG_KG.md) | 设计文档（本 session 主产出） |
-| [04_optimization/retrieval_optimization.md](../04_optimization/retrieval_optimization.md) | Phase 6 优化（P3 结构化元数据是二期前置依赖） |
-| [meta/worklog.md](../meta/worklog.md) | 工作日志 |
-| [meta/retrospective.md](../meta/retrospective.md) | 质量规则（一期开发也必须遵守） |
+| [docs/design/DESIGN_RAG_KG.md](../../design/DESIGN_RAG_KG.md) | 设计文档（本 session 主产出） |
+| `04_optimization/retrieval_optimization.md` (monorepo sdtm-pedia `.work/`, 未迁入本仓) | Phase 6 优化（P3 结构化元数据是二期前置依赖） |
+| `meta/worklog.md` (同上, 未迁入) | 工作日志 |
+| `meta/retrospective.md` (同上, 未迁入; 规则 5-6 见 `docs/RULES.md`) | 质量规则（一期开发也必须遵守） |

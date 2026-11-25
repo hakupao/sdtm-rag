@@ -1,4 +1,4 @@
-# scripts/tests/test_router_structured.py
+# tests/test_router_structured.py
 # Mirrors conftest.py: bare FastAPI + manual app.state.* fakes (NO lifespan/create_app).
 # _CtxRAG.build_messages propagates the (possibly augmented) context into messages so we
 # can assert the facts block reached the LLM. The fake completion emits a WRONG count (41)
@@ -14,7 +14,7 @@ from server.meta_store import MetaStore
 from server.router import api_router
 from server.structured_answer import StructuredAnswerer
 
-_META = Path(__file__).resolve().parents[2] / "data" / "meta" / "meta.yaml"
+_META = Path(__file__).resolve().parents[1] / "data" / "meta" / "meta.yaml"
 
 
 class _CtxRAG:

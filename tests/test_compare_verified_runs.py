@@ -2,7 +2,7 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "eval"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "eval"))
 
 from compare_verified_runs import (  # noqa: E402
     TAGS, aggregate_j1, aggregate_j2, best_by_rank, perm_for, rank_valid, self_destruct)

@@ -1,9 +1,9 @@
 """I2-2: 画面 PDF の按需旁路 — OID 集合 → 頁集合 → 画像 → 多模態片段。
 
-C2 の DROP 判定 (`evidence/checkpoints/c2_pre_survey.md` §8) は動かさない: この 2 つの
+C2 の DROP 判定 (`docs/evidence/checkpoints/c2_pre_survey.md` §8) は動かさない: この 2 つの
 PDF はベクトル庫に**入らない**。ここは検索の外側で、**既に当たったカードの OID を鍵に**
 確定的に頁を選び、その頁だけを画像として答題文脈に足す通道。鍵は catalog 由来であって、
-モデルに「何を検索するか」を決めさせない (PLAN_c2r_pdf_bypass.md §2)。
+モデルに「何を検索するか」を決めさせない (docs/plans/PLAN_c2r_pdf_bypass.md §2)。
 
 選頁の規則 (S0 §1-2/§1-4 の実測に基づく):
 1. annotated は **item OID 直查** (941/959, 中位 1 頁)。当たらなければ form ブロック先頭頁。
@@ -201,7 +201,7 @@ class PdfPageIndex:
         **手書き別名表だけ** (通道 ③) で、catalog の form 名や form OID を問いから拾う
         経路が無い。実データの別名表は 1 件しか無く、V3 attempt 1 の T6 (フォームを
         日本語名と OID の両方で名指しした純粋な画面レイアウト問い) がそこで落ちた
-        (`evidence/failures/c2r_v3_attempt_1_T6.md`)。
+        (`docs/evidence/failures/c2r_v3_attempt_1_T6.md`)。
 
         判定材料は**頁索引の名前表**。ここで完結させる利点は 2 つ: ① 別名表を触らない
         ので検索が 1 件も動かない (`form_scopes` は `_apply_study_lookup` の注入に効く)

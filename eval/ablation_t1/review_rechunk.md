@@ -5,8 +5,8 @@
 **Files reviewed:**
 - `scripts/chunkers/variable_index.py`
 - `scripts/chunkers/terminology.py`
-- `scripts/tests/test_variable_index.py`
-- `scripts/tests/test_terminology.py`
+- `tests/test_variable_index.py`
+- `tests/test_terminology.py`
 
 **Total issues:** 7 (0 CRITICAL · 1 HIGH · 3 MEDIUM · 3 LOW)
 

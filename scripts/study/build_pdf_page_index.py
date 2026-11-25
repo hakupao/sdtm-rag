@@ -1,4 +1,4 @@
-"""I2-1: 画面 PDF の確定的ページ索引 (PLAN_c2r_pdf_bypass.md §4, 零 LLM)。
+"""I2-1: 画面 PDF の確定的ページ索引 (docs/plans/PLAN_c2r_pdf_bypass.md §4, 零 LLM)。
 
 S0 勘察 (`survey_pdf_pages.py`) の切块ロジックを生産形に収束させたもの。勘察との差:
 

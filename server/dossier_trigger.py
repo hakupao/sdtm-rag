@@ -4,7 +4,7 @@ spec §4. 范围词是**词类** (研究指代 + study/試験/研究), 不是某
 裸 "EDC"/"in our\b" 已收紧 (fix round 1): EDC 需搭配 study/trial/研究 锚定才算范围词, 否则纯 CDISC 定义题
 (如 "What is EDC in SDTM terms?") 会误触发.
 英文分支加 `\b` 词边界 (fix round 2, DM2 T8 attempt 1): 无边界时 "f<our Trial>" 之类跨词边匹配会误触发
-(见 evidence/failures/dm2_task8_attempt_1.md, q29 "the four Trial Design domains..."); CJK 分支与
+(见 docs/evidence/failures/dm2_task8_attempt_1.md, q29 "the four Trial Design domains..."); CJK 分支与
 `本 ?study` 保持不加 `\b` (`\b` 在 CJK 字符边界上行为不可靠).
 域码识别注入 (D1 `_query_domains`), 这里不重写正则.
 """
@@ -52,7 +52,7 @@ def decide_dossier(question: str, mode: DossierMode, enabled: bool,
 
 
 # ── 答题语言 (attempt 4 → 5) ─────────────────────────────────────────
-# 研读包 13 万字以日文为主, system 里的「跟问句语言」两轮压不住 (evidence/failures/
+# 研读包 13 万字以日文为主, system 里的「跟问句语言」两轮压不住 (docs/evidence/failures/
 # dm2_task9_attempt_4.md: sonnet en 问 → ja 答)。改为按问句**文字种类**确定语言, 由 router 在
 # 最后一条 user 消息末尾追加一行 —— 离生成最近, 且是确定值不是让模型自己判断。
 # 判定は「問句の地の文」で行う (审查意见: EDC の表単名・項目名は日文原文のまま引用されがち):

@@ -5,7 +5,7 @@ chunkers on top.
 
 References:
 - PLAN.md §6 (chunker implementation) + §7 (metadata schema)
-- evidence/checkpoints/phase_1a_0_sanity.md §4 — chunker config locks (1A.3 writer 必准拠):
+- docs/evidence/checkpoints/phase_1a_0_sanity.md §4 — chunker config locks (1A.3 writer 必准拠):
   - L-1: mermaid 状态机 (0 嵌套 verified) — 进入 ```mermaid 跳到下一个 ``` 退出, 不用 stack
   - L-2: GFM pipe-table 简单 regex (0 HTML rowspan/colspan/<table>)
   - L-3: tiktoken cl100k_base 实测强制 (char/4 偏差最大 23.6%, 不允许 char/4)

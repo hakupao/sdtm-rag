@@ -1,6 +1,6 @@
 """DM2: 研读包 (Study Dossier) —— 域级映射题「整本喂」的原料, 启动时构建一次.
 
-spec: docs/superpowers/specs/2026-09-15-study-dossier-design.md §3
+spec: docs/plans/specs/2026-09-15-study-dossier-design.md §3
 纯文件读, 无 LLM 无网络; 同一输入永远得到同一 text/sha. 超预算抛错不截断.
 ⚠ 本文件不写任何 study OID / 表单名 / 日文 label.
 """

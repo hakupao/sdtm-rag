@@ -383,7 +383,7 @@ def test_main_bad_probe_exits(tmp_path):
 
 
 # ── 抽检方 B 变异补网: 合取/并集只测一半 + 对调型 + 顺序确定性 ────────────────
-# 下面每条都由一个存活变异倒推而来 (见 evidence/step_u5_audit_mutation.md 变异号)。
+# 下面每条都由一个存活变异倒推而来 (见 docs/evidence/step_u5_audit_mutation.md 变异号)。
 
 def test_scores_by_id_treats_missing_parse_ok_key_as_untrusted():
     """旧版产物整行没有 judge_parse_ok 键: 缺省值必须是"不可信", 不是"可信".

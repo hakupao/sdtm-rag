@@ -2,7 +2,7 @@
 
 > 状态: **设计待评审** (2026-07-24)
 > 来源: 本设计由一次 brainstorm 收敛而来(用户七项决策见 §1.3)。
-> 上游: SP6 网状查看器 `scripts/build_kg_viewer.py` / `kg_viewer.html`(现有产物) · [[SP1 meta.yaml]](硬结构真源) · `data/meta/implicit_relations.json`(advisory 软层)
+> 上游: SP6 网状查看器 `scripts/build_kg_viewer.py` / `kg_viewer.html`(现有产物) · [[SP1 meta.yaml]] (硬结构真源) · `data/meta/implicit_relations.json`(advisory 软层)
 > 硬约束: 产物仍是**零依赖 · 离线 · 单 HTML**(不引外部字体/CDN);类的 CVD-safe 配色(--c1..--c8)与明暗双主题保留;软层永不改动 meta.yaml。
 
 ## 1. 背景与目标

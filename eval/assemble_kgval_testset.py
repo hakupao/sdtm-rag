@@ -113,7 +113,7 @@ def main() -> int:
         "# reconciled via an independent raw-yaml path (eval/reconcile_kgval_gold.py),\n"
         "# reviewed by an independent scientist agent (Rule D). expected_facts = gold item\n"
         "# set for deterministic set-recall (word-boundary, case-sensitive in the analyzer);\n"
-        "# expect_count + card_applies drive the cardinality metric. See KG_VALUE_EVAL_PLAN.md.\n"
+        "# expect_count + card_applies drive the cardinality metric. See docs/design/KG_VALUE_EVAL_PLAN.md.\n"
     )
     out = EVAL / "test_set_kg_value.yml"
     out.write_text(header + yaml.safe_dump(entries, sort_keys=False, allow_unicode=True,

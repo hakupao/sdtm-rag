@@ -1,6 +1,6 @@
 # 进度看板 (sdtm-rag)
 
-> **本仓唯一进度状态源**, 只写当前状态; 历史看 git log 与 `evidence/checkpoints/`。
+> **本仓唯一进度状态源**, 只写当前状态; 历史看 git log 与 `docs/evidence/checkpoints/`。
 > 2026-11-25 拆仓时从 monorepo `sdtm-pedia/docs/PROGRESS.md` 迁入 Phase 7 行与「近 30 天」段; 原文已原样移到
 > `docs/history/progress_phase7_snapshot_2026-11-25.md` (只读历史)。
 

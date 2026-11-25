@@ -3,7 +3,7 @@ from pathlib import Path
 import openpyxl
 import pytest
 
-from scripts.tests.study_fixtures import build_config_report
+from tests.study_fixtures import build_config_report
 from scripts.study.parse_config_report import (
     parse_codelists,
     parse_forms,
@@ -111,7 +111,7 @@ def test_parse_codelists_grouping(report):
 
 def test_trailer_rows_flagged(tmp_path):
     """Viedoc 表尾脚注行: Forms 标 is_trailer, Items 归一化为 Trailer."""
-    from scripts.tests.study_fixtures import DEFAULT_FORMS, DEFAULT_ITEMS
+    from tests.study_fixtures import DEFAULT_FORMS, DEFAULT_ITEMS
     trailer_form = ("See the Data checks sheet for details.", "", "", "", "")
     trailer_item = ("See the Data checks sheet for details.", "", "Footnote text", "", "") + ("",) * 16
     p = build_config_report(tmp_path / "t.xlsx",

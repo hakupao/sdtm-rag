@@ -133,7 +133,7 @@ def test_stream_injects_facts_and_appends_correction():
     app.state.llm_router = _StreamRouter()
     app.state.settings = Settings()
     app.state.answerer = StructuredAnswerer(
-        MetaStore(Path(__file__).resolve().parents[2] / "data" / "meta" / "meta.yaml"))
+        MetaStore(Path(__file__).resolve().parents[1] / "data" / "meta" / "meta.yaml"))
 
     body = TestClient(app).post(
         "/api/ask_stream", json={"question": "How many domains include TAETORD?", "history": []}
@@ -152,7 +152,7 @@ def test_stream_injects_facts_and_appends_correction():
 # (即便抬高后仍触顶, 也要接着写完, 而不是留半句话)。
 
 from server.router import CONTINUE_PROMPT  # noqa: E402
-from scripts.tests.test_ask_stream_web import _events  # noqa: E402
+from tests.test_ask_stream_web import _events  # noqa: E402
 
 
 class _ContinueRouter:
@@ -552,7 +552,7 @@ def test_streamlit_consumer_reads_the_truncation_fields():
     import re
     from pathlib import Path
 
-    src = (Path(__file__).resolve().parents[2] / "ui" / "streamlit_app.py").read_text(
+    src = (Path(__file__).resolve().parents[1] / "ui" / "streamlit_app.py").read_text(
         encoding="utf-8")
     for field in ("truncated", "continue_rounds"):
         assert re.search(rf'\.get\(\s*["\']{field}["\']', src), \

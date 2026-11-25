@@ -164,7 +164,7 @@ def build_cards(catalog: dict, samples: dict[str, list], cards_dir: Path, *,
             # 的该行只有 46 种取值, 最大簇 175 卡 (18.2%) 逐字相同; 两题回归前恰好压在 rank
             # 15/15 检索窗口边缘, 被同簇 (逐字相同该行) 的兄弟卡挤出 top-k (q14 顶替者仅赢
             # 0.0002 相似度)。归因: A 臂 (仅 Task 1 标签修复, 无此行) = 87.50% 逐题 Δ0, 致害
-            # 全部来自本行。完整实验数据见 evidence/failures/t4_step7_retrieval_regression.md。
+            # 全部来自本行。完整实验数据见 docs/evidence/failures/t4_step7_retrieval_regression.md。
             assignments=None,
         )
         p = cards_dir / f"{catalog['study']}__{item['form_oid']}__{item['item_oid']}.md"

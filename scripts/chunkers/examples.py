@@ -13,7 +13,7 @@ Heading-level detection rule (lightweight heuristic, single pass):
   - If H4 count >= 2 AND any H4 text starts with "Method " → use H4 level (PC nested).
   - Else → use H2 level (flat).
 
-Locks honored (per evidence/checkpoints/phase_1a_0_sanity.md §4):
+Locks honored (per docs/evidence/checkpoints/phase_1a_0_sanity.md §4):
   - L-1 mermaid: status-machine via base.find_mermaid_blocks (0 nesting verified).
   - L-2 GFM pipe-table: simple regex via base.find_table_blocks.
   - L-3 token count: BaseChunker._new_chunk auto-fills via tiktoken cl100k_base.

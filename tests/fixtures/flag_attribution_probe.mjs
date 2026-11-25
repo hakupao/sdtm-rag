@@ -33,7 +33,7 @@ import { dirname, resolve, join } from "node:path";
 // 工作树里的模块意味着那几秒内用户刷新页面会拿到变异版。行为闸走副本即可 ——
 // 只有静态闸 (读 Python 侧的 FLAG_JS / RENDER_JS 常量) 才必须动工作树。
 const WEBCHAT = process.env.PROBE_WEBCHAT_DIR
-  || resolve(dirname(fileURLToPath(import.meta.url)), "../../../webchat");
+  || resolve(dirname(fileURLToPath(import.meta.url)), "../../webchat");
 
 // /api/info 的模型表 —— 与 config.py 的 selectable_models 同形。topbar 会被 loadModelName
 // 把 default_model 的尾段写进 #topbar-model 的 dataset, 这正是老实现拿去归因的那个串,

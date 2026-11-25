@@ -4,7 +4,7 @@
 
 Prompts (no echo) for the access password and prints the three .env lines to paste into
 the service-dir .env (chmod 600, NEVER committed). The password is never stored or printed.
-See DEPLOY_PLAN.md §3 and deploy/README.md.
+See docs/history/DEPLOY_PLAN.md §3 and deploy/README.md.
 """
 from __future__ import annotations
 

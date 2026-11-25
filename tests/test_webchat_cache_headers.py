@@ -21,7 +21,7 @@ age 的 10%), 于是一个放了两周的 app.js 能在部署后被本地缓存�
 守的是开发配置, 生产配置无人守。
 
 ⚠ 这一层只证明"服务器说对了话"。"浏览器真的照做了"由真浏览器端到端闸证明, 见
-scripts/tests/test_webchat_cache_browser.py (未装 playwright 时可见地 skip)。
+tests/test_webchat_cache_browser.py (未装 playwright 时可见地 skip)。
 """
 from __future__ import annotations
 

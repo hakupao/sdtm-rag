@@ -16,7 +16,7 @@ golden v1.1 实测四类 miss 的确定性修复层: 数据源只有 catalog.jso
   ③ 别名表 → form scope: 手工别名 (自然语言词 -> form_oid, 本地 yml, 有据可查,
      不写入卡片) 命中 → 交给注入层做域内 cosine top-N (词面排序对该类实测失效)。
 
-本类还有一个**与检索无关**的出口: `glossary_for` (L1, PLAN_c2r_pdf_bypass.md) ——
+本类还有一个**与检索无关**的出口: `glossary_for` (L1, docs/plans/PLAN_c2r_pdf_bypass.md) ——
 答题时把已在上下文里的 OID 翻成 catalog 里的官方名, 只服务 `RAGEngine.format_context`。
 放在这里是因为 catalog 与有界匹配 (`_bounded_contains`) 都已在本类里, 另起一处会让
 "OID 边界怎么算"有两份定义。它不进 `resolve*` 的任何路径, 检索结果一条不动。
@@ -60,7 +60,7 @@ _MIN_FORM_OID_LEN = 2
 # Tier 1b 判别力闸: 该 form 的 assignment 清单超过本值 = 清单不具判别力, **整个跳过**。
 # 与 `_MAX_CARDS_PER_MATCH` 同精神 ("匹配集合太大 = 不具判别力")。
 #
-# 判据 (C3 精度取舍单元, 2026-08-26 全 33 题实测, 证据 evidence/checkpoints/study_c3_precision_tradeoff.md):
+# 判据 (C3 精度取舍单元, 2026-08-26 全 33 题实测, 证据 docs/evidence/checkpoints/study_c3_precision_tradeoff.md):
 # Tier 1b 一层贡献 220/259 条返回与 214/231 条噪声, **层内 precision 仅 2.7%**;
 # 噪声集中在 4 个长清单 form (长度分布 {1:13, 2:3, 4:1, 14:1, 15:1, 18:1, 40:1})。
 # 设为 1 后: 全局 precision **10.81% → 54.00%**, 返回 **259 → 50**;
@@ -170,7 +170,7 @@ class StudyLookup:
         # 2026-08-26 **整层移除** —— Tier 1b 收紧后, 全通道剩余 23 条假阳性里 19 条
         # (83%) 出自它, 层内 tp 5 / fp 19。机制: 可读名是自然语言短语, 日文没有可用
         # 的词边界, 这层不做边界判定, 问题里出现该短语即召回, 哪怕说的是别的意思。
-        # 判据与代价见 evidence/checkpoints/study_c3_precision_tradeoff.md §7。
+        # 判据与代价见 docs/evidence/checkpoints/study_c3_precision_tradeoff.md §7。
         self._exact_oid_index: dict[str, list[str]] = defaultdict(list)
         for e in catalog.get("events", []):
             self._exact_oid_index[_norm(e["oid"])].append(f"event:{e['oid']}")
@@ -235,7 +235,7 @@ class StudyLookup:
 
         # L1: 答題時グロッサリ (OID → 公式名)。**検索には一切使わない** —— 名前をカード
         # 本文に書き足す案は、共有テキストが挤占回帰を起こす実証があり却下済み
-        # (evidence/failures/t4_step7_retrieval_regression.md)。よって名前は文脈組立の
+        # (docs/evidence/failures/t4_step7_retrieval_regression.md)。よって名前は文脈組立の
         # 時にだけ足す。並びは catalog 順で activity → form → event: 活動が本機能の主目的
         # (カードの「非表示アクティビティ」行に並ぶ裸 OID が読めないのが起点の欠陥)。
         # 同一 OID が複数プールに現れたら先勝ち (実データに衝突は無いが、順序が決まって
@@ -273,7 +273,7 @@ class StudyLookup:
 
         用途は答題側の文脈組立**だけ** (`RAGEngine.format_context` がチャンクの後ろに
         足す)。検索側 (`retrieve` / `_search` / `_apply_study_lookup`) からは呼ばない ——
-        検索に触れないことが本単元の硬い制約そのもの (PLAN_c2r_pdf_bypass.md L1)。
+        検索に触れないことが本単元の硬い制約そのもの (docs/plans/PLAN_c2r_pdf_bypass.md L1)。
 
         照合は `_bounded_contains` の有界一致 (両隣が ASCII 英数字/下線でない)。ここの要は
         短い OID が長い OID の中で誤爆しないこと: 裸の部分文字列一致だと、`XACT_A2_LB`
@@ -403,7 +403,7 @@ class StudyLookup:
         tp 5 / fp 19)。机制: 可读名是自然语言短语, 日文没有可用的词边界, 该层不做
         边界判定, 只要题面出现该短语即召回, 哪怕说的是别的意思。移除代价: 命中
         20/33 → 15/33 (丢 oid_name_mapping 4 题 + conditional_event 1 题),
-        换来 precision **54.00% → 84.62%**, 返回 50 → 26。判据见 evidence/checkpoints/study_c3_precision_tradeoff.md §7。
+        换来 precision **54.00% → 84.62%**, 返回 50 → 26。判据见 docs/evidence/checkpoints/study_c3_precision_tradeoff.md §7。
         """
         q_ws = _norm_ws(query)
 
@@ -454,7 +454,7 @@ class StudyLookup:
         沿用 SDTM 风味命名, 于是一道**纯标准题**里的变量名 (AESEV 之类) 会精确撞段。
         对注入层那是廉价的多召回几张卡, 对判库层却是把 cdisc 判定错误地拓宽成 both ——
         Task 9 可见集标定实测 6 道纯标准题误触, 全部出自这条通道 (每触 −1 exact,
-        模拟 legacy 173 < 阈值 178, 见 evidence/u6_task9_calibration.md §5)。
+        模拟 legacy 173 < 阈值 178, 见 docs/evidence/u6_task9_calibration.md §5)。
 
         用的是**cap 过滤后**的命中: 命中集超 cap 在 resolve 里就是"不具判别力, 整体跳过",
         没有理由在信号层反倒算作依据。

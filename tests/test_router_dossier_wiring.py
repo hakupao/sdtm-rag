@@ -267,7 +267,7 @@ def test_empty_list_pauses_every_model():
 
 
 def test_info_lists_auto_attach_models():
-    from scripts.tests.test_model_switching import _info_client
+    from tests.test_model_switching import _info_client
     assert _info_client().get("/api/info").json()["dossier_auto_attach_models"] == ["opus-5"]
     assert _info_client(dossier_auto_attach_models=[]).get(
         "/api/info").json()["dossier_auto_attach_models"] == []
@@ -398,7 +398,7 @@ def test_attaches_on_the_single_corpus_path_too():
 
 def test_rule_pins_category_axis_and_no_candidate_wording():
     """T9 attempt 1 (4/6) 的失败是类别轴混淆: 模型拿 `--SCAT` / 阶段轴顶替类别轴,
-    漏掉的那个类别既没列举也没申报无候选 (evidence/failures/dm2_task9_attempt_1.md)。
+    漏掉的那个类别既没列举也没申报无候选 (docs/evidence/failures/dm2_task9_attempt_1.md)。
 
     修法落在规则层的两处措辞 —— 沿 `--CAT` 轴逐类穷举 + 每类要么给候选要么明写"无候选"。
     措辞不是结构, 下次重写规则句时最容易被顺手抹掉而没人发现, 所以钉在**实际拼进 system
@@ -413,7 +413,7 @@ def test_rule_pins_category_axis_and_no_candidate_wording():
 
 
 def test_rule_pins_attempt4_patterns():
-    """T9 attempt 3 (evidence/failures/dm2_task9_attempt_3.md) 的四个失败模式各对应一处措辞:
+    """T9 attempt 3 (docs/evidence/failures/dm2_task9_attempt_3.md) 的四个失败模式各对应一处措辞:
     无 CT / 无 --CAT 的形态声明、CT 原文大写串、OID 全文作用域、答题语言。钉在实际拼进 system
     的文本上 (同上一条的理由); 另钉规则里不得出现具体 CT 取值 —— 那是题面级修法的信号。"""
     c, app = _client(DOSSIER)
@@ -423,7 +423,7 @@ def test_rule_pins_attempt4_patterns():
     for phrase in ("without controlled terminology", "has no `--CAT` variable",
                    "exact uppercase CT string", "anywhere in the answer",
                    "language of the question", "SUPPQUAL QNAM proposal",
-                   # attempt 6 (evidence/failures/dm2_task9_attempt_5.md): 示例值 / 保留语气候选 / 缺席≠不存在
+                   # attempt 6 (docs/evidence/failures/dm2_task9_attempt_5.md): 示例值 / 保留语气候选 / 缺席≠不存在
                    "examples, illustrations and placeholders", "however hedged",
                    "dedicated to its content", "own definition covers that content",
                    "do not claim the standard lacks it"):
@@ -438,7 +438,7 @@ def test_rule_pins_attempt4_patterns():
 
 
 def test_dossier_appends_answer_language_line_to_last_user_message():
-    """attempt 4 (evidence/failures/dm2_task9_attempt_4.md): sonnet 两轮 en 问 → ja 答, 规则句措辞压不住
+    """attempt 4 (docs/evidence/failures/dm2_task9_attempt_4.md): sonnet 两轮 en 问 → ja 答, 规则句措辞压不住
     ⇒ 挂研读包时在**最后一条 user 消息末尾**追加确定的语言指令 (离生成最近, 不在 13 万字日文之前)。
     不挂时 user 消息不得多出任何东西。"""
     from server.dossier_trigger import ANSWER_LANGUAGE_LINE

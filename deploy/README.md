@@ -22,7 +22,7 @@ push 到 Gitea `main` (路径过滤见 workflow) → 自动部署, 镜像标签 
 
 改了 `webchat/`: 发版后让同事 `Cmd+Shift+R` (Win `Ctrl+F5`) 强刷一次 —— 修 `Cache-Control` 之前存进浏览器的
 旧条目 (启发式新鲜期实测 ≈3 天) 不回源, 症状是"新控件整排消失", 不是后端问题。回归闸:
-`scripts/tests/test_webchat_cache_headers.py` 常驻; `test_webchat_cache_browser.py` (真浏览器, 默认 skip) 改前端后手动跑。
+`tests/test_webchat_cache_headers.py` 常驻; `test_webchat_cache_browser.py` (真浏览器, 默认 skip) 改前端后手动跑。
 
 ## 回滚
 

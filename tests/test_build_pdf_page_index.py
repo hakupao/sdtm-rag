@@ -1,4 +1,4 @@
-"""I2-1: 确定性 PDF 页索引 (PLAN_c2r_pdf_bypass.md §4)。
+"""I2-1: 确定性 PDF 页索引 (docs/plans/PLAN_c2r_pdf_bypass.md §4)。
 
 合成页文本 fixture, 零真名 / 零真实页 —— 切块逻辑只吃 `list[str]`, 子进程边界留在
 `scripts/study/pdf_text.py` 一处 (与 split_sections.py 同纪律)。真 PDF 只在文末一条

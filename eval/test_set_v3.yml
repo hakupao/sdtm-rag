@@ -13,7 +13,7 @@
 #   1 FIX (q128 facts completed with VSSTRESC) + 0 REJECT. Programmatic check:
 #   all facts verbatim-in-gold, all sources exist, no domain-code/variable token
 #   in q128-q140 question text. Full audit trail:
-#   evidence/checkpoints/testset_v3_authoring_audit.json
+#   docs/evidence/checkpoints/testset_v3_authoring_audit.json
 # Long-name probe design (q128-q140): 10 names expected to be S3-matchable
 #   (multi-word or single word >=10 chars); 3 deliberate boundary probes
 #   q134 "Concomitant Medications" (VARIABLE_INDEX long name is
@@ -36,7 +36,7 @@
 # 验证实际 gold 写法 (study 侧同形态因卡名带 `.md` 后缀而实际有判别力, 照搬结论会误判)。
 # 适用范围: **只对 VARIABLE_INDEX 这 18 题铺开**。ch04 (47 chunk) 与 domain spec (20-66 chunk)
 # 实测健康 (正确节基本在 rank0-3), 对它们 section 化是负收益 —— 不要扩大范围。
-# 详见 evidence/checkpoints/cdisc_gold_section_granularity.md
+# 详见 docs/evidence/checkpoints/cdisc_gold_section_granularity.md
 # ════════════════════════════════════════════════════════════════════════
 
 # Test Set v2 — 102 questions (= v1's 53 preserved verbatim + 49 new)
@@ -909,7 +909,7 @@
   # **与同形态的 q25 统一** (q25 = MH/assumptions + MH/spec.md#MHTERM$, 本轮即补成 AND)。
   # **实测: 改前改后同为 1.0** —— 两成员本就都命中 (hits 两条 / misses 空), 全集 0.9917 不变。
   # **本改动买的是判别力不是分数**: 此后"只召回 VI 那一行"与"两源都召回"不再同分。
-  # 出处: evidence/step_09_audit.md §3 · 收口证据 crowding_and_gold_integrity.md §7
+  # 出处: docs/evidence/step_09_audit.md §3 · 收口证据 crowding_and_gold_integrity.md §7
   expected_sources:
     - "model/06_relationship_datasets.md"
     - "VARIABLE_INDEX.md#§一 通用变量: RDOMAIN$"
@@ -1433,7 +1433,7 @@
     # 但**源判定成立** —— 它正文含 "For objective data, the value in QEVAL will be null."
     # 直答题干的"何时留空"。真正的问题在 expected_facts 一侧: 它们照 ch08 的措辞逐字抄,
     # **与单一源强耦合**。后果: 只召回本成员时 **source_recall 满分而 fact_recall 会背离**。
-    # **不要把这种背离误读成检索缺陷。** 出处: evidence/step_09_audit.md §3 (规则 A 抽检)
+    # **不要把这种背离误读成检索缺陷。** 出处: docs/evidence/step_09_audit.md §3 (规则 A 抽检)
     - "domains/SUPPQUAL/assumptions.md#overview$"
 
 - id: q116
@@ -1464,7 +1464,7 @@
     # appending a '1'…" 并附 ADJUDICATION COMMITTEE 的 SUPPAE 示例表, 确实回答了题干主问。
     # 真正的问题在 expected_facts 一侧: 它们照 ch08 的措辞逐字抄, **与单一源强耦合**。
     # 后果: 只召回本成员时 **source_recall 满分而 fact_recall = 0**。
-    # **不要把这种背离误读成检索缺陷。** 出处: evidence/step_09_audit.md §3 (规则 A 抽检)
+    # **不要把这种背离误读成检索缺陷。** 出处: docs/evidence/step_09_audit.md §3 (规则 A 抽检)
     - "chapters/ch04_general_assumptions.md#4.5.4 Evaluators in the Interventions and Events Observation Classes$"
 
 # ── batch: cross-model-concepts ──

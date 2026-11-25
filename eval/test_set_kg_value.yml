@@ -4,7 +4,7 @@
 # reconciled via an independent raw-yaml path (eval/reconcile_kgval_gold.py),
 # reviewed by an independent scientist agent (Rule D). expected_facts = gold item
 # set for deterministic set-recall (word-boundary, case-sensitive in the analyzer);
-# expect_count + card_applies drive the cardinality metric. See KG_VALUE_EVAL_PLAN.md.
+# expect_count + card_applies drive the cardinality metric. See docs/design/KG_VALUE_EVAL_PLAN.md.
 - id: ic01
   category: impact_codelist
   question: If the Epoch codelist (C99079) gets revised in an upcoming CDISC release, which SDTM domains and variables would be affected by that change?

@@ -17,7 +17,7 @@
 ════════════════════════════════════════════════════════════════════════
 ⚠ 题面不许出现在 pytest 输出里 —— 有**三条**路, 全部要堵
 ════════════════════════════════════════════════════════════════════════
-本仓惯例是把 pytest 实测输出贴进 evidence/ 的 markdown 并提交 (evidence/ 下上百个 tracked
+本仓惯例是把 pytest 实测输出贴进 docs/evidence/ 的 markdown 并提交 (docs/evidence/ 下上百个 tracked
 文件), 所以一次贴了失败输出的收口证据 = 题面进 git。红线的成立条件是「所有路径」。
 
 1. **assert 的比较值** —— pytest 会把两边整个打出来。
@@ -62,7 +62,7 @@ DRAFT_SHA256 = "b1373fd81214b11816b817b5c24539fac3e9753c6f1ada7b34f4921b88d94099
 # 为什么不回改 draft: draft 是 U3 出题方的签名历史件, 回改 = 伪造历史 (DRAFT_SHA256 因此不变)。
 USER_RULED_GOLD_OVERRIDES = {
     "u3_amb_06": {"from": "both", "to": "study",
-                  "ruled": "2026-08-18", "evidence": "evidence/u6_amb_gold_review.md"},
+                  "ruled": "2026-08-18", "evidence": "docs/evidence/u6_amb_gold_review.md"},
 }
 
 _REQUIRED = ("id", "question", "gold", "chapter")
@@ -237,7 +237,7 @@ def test_user_ruled_overrides_are_live_and_evidence_backed():
 
     证据键同样要核到文件**且被 git 跟踪** —— 只写一个路径字符串, 与只写一句
     「用户同意了」没有区别; 而 draft/FINAL 两个 yml 都 gitignored, 本仓在这条线上
-    唯一能留下可追溯裁定的地方就是 evidence/ 里那份 tracked 文件。
+    唯一能留下可追溯裁定的地方就是 docs/evidence/ 里那份 tracked 文件。
     """
     draft_gold = _gold_by_id(DRAFT)
     for qid, rule in USER_RULED_GOLD_OVERRIDES.items():

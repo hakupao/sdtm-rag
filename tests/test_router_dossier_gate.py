@@ -2,7 +2,7 @@
 
 两个方向:
   ① 研读包没挂 (总闸 OFF / auto 未命中 / auto 暂停) → 两端点输出与引入前**逐字节**相同 (golden 是
-     本功能写之前用同一套 fake 录下的, scripts/tests/fixtures/dossier_gate_unattached_golden.json);
+     本功能写之前用同一套 fake 录下的, tests/fixtures/dossier_gate_unattached_golden.json);
   ② 挂上时: 首轮 → 闸 → grounding 事件; 不过 → regenerate 事件 → 第二轮 (反馈 = 运行时数据) → 闸;
      done / AskResponse 带 grounding; 上限 1 次; 闸看续写拼好的整轮; usage 两轮累计;
      /api/ask 只返回最终轮; index 缺失 → 闸不跑、grounding=None、不 500.
@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from scripts.tests.test_router_dossier_wiring import DOSSIER, Q_MAP, _client
+from tests.test_router_dossier_wiring import DOSSIER, Q_MAP, _client
 from server import router as router_mod
 from server.dossier_gate import OidIndex
 
@@ -311,7 +311,7 @@ class _ToolThenTextScript(_ScriptRouter):
 
 
 def test_regeneration_prompt_carries_no_tool_rounds(monkeypatch):
-    from scripts.tests.test_ask_stream_web import _FakeSearcher
+    from tests.test_ask_stream_web import _FakeSearcher
     monkeypatch.setattr("server.router.WebSearcher", _FakeSearcher)
     c, app = _gated_client([])
     app.state.llm_router = _ToolThenTextScript([])
@@ -325,7 +325,7 @@ def test_regeneration_prompt_carries_no_tool_rounds(monkeypatch):
 
 
 def test_info_reports_whether_the_gate_is_available():
-    from scripts.tests.test_model_switching import _info_client
+    from tests.test_model_switching import _info_client
     c = _info_client()
     assert c.get("/api/info").json()["dossier_gate"] is False
     c.app.state.dossier_gate_index = IDX
@@ -400,7 +400,7 @@ def test_grounding_payload_keys_match_the_frontend_shape_constant():
     import re as _re
 
     from server.dossier_gate import GateRun
-    js = (Path(__file__).resolve().parents[2] / "webchat" / "js" / "grounding.js").read_text(
+    js = (Path(__file__).resolve().parents[1] / "webchat" / "js" / "grounding.js").read_text(
         encoding="utf-8")
     keys = set(_re.findall(r'"(\w+)"', js.split("GROUNDING_KEYS = [", 1)[1].split("]", 1)[0]))
     g = GateRun(IDX, Q_MAP)

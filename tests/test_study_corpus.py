@@ -61,7 +61,7 @@ def test_both_mode_halves_cards_but_never_shrinks_doc_seats():
 
     spec §4.2 逐字禁止在 both 下缩 doc 席位 (缩了则 both 题与 study 题的 doc 召回不可比)。
     这里刻意取 N=10 > top_k=8: 本断言是 `seats = min(doc_seats, top_k)` 那类"顺手修"
-    (见 evidence/step_u2_mutation.md 已知限制 b) 的唯一守卫, N ≤ top_k 时它守不住。
+    (见 docs/evidence/step_u2_mutation.md 已知限制 b) 的唯一守卫, N ≤ top_k 时它守不住。
     """
     eng, cards, docs = _engine(doc_seats=10)
     got = eng.retrieve("q", top_k=8)
@@ -317,7 +317,7 @@ def _oid_chunk(cid, file_type, oid):
 
 
 def test_glossary_covers_both_sections_and_appears_once_at_the_end():
-    from scripts.tests.test_study_lookup import GLOSSARY_CATALOG
+    from tests.test_study_lookup import GLOSSARY_CATALOG
     from server.rag import _GLOSSARY_HEADING
     from server.study_lookup import StudyLookup
 

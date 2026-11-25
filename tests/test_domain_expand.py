@@ -33,7 +33,7 @@ def test_the_record_structure_is_never_appended(expander):
     """attempt 1 追加过 meta.yaml 的 `structure`, 实测 140q 的 q47 从 recall 1.0 掉到
     0.5 —— "One record per ... per subject" 是**跨域通用**的记录粒度模板, 追加它会让
     "讲记录粒度的块"整体上浮, 挤掉问句真正问的那条
-    (evidence/failures/dm1_task5_attempt_1.md)。把那次回归钉成不变量。"""
+    (docs/evidence/failures/dm1_task5_attempt_1.md)。把那次回归钉成不变量。"""
     q = "本研究中，哪些数据适合进入 sdtm 的 ds domain？"
     out = expander.expand(q)
     assert "protocol milestone" not in out

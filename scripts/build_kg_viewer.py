@@ -1,7 +1,7 @@
 """Build a self-contained interactive SDTM knowledge-graph viewer (single HTML).
 
 Source of truth: data/meta/meta.yaml (via build_neo4j.extract_graph — pure, no
-Neo4j). Emits kg_viewer.html: a zero-dependency, offline, shareable page with a
+Neo4j). Emits viewer/dist/kg_viewer.html: a zero-dependency, offline, shareable page with a
 hand-rolled force-directed graph and three scoped, readable views:
 
   1. 结构总览   Class (8) -> Domain (63)          [IN_CLASS]
@@ -11,7 +11,7 @@ hand-rolled force-directed graph and three scoped, readable views:
 Colors: the dataviz reference categorical palette (validated CVD-safe) for the 8
 SDTM classes; node TYPE encoded by shape+size (no 9th hue). Light/dark themed.
 
-Run:  cd sdtm-rag && .venv/bin/python scripts/build_kg_viewer.py
+Run:  .venv/bin/python scripts/build_kg_viewer.py   (repo root)
 """
 
 from __future__ import annotations
@@ -124,7 +124,8 @@ def main() -> None:
     payload = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
     payload = payload.replace("<", "\\u003c")
     html = TEMPLATE.replace("__DATA__", payload)
-    out = ROOT / "kg_viewer.html"
+    out = ROOT / "viewer" / "dist" / "kg_viewer.html"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     kb = len(html.encode("utf-8")) / 1024
     print(f"wrote {out}  ({kb:.0f} KB)")

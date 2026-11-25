@@ -663,7 +663,7 @@ def test_summary_records_web_search_off(captured, tmp_path):
 # False 两个方向各 1874 条全绿** —— 只有 study_levers 那处被 docs_engine_parity 闸捎带钉住
 # (且仅 ON 方向), cdisc 主引擎两个方向都没人管。叠加当时回执与 summary 都读 args, 就能跑出
 # 一批**标着 guardrail=ON、实际全程 OFF 的 140q 数字**, 而 guardrail A/B 成对评测正是
-# evidence/checkpoints/guardrail_v2_summary.md 那批结论的来源。
+# docs/evidence/checkpoints/guardrail_v2_summary.md 那批结论的来源。
 # 现回执 (:872) 与 summary (:1055) 已改读 rag.prompt_guardrail_enabled, 这里补取值断言。
 
 def test_guardrail_flag_reaches_cdisc_engine(captured):

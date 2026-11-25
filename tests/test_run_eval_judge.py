@@ -64,7 +64,7 @@ def test_eval_answer_path_injects_facts(monkeypatch, tmp_path):
     from server.meta_store import MetaStore
     from server.structured_answer import StructuredAnswerer, augment_context
 
-    store = MetaStore(Path(__file__).resolve().parents[2] / "data" / "meta" / "meta.yaml")
+    store = MetaStore(Path(__file__).resolve().parents[1] / "data" / "meta" / "meta.yaml")
     answerer = StructuredAnswerer(store)
     facts = answerer.resolve("How many domains include TAETORD?")
     assert facts is not None, "resolve() must fire for TAETORD count query"

@@ -252,7 +252,7 @@ def test_missing_kb_public_vocabulary_aborts(tmp_path, monkeypatch, capsys, miss
 
 
 def test_default_targets_include_source_trees():
-    """默认扫描面必须覆盖源码 —— C1 那次真实泄漏就发生在 `scripts/tests/` 里, 而当时
+    """默认扫描面必须覆盖源码 —— C1 那次真实泄漏就发生在 `scripts/tests/` (现 `tests/`) 里, 而当时
     默认面只有 evidence/ + docs/, 于是"手跑一次闸"这个动作天然看不见它 (判定书 §4
     记的"红线扫描有结构性盲区: 对照产物而非源")。
 

@@ -22,7 +22,7 @@ def sample_ids(ids: list[str], n: int) -> list[str]:
     ordered = sorted(ids)
     # 撞位不可能: 闸已保证 n <= L, 而 n == L 时 (k*L)//(L+1) = k-1 (k=1..L) 已两两不同,
     # n < L 时步长更大 ⇒ 恒得 n 个位置。原先那条"撞位回落"分支据此删除 (暴力枚举
-    # L=1..299 × n=1..L 零撞位, 见 evidence/step_u2_mutation_remediation.md)。
+    # L=1..299 × n=1..L 零撞位, 见 docs/evidence/step_u2_mutation_remediation.md)。
     idx = sorted({(k * len(ordered)) // (n + 1) for k in range(1, n + 1)})
     return [ordered[i] for i in idx]
 

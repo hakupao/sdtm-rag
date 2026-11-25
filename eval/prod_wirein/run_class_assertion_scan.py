@@ -9,9 +9,9 @@
 
 跑法 (从 sdtm-rag/):
   .venv/bin/python eval/prod_wirein/run_class_assertion_scan.py \\
-      evidence/checkpoints/verified_runs/run_opus-5.json --dry-run
+      docs/evidence/checkpoints/verified_runs/run_opus-5.json --dry-run
   .venv/bin/python eval/prod_wirein/run_class_assertion_scan.py \\
-      evidence/checkpoints/verified_runs/run_opus-5.json --judge-model deepseek/deepseek-chat
+      docs/evidence/checkpoints/verified_runs/run_opus-5.json --judge-model deepseek/deepseek-chat
 """
 from __future__ import annotations
 
@@ -101,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
     ap.add_argument("--dry-run", action="store_true", help="桩裁判, 零 LLM 调用")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--out-dir", default="evidence/checkpoints")
+    ap.add_argument("--out-dir", default="docs/evidence/checkpoints")
     ap.add_argument("--reuse-scan", default=None,
                     help="复用已落盘的扫描结果重渲人判包 (零 LLM 调用)")
     args = ap.parse_args(argv)

@@ -10,7 +10,7 @@ top-15。若重复检索会换成分, 那些数字就不是稳定事实, 引用�
 
 跑批 (从 sdtm-rag/ 起):
   .venv/bin/python -m eval.jitter_probe --runs 12 --config both \\
-    --output evidence/checkpoints/topk_jitter.json
+    --output docs/evidence/checkpoints/topk_jitter.json
 """
 from __future__ import annotations
 

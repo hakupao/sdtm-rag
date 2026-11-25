@@ -1,6 +1,6 @@
 """DM1 D4 区分实验: study 侧 gold 候选卡 0/32 到底是「问句→卡片语义鸿沟」还是「席位/切分问题」。
 
-判据 (跑前登记, 见 evidence/checkpoints/dm1_d4_discrimination.md §0):
+判据 (跑前登记, 见 docs/evidence/checkpoints/dm1_d4_discrimination.md §0):
   臂 A body   : 卡片正文 (去 frontmatter) 当 query, 卡片自身进 top-8?  —— 索引/席位/切分是否健康
   臂 B title  : 卡片 `# [...]` 标题行当 query                          —— 只凭 表单名+项目名+OID 能否召回
   臂 C label  : 仅日文 表单 label + 项目 label (无任何 OID)             —— 用户自然说法能否召回

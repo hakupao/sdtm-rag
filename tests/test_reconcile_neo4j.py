@@ -7,7 +7,7 @@ from pathlib import Path
 
 from scripts.reconcile_neo4j import expected_from_yaml
 
-META_PATH = Path(__file__).resolve().parents[2] / "data" / "meta" / "meta.yaml"
+META_PATH = Path(__file__).resolve().parents[1] / "data" / "meta" / "meta.yaml"
 
 
 def test_expected_counts_match_golden_anchors():
@@ -26,6 +26,6 @@ def test_expected_neighborhood_derivation():
     assert len(v["domains"]) == 36
 
 def test_independence_no_forbidden_imports():
-    src = (Path(__file__).resolve().parents[1] / "reconcile_neo4j.py").read_text(encoding="utf-8")
+    src = (Path(__file__).resolve().parents[1] / "scripts" / "reconcile_neo4j.py").read_text(encoding="utf-8")
     for banned in ("build_neo4j", "meta_store", "graph_engine", "MetaStore", "GraphEngine"):
         assert banned not in src, f"reconcile must not reference {banned} (independence rule)"

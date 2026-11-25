@@ -23,6 +23,8 @@ __pycache__/
 .eggs/
 build/
 dist/
+# KG 查看器生成物 (scripts/build_kg_viewer.py 产出, 入库; lan-services Caddy 从这里拷)
+!viewer/dist/
 
 # Virtualenvs
 .venv/

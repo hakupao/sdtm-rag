@@ -2,7 +2,7 @@
 
 ⚠ 本文件零真实 LLM / chroma 调用 —— RAGEngine / run_evaluation / print_summary 全桩掉。
 
-守两个已发生的事故 (evidence/checkpoints/verified_spotcheck_2026-09.md):
+守两个已发生的事故 (docs/evidence/checkpoints/verified_spotcheck_2026-09.md):
 
 **V-1**: `check_code_grounding.py` 重建上下文时写死 `structured_lookup=ON, hybrid=ON`,
 而生成时两者都关 ⇒ 判 ungrounded 用的 top-15 不是模型看见的那个 ⇒ 8 条全是假阳性。

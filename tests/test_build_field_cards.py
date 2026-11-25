@@ -1,6 +1,6 @@
 import pytest
 
-from scripts.tests.study_fixtures import build_config_report
+from tests.study_fixtures import build_config_report
 from scripts.study.build_catalog import build_catalog
 from scripts.study.build_field_cards import build_cards, render_field_card
 from scripts.study.paths import StudyPaths
@@ -70,7 +70,7 @@ def test_render_hidden_activity_row(catalog):
 
     列名是 'Hidden in activity' = 该字段在这些 activity 中**被隐藏**; 旧标签 '適用範囲'
     (=适用范围) 语义相反, 2026-08-25 修正. 与 Study workflow-Forms 的 'Hidden items'
-    列互为精确转置 (实测 61/61 逐键相同 — 见 spec §4 F3 与 evidence/checkpoints/c2_pre_survey.md §8-5).
+    列互为精确转置 (实测 61/61 逐键相同 — 见 spec §4 F3 与 docs/evidence/checkpoints/c2_pre_survey.md §8-5).
     """
     cat, _ = catalog
     item = dict(cat["items"][0])
@@ -256,7 +256,7 @@ def test_render_collect_scope_row(catalog):
 
 def test_build_cards_omits_collect_scope_row(catalog):
     """用户 2026-08-25 裁定执行 spec §6 S3: 生产 build_cards 路径不渲染 収集アクティビティ 行
-    (评测回归 87.50% → 84.38%, 见 evidence/failures/t4_step7_retrieval_regression.md)。
+    (评测回归 87.50% → 84.38%, 见 docs/evidence/failures/t4_step7_retrieval_regression.md)。
 
     本测试是这次裁定的守门人 —— build_cards 内部调用若被"顺手"改回传
     `catalog.get("assignments", [])`, 该行会在磁盘卡片上重新出现而没有测试察觉。

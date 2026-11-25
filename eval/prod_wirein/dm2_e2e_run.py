@@ -1,6 +1,6 @@
 """DM2 T9: L3 e2e 跑批 —— 3 题 × 2 模型 = 6 次生产调用, 全文/usage/研读包徽章落盘.
 
-判据在 evidence/checkpoints/dm2_dossier_e2e.md §0 (本脚本提交**之前**已登记).
+判据在 docs/evidence/checkpoints/dm2_dossier_e2e.md §0 (本脚本提交**之前**已登记).
 本脚本只**跑**不**判**: 判分由异 subagent 读 judge_pack.json 做 (规则 D).
 
 跑 (从 sdtm-rag/, 生产服务需已起在 --base):

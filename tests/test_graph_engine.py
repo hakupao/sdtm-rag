@@ -1,4 +1,4 @@
-# scripts/tests/test_graph_engine.py
+# tests/test_graph_engine.py
 from collections import defaultdict
 
 import pytest

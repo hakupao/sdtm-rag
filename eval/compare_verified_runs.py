@@ -1,4 +1,4 @@
-"""四模型离线对比裁判 — 预登记 `evidence/checkpoints/model_compare_2026-09.md`。
+"""四模型离线对比裁判 — 预登记 `docs/evidence/checkpoints/model_compare_2026-09.md`。
 
 输入: `verified` 抽检落盘的 run_<tag>.json (同题集、同检索口径), **零生成成本**, 只花裁判调用。
 J1 匿名四路排名 (复用 server.compare.run_judge, 标签按题随机置换) · J2 另一置换重裁 (稳定性)
@@ -7,7 +7,7 @@ J1 匿名四路排名 (复用 server.compare.run_judge, 标签按题随机置换
 跑法 (从 sdtm-rag/):
   .venv/bin/python eval/compare_verified_runs.py --limit 2      # 冒烟, 2 题 × (2 + 4) = 12 次调用
   .venv/bin/python eval/compare_verified_runs.py                # 全量 100 题, 600 次调用
-  .venv/bin/python eval/compare_verified_runs.py --reaggregate evidence/checkpoints/model_compare_2026-09.json
+  .venv/bin/python eval/compare_verified_runs.py --reaggregate docs/evidence/checkpoints/model_compare_2026-09.json
       # 零调用: 用严格口径 (秩合法 + best==rank1 + 同分母) 从落盘逐题行重算聚合, 覆盖 j1/j2/自毁 字段
 
 Rule D 审阅 (2026-09-07) 修订: F1 best 与 rank-1 可能不一致 ⇒ 聚合一律用 best_by_rank;
@@ -42,7 +42,7 @@ from eval.run_eval import DEFAULT_JUDGE_MODEL, check_fact_recall_judge, load_tes
 from server.compare import ModelAnswer, run_judge  # noqa: E402
 
 TAGS = ["opus-5", "sonnet-5", "gpt-terra", "gpt-sol"]
-RUNS_DIR = ROOT / "evidence" / "checkpoints" / "verified_runs"
+RUNS_DIR = ROOT / "docs" / "evidence" / "checkpoints" / "verified_runs"
 BASELINE = "opus-5"
 # 预登记: 剔除 opus-5 4096 上限撞顶的两题 (B-2 不齐)。从数据推导并断言, 不靠记忆。
 PREREG_EXCLUDED = {"q36", "q83"}
@@ -263,7 +263,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
     ap.add_argument("--limit", type=int, default=None, help="冒烟: 只裁前 N 题")
-    ap.add_argument("--output", default=str(ROOT / "evidence" / "checkpoints" / "model_compare_2026-09.json"))
+    ap.add_argument("--output", default=str(ROOT / "docs" / "evidence" / "checkpoints" / "model_compare_2026-09.json"))
     ap.add_argument("--test-set", default=str(ROOT / "eval" / "test_set_v2.yml"))
     ap.add_argument("--reaggregate", default=None, help="零调用: 从已落盘产物的逐题行按严格口径重算聚合")
     a = ap.parse_args(argv)

@@ -1,4 +1,4 @@
-# scripts/tests/test_structured_answer.py
+# tests/test_structured_answer.py
 from pathlib import Path
 
 import pytest
@@ -45,7 +45,7 @@ def test_usage_question_has_no_capability_intent():
 
 @pytest.fixture(scope="module")
 def answerer() -> StructuredAnswerer:
-    store = MetaStore(Path(__file__).resolve().parents[2] / "data" / "meta" / "meta.yaml")
+    store = MetaStore(Path(__file__).resolve().parents[1] / "data" / "meta" / "meta.yaml")
     return StructuredAnswerer(store)
 
 

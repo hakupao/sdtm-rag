@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ⚠ 遗留 (launchd 时代, 2026-11-04 起生产改为容器, 见 deploy/README.md) —— 删除候选, 仅留作本机自用。
 # Deploy the SDTM RAG service from the repo tree into a self-contained service directory
-# (~/MyProject/sdtm-rag-service by default) and `uv sync` there. DEPLOY_PLAN.md §3.
+# (~/MyProject/sdtm-rag-service by default) and `uv sync` there. docs/history/DEPLOY_PLAN.md §3.
 #
 #   ./deploy/deploy.sh            # sync + uv sync
 #   ./deploy/deploy.sh --dry-run  # show what would change, touch nothing

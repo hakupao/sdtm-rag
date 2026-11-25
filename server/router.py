@@ -47,7 +47,7 @@ _CONTINUE_MIN_REMAINING_S = 15.0
 # 最后一条 assistant 消息、让模型接着补全) 在 Claude 4.6+ 系 (含本仓库全部可选的
 # Opus 5 / Sonnet 5 / 5.5 系) 上直接 400 —— 同一段代码还要服务 DeepSeek 兜底, 只能用
 # 所有 provider 都认的形状。代价是接缝处依赖模型听话 (可能重复半句), 换来的是"所有模型
-# 一视同仁", 见 evidence/checkpoints/autocontinue_2026-09.md。
+# 一视同仁", 见 docs/evidence/checkpoints/autocontinue_2026-09.md。
 #
 # 用英文写: 系统提示里的接地规则 ([Source: path] / [Web: url]) 本身是英文, 续写指令跟着
 # 用英文可以逐字引用它们, 不必翻译一遍再指望模型对上号。
@@ -120,14 +120,14 @@ _DOSSIER_RULES = (
     # (1) 曾无条件写"从【標準 CDISC】数"—— 但 federation 关 / CDISC 侧零命中时那个块根本
     # 不存在, 规则却仍在命令模型去那里数 ⇒ 模型只能编一个块出来。块在不在是可观测的,
     # 让它自己说"块不在"比让它假装块在要诚实得多。
-    # T9 attempt 1 (4/6, evidence/failures/dm2_task9_attempt_1.md) 的失败是**类别轴混淆**:
+    # T9 attempt 1 (4/6, docs/evidence/failures/dm2_task9_attempt_1.md) 的失败是**类别轴混淆**:
     # (1) 只说"枚举标准定义的记录类别", 没说沿哪条轴 ⇒ 模型拿 `--SCAT` 子类别 / 阶段轴切一刀
     # 凑够条数, 真正漏掉的那个 `--CAT` 值既没列也没申报无候选。旧 (5)「说清哪类没候选」挂在
     # (1) 的产物上 —— (1) 漏了 (5) 就一起哑, 所以把它并进 (2): 每个类别值各起一个小标题,
     # "漏"于是变成看得见的空标题。修法停在**模式级** (说"沿 --CAT 轴", 不说某域有几类):
     # 凡分类轴不止一条 (--CAT / --SCAT / epoch) 的域都会复发, 写死题面只会修绿一道题。
     # (4) 同样收紧: attempt 1 有一跑只在开头做一次全局声明, 段内不复标 —— 下游一摘表就丢。
-    # T9 attempt 3 (Claude 两模型, evidence/failures/dm2_task9_attempt_3.md) 的四个失败模式,
+    # T9 attempt 3 (Claude 两模型, docs/evidence/failures/dm2_task9_attempt_3.md) 的四个失败模式,
     # 修法仍停在模式级 (不写域名 / CT 取值 / 表单 / OID):
     # ① 无 CT 的类别轴被静默跳过 —— 旧 (1) 只讲了「--CAT 有 CT」一种形态, 模型遇到无 CT /
     #    无 --CAT 的域就直接按表单分组, 不声明也不点名替代轴 ⇒ 改为开篇一句「属于哪种形态」必答;
@@ -246,7 +246,7 @@ class MessageItem(BaseModel):
 class AskRequest(BaseModel):
     # extra="forbid": 未知字段必须 422, 不能静默丢弃。抽检脚本 v1 就是往 /api/ask 传了
     # `web: true` —— pydantic 默默扔掉, 端点照常返回 200, 于是产出一整张"全 ✅ 却什么
-    # 都没测到"的抽检表 (evidence/failures/web_channel_spotcheck_attempt_1_*)。
+    # 都没测到"的抽检表 (docs/evidence/failures/web_channel_spotcheck_attempt_1_*)。
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(max_length=10000)
@@ -755,7 +755,7 @@ def ask(body: AskRequest, request: Request):
     )
 
 
-# ── Streaming single-model Q&A (chat UI; DESIGN_chat_ui.md §3) ─────────
+# ── Streaming single-model Q&A (chat UI; docs/design/DESIGN_chat_ui.md §3) ─────────
 
 
 class AskStreamRequest(BaseModel):
@@ -866,7 +866,7 @@ async def ask_stream(body: AskStreamRequest, request: Request):
     ]
 
     # DM1 D6: 问句落盘 (前 100 字 + 判库 + chunk id), 不记答案. 没有这一行, dogfood ⚑ 的
-    # 第一轮原句就永久丢失, 只能用重构句复现 (evidence/checkpoints/dogfood_ds_domain_2026-09-15.md).
+    # 第一轮原句就永久丢失, 只能用重构句复现 (docs/evidence/checkpoints/dogfood_ds_domain_2026-09-15.md).
     log.info(
         "ask_stream", question=body.question[:100], corpus=routed,
         n_chunks=len(chunks), chunk_ids=[c.chunk_id for c in chunks],

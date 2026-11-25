@@ -1,4 +1,4 @@
-# scripts/tests/test_meta_store.py
+# tests/test_meta_store.py
 import tempfile
 from pathlib import Path
 

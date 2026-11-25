@@ -55,7 +55,7 @@ def test_info_reports_web_search_lever():
 def test_ask_rejects_unknown_fields():
     """Minor 1: `AskRequest` 若不 forbid extra, `/api/ask` 收到 `web: true` 会**静默
     丢弃**并照常返回 200 —— 抽检脚本 v1 就是这样产出了一整张"全 ✅ 却什么都没测到"的表
-    (evidence/failures/web_channel_spotcheck_attempt_1_wrong_endpoint.md)。"""
+    (docs/evidence/failures/web_channel_spotcheck_attempt_1_wrong_endpoint.md)。"""
     c = _info_client(web_search_enabled=True)
     r = c.post("/api/ask", json={"question": "AETERM?", "web": True})
     assert r.status_code == 422, r.text

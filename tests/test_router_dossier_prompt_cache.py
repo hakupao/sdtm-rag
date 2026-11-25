@@ -1,4 +1,4 @@
-"""DM2 研读包 prompt cache (spec docs/superpowers/specs/2026-09-25-dossier-prompt-cache-design.md).
+"""DM2 研读包 prompt cache (spec docs/plans/specs/2026-09-25-dossier-prompt-cache-design.md).
 
 布局: 研读包挂上时 system = 原 system + 规则 + "\\n\\n" + 研读包全文, 末尾一个 ephemeral 断点;
 user 消息不再含研读包。kill switch `dossier_prompt_cache=False` = 逐字节回到旧布局
@@ -11,8 +11,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scripts.tests.test_router_dossier_gate import BAD, GOOD, _gated_client, _stream
-from scripts.tests.test_router_dossier_wiring import DOSSIER, OPUS, Q_CDISC, Q_MAP, _client
+from tests.test_router_dossier_gate import BAD, GOOD, _gated_client, _stream
+from tests.test_router_dossier_wiring import DOSSIER, OPUS, Q_CDISC, Q_MAP, _client
 from server.config import SelectableModel, Settings
 from server.dossier_trigger import ANSWER_LANGUAGE_LINE
 from server.router import _DOSSIER_RULES, _PDF_SOURCE_RULE
@@ -75,7 +75,7 @@ def test_kill_switch_restores_legacy_layout_byte_for_byte():
 
 
 def test_default_is_on_and_info_exposes_it():
-    from scripts.tests.test_model_switching import _info_client
+    from tests.test_model_switching import _info_client
     assert Settings().dossier_prompt_cache is True
     assert _info_client().get("/api/info").json()["dossier_prompt_cache"] is True
     assert _info_client(dossier_prompt_cache=False).get(
@@ -174,7 +174,7 @@ def test_regenerate_round_reuses_the_same_system_block():
 
 from types import SimpleNamespace  # noqa: E402
 
-from scripts.tests.test_router_dossier_gate import _events, _ScriptRouter  # noqa: E402
+from tests.test_router_dossier_gate import _events, _ScriptRouter  # noqa: E402
 
 
 class _CacheUsageRouter(_ScriptRouter):

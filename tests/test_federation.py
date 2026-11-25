@@ -542,7 +542,7 @@ def _oid_chunk(cid, corpus, file_type=None):
 
 
 def test_glossary_is_not_duplicated_through_federation():
-    from scripts.tests.test_study_lookup import GLOSSARY_CATALOG
+    from tests.test_study_lookup import GLOSSARY_CATALOG
     from server.rag import _GLOSSARY_HEADING, RAGEngine
     from server.study_corpus import StudyCorpusEngine
     from server.study_lookup import StudyLookup

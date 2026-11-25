@@ -11,7 +11,7 @@ import pytest
 
 from scripts.build_neo4j import extract_graph, load_meta
 
-META_PATH = Path(__file__).resolve().parents[2] / "data" / "meta" / "meta.yaml"
+META_PATH = Path(__file__).resolve().parents[1] / "data" / "meta" / "meta.yaml"
 
 
 @pytest.fixture(scope="module")

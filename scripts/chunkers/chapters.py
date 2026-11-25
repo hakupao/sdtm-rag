@@ -10,7 +10,7 @@ cl100k tokens > 8191 embedding limit). Two-tier size policy:
 2026-08-07: 原第三档 "≤20KB → 整文件单块" 取消。ch01/ch02/ch03 落在该档,
 18KB 的 ch02 整块被稀释 (q38 诊断: ch02 whole_file dense #71 sim 0.5613,
 而回答同一问题的 ch04 §4.2.2 是 #1 sim 0.6970)。
-证据 evidence/checkpoints/chapters_chunking.md。
+证据 docs/evidence/checkpoints/chapters_chunking.md。
 
 cdisc_section_id parsed from heading prefix when it matches `\\d+(\\.\\d+){1,3}`,
 e.g. `### 4.1.1 Review Study Data ...` → section_id = "4.1.1".

@@ -1,12 +1,12 @@
 """联网通道语义抽检 (规则 A; spec §8)。
 
 联网答案不可复算, 不进 gold set ⇒ 质量只能靠人工抽检。本脚本跑 N 个真实问答,
-把**需要人眼判断的四件事**列成表, 结果留 evidence/。
+把**需要人眼判断的四件事**列成表, 结果留 docs/evidence/。
 
 v2 (2026-08-31): 联网工具循环只在 `POST /api/ask_stream` (SSE) 里实现 ——
 `AskRequest`(`/api/ask` 用的非流式请求模型) 没有 `web` 字段, `ask()` 端点也从未把
 `web_search` 工具接进 LLM 调用。v1 打的是 `/api/ask`, 三题全部零联网, 已作废归档
-到 `evidence/failures/web_channel_spotcheck_attempt_1_wrong_endpoint.md`。v2 改打
+到 `docs/evidence/failures/web_channel_spotcheck_attempt_1_wrong_endpoint.md`。v2 改打
 `/api/ask_stream`, 按 `event:`/`data:` 帧解析 `token`/`tool_call`/`tool_result`/`done`,
 顺带覆盖了「真实 SSE 字节流 → 解析」这一层 (静态正则契约闸 test_sse_contract.py
 够不到的部分)。
@@ -43,8 +43,8 @@ v5 (2026-08-31, 复审两轮修复): (c) 那列机检本身有问题, 分两轮�
 
 跑法:
   cd sdtm-rag && .venv/bin/python eval/web_channel_spotcheck.py --n 5 \
-      --out evidence/checkpoints/web_channel_spotcheck.md
-  # 同时写出 evidence/checkpoints/web_channel_spotcheck_answers.md
+      --out docs/evidence/checkpoints/web_channel_spotcheck.md
+  # 同时写出 docs/evidence/checkpoints/web_channel_spotcheck_answers.md
 """
 from __future__ import annotations
 
