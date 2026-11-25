@@ -149,6 +149,26 @@ def test_ct_row_count_matches_the_specs():
 # ---- chunk 层 (真正进索引的那段文本) ----------------------------------------
 
 
+def _vi_where() -> dict:
+    """与生产检索同一口径 (rag._source_where: 绝对形 / KB 相对形二择一)。只认绝对形会让
+    step 1.2 迁移后的索引 (含生产) 恒判"section 不在索引"。"""
+    from types import SimpleNamespace
+
+    from server.rag import RAGEngine
+    return RAGEngine._source_where(SimpleNamespace(kb_root=KB_ROOT), "VARIABLE_INDEX.md")
+
+
+def test_vi_where_matches_relative_and_absolute_sources(tmp_path):
+    """迁移后 (相对形) 与迁移前 (当前 kb_root 下的绝对形) 两种索引都必须被过滤命中。"""
+    import chromadb
+
+    col = chromadb.PersistentClient(path=str(tmp_path)).create_collection("vi_where")
+    abs_src = str((KB_ROOT / "VARIABLE_INDEX.md").resolve())
+    col.add(ids=["rel", "abs", "other"], documents=["a", "b", "c"], embeddings=[[0.0, 1.0]] * 3,
+            metadatas=[{"source": "VARIABLE_INDEX.md"}, {"source": abs_src}, {"source": "x.md"}])
+    assert sorted(col.get(where=_vi_where())["ids"]) == ["abs", "rel"]
+
+
 def test_indexed_ct_chunks_carry_every_variable():
     """KB 对而索引里是旧的 / chunker 截断, 照样答不出来。
 
@@ -163,8 +183,7 @@ def test_indexed_ct_chunks_carry_every_variable():
     except Exception:  # noqa: BLE001 — 打不开库的原因不重要, 都是"本机没索引"
         pytest.skip("本机无索引; 跑 .venv/bin/python -m scripts.ingest 后此闸才生效")
 
-    vi_abs = str((KB_ROOT / "VARIABLE_INDEX.md").resolve())
-    rows = col.get(where={"source": vi_abs}, include=["documents", "metadatas"])
+    rows = col.get(where=_vi_where(), include=["documents", "metadatas"])
     by_section = {m.get("section"): d
                   for m, d in zip(rows["metadatas"], rows["documents"], strict=True)}
 
