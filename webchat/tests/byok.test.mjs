@@ -103,3 +103,25 @@ test("webState: 公开档非 BYOK 置灰; 私有档 / BYOK 可用", () => {
   assert.deepEqual(B.webState(pub, true), { visible: true, disabled: false });
   assert.deepEqual(B.webState(B.normalizeInfo({ federation: true }), false), { visible: true, disabled: false });
 });
+
+test("saveKey: 只收可见 ASCII; 不合法 ⇒ 不存且清掉旧 key, 返回 false", () => {
+  mem.clear();
+  assert.equal(B.saveKey("deepseek", "sk-OK_1.2/3+="), true);
+  assert.equal(B.loadKey("deepseek"), "sk-OK_1.2/3+=");
+  for (const bad of ["sk A", "sk-中文", "sk- x", "sk-ｘ", "sk\tx"]) {
+    B.saveKey("deepseek", "sk-OLD");
+    assert.equal(B.saveKey("deepseek", bad), false, bad);
+    assert.equal(mem.has(B.BYOK_KEY_LS), false, `旧 key 留着会被继续发出去: ${bad}`);
+  }
+});
+
+test("requestModel: 公开档永远发 selectable_models 里的显式 id; 私有档原样", () => {
+  const pub = B.normalizeInfo({ ...INFO, selectable_models: [{ id: "free-ds" }, { id: "free-2" }] });
+  assert.equal(B.requestModel(pub, ""), "free-ds");
+  assert.equal(B.requestModel(pub, "default"), "free-ds");
+  assert.equal(B.requestModel(pub, "free-2"), "free-2");
+  const priv = B.normalizeInfo({ selectable_models: [{ id: "opus-5" }] });
+  assert.equal(B.requestModel(priv, ""), "");
+  assert.equal(B.requestModel(priv, "hard"), "hard");
+  assert.equal(B.requestModel(B.normalizeInfo(null), ""), "");
+});

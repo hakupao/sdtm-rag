@@ -42,6 +42,8 @@ export async function streamAsk({ question, history, corpus, web, model, dossier
     // §2.3: detail 对象带 code ⇒ 按表出文案, 第二参交出 detail (额度显示要用); 其余形态见 httpErrorView。
     let body = null, retryAfter = null;
     try { body = await resp.json(); } catch (_) {}
+    // 读错误体时用户点了停止 ⇒ 是停止, 不是服务错误 (json() 会以 AbortError 抛, 上面吞掉了)
+    if (signal?.aborted) { onAbort?.(); return; }
     try { retryAfter = resp.headers?.get?.("Retry-After") ?? null; } catch (_) {}
     const v = httpErrorView(resp.status, body, retryAfter);
     onError(v.text, v.detail); return;

@@ -161,3 +161,23 @@ test("sources / done 的 downgrades 与 quota 原样交给回调 (第三参 / da
   assert.equal(ev.downgrades[0].reason, "free_tier_no_web");
   assert.equal(done.quota.free_remaining, 2);
 });
+
+test("byok 对象缺 provider ⇒ 不发 key 头也不发 provider (§2.1: 不猜 provider)", async () => {
+  for (const provider of ["", undefined, null]) {
+    const r = await capture({ model: "opus-5", byok: { provider, model: "m", headers: { "X-LLM-Api-Key": "sk-X" } } },
+                            fakeResponse([DONE_FRAME]));
+    assert.deepEqual(r.headers, { "Content-Type": "application/json" });
+    assert.ok(!("provider" in r.body));
+    assert.equal(r.body.model, "opus-5");
+  }
+});
+
+test("读错误体时被用户中止 ⇒ onAbort, 不是 onError", async () => {
+  const ctrl = new AbortController();
+  const resp = { ok: false, status: 429, headers: { get: () => null },
+    json: async () => { ctrl.abort(); const e = new Error("aborted"); e.name = "AbortError"; throw e; } };
+  let aborted = 0;
+  const r = await capture({}, resp, { signal: ctrl.signal, onAbort: () => { aborted++; } });
+  assert.equal(aborted, 1);
+  assert.deepEqual(r.errs, []);
+});

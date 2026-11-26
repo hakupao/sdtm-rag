@@ -12,8 +12,8 @@ import { renderGroundingBadge, settleAnswer, historyFromMessages } from "./js/gr
 import { $, initScrollFollow, initSettings, initSidebar, selectedCorpus, webEnabled,
          dossierMode, autoGrow } from "./js/ui.js";
 import { normalizeInfo, validQuota, byokRequest, webState, loadKey, saveKey, clearKey,
-         loadSelection, saveSelection } from "./js/byok.js";
-import { quotaText, renderDowngrades } from "./js/notices.js";
+         loadSelection, saveSelection, requestModel } from "./js/byok.js";
+import { quotaText, renderDowngrades, isQuotaRefusal } from "./js/notices.js";
 
 // ── 渲染回调 (侧栏/消息需要的动作) ──
 const sidebarHandlers = {
@@ -167,13 +167,19 @@ async function runGeneration(c) {
     renderFirstAnswer(turn, firstAnswer, regenReasons);
     return r.content;
   };
-  const fail = (msg) => { appendErr(bubble, msg); appendRetry(turn, () => retry(c)); };
+  const fail = (msg, detail) => {
+    appendErr(bubble, msg);
+    // 额度类拒绝: 不给"重试" (照样被拒), 给"去设置填 key"。
+    if (!isQuotaRefusal(detail)) appendRetry(turn, () => retry(c));
+    else if (tierView.providers.length) appendOpenSettings(turn);
+  };
 
   const ctrl = new AbortController();
   currentAbort = ctrl;
   try {
     await streamAsk({ question: text, history, corpus: selectedCorpus(), web: webEnabled(),
-                      model: $("model-select").value, dossier: dossierMode(), byok: currentByok() }, {
+                      model: requestModel(tierView, $("model-select").value), dossier: dossierMode(),
+                      byok: currentByok() }, {
       // sources 事件先到 (done 之前), 研读包信息两处都发 —— 先收下这份, done 再覆盖:
       // 流被中断 (停止 / 连接断) 时 done 永远不来, 但答案已经吃过研读包了, 存档得说得出来。
       onSources: (s, routed, ev) => { gotSources = s; gotRouted = routed;
@@ -234,7 +240,7 @@ async function runGeneration(c) {
         if (detail && detail.code === "free_quota_exhausted" && quotaState) {
           setQuota({ ...quotaState, free_remaining: 0, reset_at: detail.reset_at ?? quotaState.reset_at });
         }
-        const t = settle(true); if (t) { renderFinal(t); persist(t); } fail(msg);
+        const t = settle(true); if (t) { renderFinal(t); persist(t); } fail(msg, detail);
       },
       // 干净 EOF 但无 done/error: 内容已在屏上, 落盘防刷新丢失 (规则 D HIGH 修复)。
       onClose: () => { const t = settle(true); if (t) { renderFinal(t); persist(t); fail("连接中断（已保留已生成内容）"); } else fail("连接中断"); },
@@ -304,6 +310,15 @@ function currentByok() {
   const sel = loadSelection();
   return byokRequest(tierView, sel, loadKey(sel.provider));
 }
+function appendOpenSettings(turn) {
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "retry open-settings"; btn.textContent = "在设置里填自己的 API key";
+  btn.onclick = (e) => {
+    if (e && e.stopPropagation) e.stopPropagation();   // 否则冒泡到 document 的"点外面关面板"
+    $("settings-panel").hidden = false; $("settings-btn").setAttribute("aria-expanded", "true");
+  };
+  turn.appendChild(btn);
+}
 function setQuota(q) {
   quotaState = validQuota(q) ? q : null;
   const el = $("quota-badge"), t = quotaText(quotaState, !!currentByok());
@@ -365,7 +380,11 @@ function applyTierInfo(info) {
       refreshTierUI();
     });
     msel.addEventListener("change", () => { saveSelection({ provider: psel.value, model: msel.value }); refreshTierUI(); });
-    key.addEventListener("input", () => { saveKey(psel.value, key.value); refreshTierUI(); });
+    key.addEventListener("input", () => {
+      const ok = saveKey(psel.value, key.value);
+      refreshTierUI();
+      if (!ok) $("byok-status").textContent = "key 含空格或非 ASCII 字符, 未保存";
+    });
     $("byok-clear").addEventListener("click", () => {
       clearKey(); key.value = ""; refreshTierUI();
       $("byok-status").textContent = "已清除 key";

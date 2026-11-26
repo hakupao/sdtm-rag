@@ -26,6 +26,8 @@ export function normalizeInfo(info) {
                        capabilities: m.capabilities && typeof m.capabilities === "object" ? m.capabilities : {} })),
     })),
     quota: validQuota(i.quota) ? i.quota : null,
+    selectable: Array.isArray(i.selectable_models)
+      ? i.selectable_models.filter((m) => m && typeof m.id === "string" && m.id).map((m) => m.id) : [],
     // web_search 缺失 ⇒ 沿用今天的规则 (联网勾选框随 #scope, 即随 federation 显隐)
     webVisible: typeof i.web_search === "boolean" ? i.web_search : !!i.federation,
   };
@@ -46,10 +48,15 @@ export function loadKey(provider) {
   const s = readJSON(BYOK_KEY_LS);
   return s && provider && s.provider === provider && typeof s.key === "string" ? s.key : "";
 }
+// key 只许可见 ASCII (无空格 / 全角 / 换行): 放进 HTTP 头的非 ASCII 会让 fetch 直接抛,
+// 而带空格的粘贴残片发出去只会换来一个看不懂的 401。不合法 ⇒ 不存且清掉旧的, 返回 false (UI 出提示)。
+export const KEY_RE = /^[\x21-\x7e]+$/;
 export function saveKey(provider, key) {
   const k = (key || "").trim();
-  if (!provider || !k) { clearKey(); return; }
+  if (!provider || !k) { clearKey(); return true; }
+  if (!KEY_RE.test(k)) { clearKey(); return false; }
   try { localStorage.setItem(BYOK_KEY_LS, JSON.stringify({ provider, key: k })); } catch (_) {}
+  return true;
 }
 export function clearKey() { try { localStorage.removeItem(BYOK_KEY_LS); } catch (_) {} }
 export function loadSelection() {
@@ -74,6 +81,13 @@ export function byokRequest(view, sel, key) {
   const m = p.models.find((x) => x.id === sel.model) || p.models[0];
   return { provider: p.id, model: m.id, providerLabel: p.label, modelLabel: m.label,
            headers: { [KEY_HEADER]: key } };
+}
+
+// 发给服务端的 model。公开档: 服务端默认值是内部组 "default" ⇒ 422 (§2.3), 所以**永远**发一个
+// selectable_models 里的显式 id (所选不在表里 / 为空 ⇒ 表里第一个)。私有档: 原样 (空 ⇒ 省略, 同改前)。
+export function requestModel(view, selected) {
+  if (!view || view.tier !== "public" || !view.selectable.length) return selected;
+  return view.selectable.includes(selected) ? selected : view.selectable[0];
 }
 
 // 联网勾选框: 公开档免费题不联网 (PLAN Q2 / §2.4) ⇒ 非 BYOK 时置灰。服务端照样会按 web_tools

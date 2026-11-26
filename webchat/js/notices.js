@@ -45,6 +45,12 @@ const REFUSAL = {
   },
 };
 
+// 额度类拒绝: "重试"没用 (再发一次还是拒), 该做的是去设置里填自己的 key。
+export const QUOTA_CODES = new Set(["free_quota_exhausted", "site_cap_reached", "free_tier_disabled"]);
+export function isQuotaRefusal(detail) {
+  return !!detail && typeof detail === "object" && QUOTA_CODES.has(detail.code);
+}
+
 // detail = §2.3 的 {code, message, ...}。未知 code ⇒ 服务端 message (再不行 code 原值)。
 export function refusalText(detail, lang = uiLang(), retryAfter = null) {
   const d = detail && typeof detail === "object" ? detail : {};
