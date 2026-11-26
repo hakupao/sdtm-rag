@@ -97,3 +97,28 @@ A 的真实产物喂 `kbsync.py gate` (临时数据根): `verdict=FAIL, reason="
 - 守卫副本 = 生产 + 候选各一份 (~600M) 临时占盘, 停服务期间拷贝 (停机时间变长)。
 - 回滚到 `chroma_prev_*` 不做 chromadb 版本钉 (prev 可能已被更新版 chromadb 迁移过); 依赖健康检查 + freshness 兜底。
 - 第 1 / 9 项 yaml 路径与以前一样未真跑。
+
+## 复审修复轮 (re-review PASS-with-fixes) — 提交 `20a2c1e`
+| # | 发现 | 处置 |
+|---|---|---|
+| N1 | restore 失败后退镜像步仍 `compose up PREV` → 旧镜像 + 半换数据 | 新 `kbsync.py journal-state --image` (0 无 / 3 在 / 2 判不出); 退镜像步首判, ≠0 即退出交人工 |
+| N2 | `"unknown" == "unknown"` 绕过 chromadb 钉 | 目标版本 `""`/`"unknown"` 一律不选候选 |
+| N3 | guard-copy 在 try 外 → 残留副本 | 移入 try (finally 清); prune 顺带清残留 `kbsync_guard_*` |
+| N4 | `swap-status | grep` 把 via 失败当"无 journal" | 部署步分支与退数据步都改用 `journal-state`; 2 (判不出) 按未清处理 |
+| N5 | detect 不看 journal | 返回 `journal_pending`, kb-sync 响亮失败 |
+| N6 | 换数据停机时长 (守卫副本 ~600M) | 未测, **首次真实 swap 时记录停机时长** |
+
+附带风险: 退镜像步现在也依赖 `journal-state` (经目标镜像 `--via`); 该调用判不出时健康检查失败的普通退镜像也会被拦 (fail closed, 需人工)。
+
+### 重跑 (HEAD `20a2c1e`)
+| 命令 | 结果 |
+|---|---|
+| `.venv/bin/python -m pytest tests/test_kbsync.py -q -o addopts=""` | 44 passed |
+| `.venv/bin/python -m pytest -m "not slow" -q -o addopts="" -rs` | 2654 passed, 2 skipped, 0 failed |
+| `actionlint -ignore 'undefined variable "gitea"' -ignore SC2034 .gitea/workflows/*.yml` | rc 0 |
+| `.venv/bin/python scripts/oidscan_evidence.py` (无参) | CLEAN |
+
+### 变异 (15 个, `PYTHONDONTWRITEBYTECODE=1`, 每个跑整个 test_kbsync.py; 全杀, 还原后 git diff --quiet rc 0 + 44 passed)
+a 1 / b 2 / c 3 / d 2 / e1 2 / e2 1 / e3 1 / e4 1 / f 2 / g 1 / **n1 1 / n2 1 / n3 1 / n5 1** / h 4 failed。
+⚠ 变异框架自身缺陷 (规则 5 补充第 4 种的变体): 首次不带 `PYTHONDONTWRITEBYTECODE` 时, n1 (`return 3`→`return 0`, **等长**) 还原后测试红 1 次 ——
+同秒内等长改写使 `__pycache__` 的 mtime+size 校验失效, 加载了陈旧字节码。等长变异也可能因此**假存活**。对策: 变异一律关字节码缓存并先清 `__pycache__`; 本表为该对策下的重跑结果。
