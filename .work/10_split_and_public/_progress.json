@@ -2,7 +2,7 @@
   "project": "10_split_and_public",
   "tier": 3,
   "status": "P1_1.8_DONE",
-  "current_step": "1.9 正例演练 (实现+两轮审查完成, 已推 b55d5ca; 检测空跑 run171 no-op ✓; 反例演练闸拦下 ✓); 待用户确认推 A 仓新 tag",
+  "current_step": "1.9 正例演练: 等 pedia 下次真实发版 (推 Tier B 67 提交 + 打 kb-* tag) → kb-sync (定时或手动) 建候选过闸 → 「KB 更新」→ 部署首次换数据 (测停机时长)。检测空跑 + 反例已过",
   "next_step": "1.9 设计+演练 (只演练私有实例; 公开实例 P3.3 才建) → P2",
   "completed": [
     {
@@ -138,5 +138,6 @@
         "failures/step_1.9_drill_neg_attempt_1.md"
       ]
     }
-  ]
+  ],
+  "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)"
 }
