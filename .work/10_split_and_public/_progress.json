@@ -2,7 +2,7 @@
   "project": "10_split_and_public",
   "tier": 3,
   "status": "P1_1.8_DONE",
-  "current_step": "1.9 实现 (设计 v0.1 已裁定, 前置全满足: 生产 stamp 含指纹, 重组后镜像已上线)",
+  "current_step": "1.9 正例演练 (实现+两轮审查完成, 已推 b55d5ca; 检测空跑 run171 no-op ✓; 反例演练闸拦下 ✓); 待用户确认推 A 仓新 tag",
   "next_step": "1.9 设计+演练 (只演练私有实例; 公开实例 P3.3 才建) → P2",
   "completed": [
     {
@@ -127,5 +127,16 @@
     "lan-services: deploy/caddy/Dockerfile:13 注释旧路径 (改了会触发 caddy 重建, 随下次 caddy 改动一起); /Volumes/DevSSD/mini-home/lan-services 是无远端老副本, 用户定去留; 确认 mini 上 com.sdtmrag.* launchd 未加载",
     "P4: 删 deploy/deploy.sh + deploy/.env.service.template (launchd 遗留)"
   ],
-  "decisions_1_9": "2026-11-25 用户: CI 检测+闸+报告, 升级提交由本地「KB 更新」双推; pyproject 作者→hakupao; mini-home/lan-services 改名 .archived-20261125"
+  "decisions_1_9": "2026-11-25 用户: CI 检测+闸+报告, 升级提交由本地「KB 更新」双推; pyproject 作者→hakupao; mini-home/lan-services 改名 .archived-20261125",
+  "log": [
+    {
+      "date": "2026-11-26",
+      "step": "1.9",
+      "status": "IMPL_REVIEWED_DRILL_NEG_PASS",
+      "evidence": [
+        "checkpoints/step_1.9_impl.md",
+        "failures/step_1.9_drill_neg_attempt_1.md"
+      ]
+    }
+  ]
 }

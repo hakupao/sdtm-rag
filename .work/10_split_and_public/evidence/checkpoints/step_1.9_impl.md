@@ -122,3 +122,10 @@ A 的真实产物喂 `kbsync.py gate` (临时数据根): `verdict=FAIL, reason="
 a 1 / b 2 / c 3 / d 2 / e1 2 / e2 1 / e3 1 / e4 1 / f 2 / g 1 / **n1 1 / n2 1 / n3 1 / n5 1** / h 4 failed。
 ⚠ 变异框架自身缺陷 (规则 5 补充第 4 种的变体): 首次不带 `PYTHONDONTWRITEBYTECODE` 时, n1 (`return 3`→`return 0`, **等长**) 还原后测试红 1 次 ——
 同秒内等长改写使 `__pycache__` 的 mtime+size 校验失效, 加载了陈旧字节码。等长变异也可能因此**假存活**。对策: 变异一律关字节码缓存并先清 `__pycache__`; 本表为该对策下的重跑结果。
+
+## VM 实跑 (2026-11-26, 主会话)
+- 推送 b55d5ca (双远端, [skip ci], 未部署)。
+- 检测空跑: Gitea run 171 (job 363) 手动 dispatch ref 留空 → `kb-2026.11.25`, 指纹 f863e45445a6 = 生产 → `no-op`; 候选三步 skipped。
+  日志: `curl -u … https://git.bojiang.org/api/v1/repos/bojiang/sdtm-rag/actions/jobs/363/logs`。
+- 反例演练: 见 `failures/step_1.9_drill_neg_attempt_1.md` — 闸拦下 (9 题回退), 生产未动。
+- 剩: 正例演练 (A 仓改一行 KB + 新 tag, 需用户确认) → 「KB 更新」→ 部署步骤首次实跑换数据 (测 N6 停机时长)。
