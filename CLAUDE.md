@@ -21,7 +21,7 @@ FastAPI (`server/`) + Chroma + BM25 + Chat UI (`webchat/`) + Streamlit 调试 UI
 | 「收尾」 | 执行下方收尾清单 |
 | 「部署」 | 按 `deploy/README.md`: 只构建 (deploy 取消勾选) → 测试端口验证 → 正式部署 |
 | ⚠ 自动部署 | 改 server/ui/webchat/scripts/eval/README.md/pyproject 等运行时路径的 push 即部署; 只改文档/测试的提交加 `[skip ci]` |
-| 「KB 更新」 | 等 Gitea `kb-sync` 对 A 仓新 tag `kb-YYYY.MM.DD` PASS (每天定时, 或手动 dispatch `ref`; 过闸候选 chroma 留在数据根) → 升 submodule (`cd vendor/sdtm-pedia && git fetch --depth 1 origin tag <tag> && git checkout <tag>`) → `.venv/bin/python -m scripts.check_index_freshness`; STALE 则本机 `-m scripts.ingest` + `-m scripts.build_meta` (meta.yaml 有 diff 一并提交) → 两条检索闸 + pytest → push (部署自动换上过闸 chroma/meta; 无过闸候选则部署失败、生产不动; 见 `deploy/README.md`) |
+| 「KB 更新」 | 等待 Gitea `kb-sync` 对 A 仓新 tag `kb-YYYY.MM.DD` 判定 PASS (每天定时运行, 也可手动 dispatch 指定 `ref`; 过闸的候选 chroma 保留在数据根) → 升级 submodule (`cd vendor/sdtm-pedia && git fetch --depth 1 origin tag <tag> && git checkout <tag>`) → 运行 `.venv/bin/python -m scripts.check_index_freshness`; 结果为 STALE 时在本机运行 `-m scripts.ingest` 和 `-m scripts.build_meta` (meta.yaml 有改动时一并提交) → 运行两条检索闸和 pytest → push (部署时自动换入过闸的 chroma/meta; 没有过闸候选时部署失败, 生产保持不变; 详见 `deploy/README.md`) |
 
 ## 规则 (每条必守)
 

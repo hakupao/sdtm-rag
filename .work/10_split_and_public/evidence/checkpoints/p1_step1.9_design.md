@@ -24,12 +24,12 @@
 - 定时 workflow 与候选目录需在 VM 上有写权限 (runner 与部署同机, 已能 docker compose); 细节实现时核对 runner 挂载。
 - failures 归档在公开仓: study 结果只写计数 / 题号。
 
-## v0.2 修订 (2026-11-26, 实现版; 与 v0.1 不同处以此为准)
-- **身份**: 每个 chroma 目录 = stamp `kb_fingerprint` + 候选 marker `kbsync_gate.json` (指纹/ref/A commit/镜像/基线与候选计数/回退题号/时间/verdict); 不用任何 SHA 判定。
-- **检测源**: A 仓最新 `kb-*` tag (`git ls-remote --tags`), 不是 `main`; 手动 dispatch 可给 `ref` (tag 或 40 位 commit, 格式校验)。比对对象 = **生产 stamp** (不是当前钉的 submodule)。已有过闸候选 → no-op。与部署同 `concurrency` 组。
-- **候选**: 本机候选镜像 `sdtm-rag-kbcand:<fp12>` (不推送, 结束即删; KB 在原生路径, 无覆盖) 而非"当前镜像 + 挂新 KB"; 目录 `chroma_cand_<fp12>` + `meta_cand_<fp12>`。容器里 `data/` 只读、候选 chroma/meta 以原生路径可写覆盖 (`--mount` 源缺失即报错), `--memory 1536m`。
-- **基线**: 每次现跑 (当前生产镜像 × 灌库前的副本), 不存历史基线。闸 = 逐题 `source_recall` 回退 (候选 < 基线, 或缺题) ≤ 1, 且候选 stamp 指纹 == 检测指纹; eval 崩/空 = FAIL。FAIL → 改名 `chroma_failed_<fp12>_<ts>` (不删)。只跑 CDISC。
-- **`ingest.py --no-backup`**: R-16 备份写 `chroma_dir.parent` = 只读的 `/app/data` (会崩) 且磁盘翻倍; 候选本身即生产副本, 故跳过。
-- **job 看不到数据根** (runner valid_volumes 只放行 CA): 文件操作全部经 `kbsync.py --via <镜像>` 在兄弟容器里执行 (数据根按原路径挂载, 脚本走 stdin)。chromadb 打不开只读目录 (实测 sqlite readonly) → 集合核对用可写挂载、生产已停。
-- **部署**: 换数据前核对非 KB 集合 (名 + 条数) 候选 == 生产, 否则拒换; 换后 `check_index_freshness` rc=0; 失败先按 journal 退数据 (不受 `prev != tag` 限制) 再退镜像; 旧副本 prune 留 2 份, `chroma_failed_*` 不碰。旧镜像判不出指纹 / 无匹配副本 → 默认失败, `force_data_mismatch` 放行不换数据。
-- 演练与实现证据: `step_1.9_impl.md`。
+## v0.2 修订（2026-11-26，实现版；与 v0.1 不一致之处以本节为准）
+- **身份**：每个 chroma 目录的身份由 stamp 中的 `kb_fingerprint` 和候选 marker `kbsync_gate.json`（记录指纹、ref、A 仓 commit、镜像、基线与候选计数、回退题号、时间和 verdict）确定；判定时不使用任何 SHA。
+- **检测源**：检测 A 仓最新的 `kb-*` tag（通过 `git ls-remote --tags`），而不是 `main`；手动 dispatch 时可以指定 `ref`（tag 或 40 位 commit，会校验格式）。比对对象是**生产 stamp**，不是当前钉住的 submodule。如果已有过闸候选，则不做任何操作（no-op）。kb-sync 与部署使用同一个 `concurrency` 组。
+- **候选**：在本机构建候选镜像 `sdtm-rag-kbcand:<fp12>`（不推送，结束后即删除；KB 位于原生路径，无需覆盖挂载），而不是采用"当前镜像 + 挂载新 KB"的方式；候选目录为 `chroma_cand_<fp12>` 和 `meta_cand_<fp12>`。容器内 `data/` 只读，候选 chroma/meta 以原生路径可写挂载覆盖（`--mount` 的源目录不存在时直接报错），内存限制为 `--memory 1536m`。
+- **基线**：基线每次重新运行（用当前生产镜像在入库前的副本上运行），不保存历史基线。闸条件：逐题 `source_recall` 回退（候选低于基线，或缺题）不超过 1 题，并且候选 stamp 指纹与检测到的指纹一致；评测崩溃或结果为空时判为 FAIL。FAIL 时把候选改名为 `chroma_failed_<fp12>_<ts>`（不删除）。只运行 CDISC 评测。
+- **`ingest.py --no-backup`**：R-16 备份会写到 `chroma_dir.parent`，即只读的 `/app/data`（会导致崩溃），而且会使磁盘占用翻倍；候选本身就是生产数据的副本，因此跳过备份。
+- **job 无法访问数据根**（runner 的 valid_volumes 只放行 CA）：所有文件操作都通过 `kbsync.py --via <镜像>` 在兄弟容器中执行（数据根按原路径挂载，脚本通过 stdin 传入）。chromadb 无法打开只读目录（实测报 sqlite readonly），因此集合核对使用可写挂载，此时生产服务已停止。
+- **部署**：换数据前，核对候选与生产的非 KB 集合（名称和条数）是否一致，不一致则拒绝换入；换入后要求 `check_index_freshness` 返回 rc=0。失败时，先按 journal 退回数据（不受 `prev != tag` 条件限制），再退回镜像。prune 旧副本时保留 2 份，不处理 `chroma_failed_*`。如果无法确定旧镜像的指纹，或没有匹配的副本，默认部署失败；`force_data_mismatch` 可放行部署，但不换数据。
+- 演练与实现证据见 `step_1.9_impl.md`。

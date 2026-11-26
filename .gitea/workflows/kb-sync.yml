@@ -1,7 +1,8 @@
-# KB→RAG 同步 (P1 step 1.9): 每天检测 A 仓 (hakupao/sdtm-pedia) 最新 kb-* tag 的 KB 指纹;
-# 与生产 chroma stamp 不同 → 在生产副本上灌库 + CDISC 140q 闸 (逐题回退 ≤ 1), 过闸的候选目录留在数据根,
-# 等「KB 更新」(本地升 submodule + push) 触发部署时由 sdtm-rag.yml 换上。本工作流不改 main、不动生产目录。
-# 编排脚本 deploy/kbsync/kbsync.py (只用标准库, 不进镜像); 设计见 .work/10_split_and_public/evidence/checkpoints/p1_step1.9_design.md
+# KB→RAG 同步（P1 step 1.9）：每天检测 A 仓（hakupao/sdtm-pedia）最新 kb-* tag 的 KB 指纹。
+# 如果与生产 chroma stamp 不同，就在生产数据副本上入库并运行 CDISC 140 题闸（逐题回退不超过 1 题）；
+# 通过闸的候选目录保留在数据根，等「KB 更新」（本地升级 submodule 并 push）触发部署时，由 sdtm-rag.yml 换入。
+# 本工作流不修改 main，也不改动生产目录。
+# 编排脚本为 deploy/kbsync/kbsync.py（只用标准库，不打进镜像）；设计见 .work/10_split_and_public/evidence/checkpoints/p1_step1.9_design.md
 name: kb-sync
 on:
   schedule:
@@ -9,11 +10,11 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "A 仓 KB tag (kb-YYYY.MM.DD) 或 40 位 commit; 留空 = 最新 kb-* tag"
+        description: "A 仓 KB tag（kb-YYYY.MM.DD）或 40 位 commit；留空时使用最新的 kb-* tag"
         required: false
         default: ""
 
-# 与部署同组: 候选灌库期间不部署, 部署期间不建候选
+# 与部署使用同一并发组：候选入库期间不部署，部署期间不构建候选
 concurrency:
   group: sdtm-rag-deploy
   cancel-in-progress: false
@@ -43,11 +44,11 @@ jobs:
             REF=$(git ls-remote --tags --refs "$KB_REPO" 'kb-*' | sed 's#.*refs/tags/##' | sort -V | tail -1)
           fi
           printf '%s' "$REF" | grep -Eqx 'kb-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?|[0-9a-f]{40}' \
-            || { echo "ref 格式不对 (要 kb-YYYY.MM.DD 或 40 位 commit): '$REF'"; exit 1; }
+            || { echo "ref 格式错误（应为 kb-YYYY.MM.DD 或 40 位 commit）：'$REF'"; exit 1; }
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
           echo "KB ref：$REF"
 
-      - name: 取 KB 并算指纹
+      - name: 拉取 KB 并计算指纹
         id: kb
         env:
           REF: ${{ steps.ref.outputs.ref }}
@@ -62,7 +63,7 @@ jobs:
           FP=$(python3 deploy/kbsync/kbsync.py fingerprint --kb-root vendor/sdtm-pedia/knowledge_base)
           printf '%s' "$FP" | grep -Eqx '[0-9a-f]{64}' || { echo "指纹计算失败"; exit 1; }
           PROD_IMAGE=$(docker inspect sdtm-rag-api --format '{{.Config.Image}}')
-          [ -n "$PROD_IMAGE" ] || { echo "找不到线上容器 sdtm-rag-api"; exit 1; }
+          [ -n "$PROD_IMAGE" ] || { echo "未找到线上容器 sdtm-rag-api"; exit 1; }
           { echo "a_commit=$A_COMMIT"; echo "fp=$FP"; echo "prod_image=$PROD_IMAGE"; } >> "$GITHUB_OUTPUT"
           echo "A 仓 commit：$A_COMMIT；KB 指纹：${FP:0:12}；线上镜像：$PROD_IMAGE"
 
@@ -77,20 +78,20 @@ jobs:
           RESULT=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"])')
           echo "result=$RESULT" >> "$GITHUB_OUTPUT"
           case "$RESULT" in
-            journal_pending) echo "数据根残留 kbsync_swap.json (上次部署换数据未收尾), 不建候选; 先人工 restore/finish"; exit 1 ;;
+            journal_pending) echo "数据根残留 kbsync_swap.json（上次部署的换数据未完成收尾），不构建候选；请先人工执行 restore 或 finish"; exit 1 ;;
             same) echo "no-op：生产 chroma 已是该 KB 指纹" ;;
-            gated) echo "no-op：该指纹已有过闸候选 (chroma_cand_${FP:0:12})，等「KB 更新」部署换上" ;;
-            changed) echo "KB 指纹与生产不同 → 建候选 + 过闸" ;;
+            gated) echo "no-op：该指纹已有过闸候选（chroma_cand_${FP:0:12}），等待「KB 更新」部署时换入" ;;
+            changed) echo "KB 指纹与生产不同，开始构建候选并运行闸" ;;
             *) echo "未知检测结果 $RESULT"; exit 1 ;;
           esac
 
-      - name: 构建候选镜像 (只在本机, 不推送)
+      - name: 构建候选镜像（仅本机，不推送）
         if: steps.detect.outputs.result == 'changed'
         env:
           FP: ${{ steps.kb.outputs.fp }}
         run: docker build -f deploy/container/Dockerfile -t "sdtm-rag-kbcand:${FP:0:12}" .
 
-      - name: 候选灌库 + CDISC 闸
+      - name: 候选入库并运行 CDISC 闸
         if: steps.detect.outputs.result == 'changed'
         env:
           FP: ${{ steps.kb.outputs.fp }}

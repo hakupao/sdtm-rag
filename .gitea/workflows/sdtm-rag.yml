@@ -2,8 +2,8 @@
 # 部署配置在 deploy/container/；运维说明见 lan-services 仓库（第 6 步）。
 # 回滚：在 Actions 页面手动运行本工作流，tag 填已有镜像的 commit SHA，跳过构建，直接部署该版本。
 # 只构建不部署：手动运行，tag 留空、deploy 取消勾选 → 构建+推送镜像后结束 (切换前先在测试端口验证)。
-# 健康检查失败会自动退回部署前正在跑的镜像 (换过 chroma/meta 的话一并退回)。
-# KB 对齐 (step 1.9): 目标镜像 KB 指纹 ≠ 生产 chroma stamp → 换上 kb-sync 过闸的候选 (或保留的旧副本), 找不到则不动生产直接失败。
+# 健康检查失败时，会自动退回部署前正在运行的镜像；如果换过 chroma/meta，也会一并退回。
+# KB 对齐（step 1.9）：如果目标镜像的 KB 指纹与生产 chroma stamp 不同，部署时换入 kb-sync 过闸的候选（或保留的旧副本）；两者都找不到时直接失败，生产保持不变。
 name: sdtm-rag
 on:
   push:
@@ -34,7 +34,7 @@ on:
         type: boolean
         default: true
       force_data_mismatch:
-        description: "true = 镜像 KB 指纹判不出 / 无匹配的 chroma 副本时仍部署 (不换数据, 只告警)"
+        description: "true = 无法确定镜像的 KB 指纹，或没有匹配的 chroma 副本时，仍然部署（不换数据，只告警）"
         type: boolean
         default: false
 
@@ -45,7 +45,7 @@ concurrency:
 env:
   REGISTRY: 192.168.100.58
   IMAGE: 192.168.100.58/bojiang/sdtm-rag
-  # 数据根是 Docker 守护进程侧路径: job 容器看不到, kbsync 的文件操作经 --via 在兄弟容器里做
+  # 数据根是 Docker 守护进程一侧的路径，job 容器无法访问；kbsync 的文件操作通过 --via 在兄弟容器中执行
   DATA_ROOT: /Volumes/DevSSD/deploy-data/sdtm-rag/data
 
 jobs:
@@ -104,7 +104,7 @@ jobs:
           echo "prev=$PREV" >> "$GITHUB_OUTPUT"
           echo "部署前线上镜像标签：${PREV:-无}"
 
-      # 只读: 决定 chroma/meta 怎么办 (same / swap / missing / unknown), 生产此时未动
+      # 只读步骤：确定 chroma/meta 的处理方式（same / swap / missing / unknown），此时生产尚未改动
       - name: KB 数据对齐检查
         id: kbcheck
         if: gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false'
@@ -122,19 +122,19 @@ jobs:
           DECISION=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["decision"])')
           case "$DECISION" in
             journal_pending)
-              # 上次换数据的 job 被取消/超时: 数据处于未知中间态, 任何决定 (含 force) 都不可信
-              echo "数据根残留 kbsync_swap.json (上次换数据未收尾); 生产未动。先停服务人工"
-              echo "  python3 deploy/kbsync/kbsync.py --via <镜像> restore --data-root $DATA_ROOT  (或确认已生效后 finish)"
+              # 上次换数据的 job 被取消或超时：数据处于未知的中间状态，任何决定（包括 force）都不可信
+              echo "数据根残留 kbsync_swap.json（上次换数据未完成收尾）；生产未改动。请先停止服务，再人工执行："
+              echo "  python3 deploy/kbsync/kbsync.py --via <镜像> restore --data-root $DATA_ROOT  （或在确认换入已生效后执行 finish）"
               exit 1 ;;
-            same) echo "镜像 KB 指纹与生产 chroma 一致, 不换数据" ;;
-            swap) echo "镜像 KB 指纹 ${FP:0:12} ≠ 生产 → 部署时换上 $(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["source_chroma"])')" ;;
+            same) echo "镜像 KB 指纹与生产 chroma 一致，不换数据" ;;
+            swap) echo "镜像 KB 指纹 ${FP:0:12} 与生产不同，部署时换入 $(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["source_chroma"])')" ;;
             unknown|missing)
               if [ "$FORCE" = true ]; then
-                echo "::warning::force_data_mismatch: 镜像 KB 指纹 ${FP:0:12} 与生产 chroma 对不上 ($DECISION), 不换数据照常部署 —— 回答可能基于错配索引"
+                echo "::warning::force_data_mismatch：镜像 KB 指纹 ${FP:0:12} 与生产 chroma 不一致 ($DECISION)，不换数据，照常部署；回答可能基于不匹配的索引"
                 DECISION=forced
               else
-                echo "镜像 KB 指纹 ${FP:0:12} 与生产 chroma 不同, 且无过闸候选 / 保留副本 ($DECISION); 生产未动。"
-                echo "先对该 KB tag 跑 kb-sync 工作流 (过闸后再部署); 回滚旧镜像且确认可接受错配时勾选 force_data_mismatch"
+                echo "镜像 KB 指纹 ${FP:0:12} 与生产 chroma 不同，且没有过闸候选或保留副本 ($DECISION)；生产未改动。"
+                echo "请先对该 KB tag 运行 kb-sync 工作流，通过闸后再部署；如果是回滚旧镜像，且确认可以接受数据不匹配，请勾选 force_data_mismatch"
                 exit 1
               fi ;;
             *) echo "未知决定 $DECISION"; exit 1 ;;
@@ -149,7 +149,7 @@ jobs:
           FP: ${{ steps.kbcheck.outputs.fp }}
           CHROMA_V: ${{ steps.kbcheck.outputs.chromadb }}
         run: |
-          # 退回镜像步只在本步开始后才有意义 (kbcheck 失败 = 生产未动, 不该重建容器)
+          # 只有本步骤开始后，退回镜像的步骤才有意义（kbcheck 失败说明生产未改动，不应重建容器）
           echo "started=true" >> "$GITHUB_OUTPUT"
           # 挂载目标跟随镜像的 WorkingDir: step 1.5a 前 (monorepo 时代) 的镜像是
           # /Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag, 之后是 /app —— 回滚旧镜像时 data/.env 才挂得对
@@ -158,20 +158,20 @@ jobs:
           export APP_DIR
           echo "挂载目标目录：$APP_DIR"
           if [ "$DECISION" = swap ]; then
-            # 停服务 → 非 KB 集合核对 → 改名换 chroma/meta (journal 记在数据根, 失败步按它退回)
+            # 依次停止服务、核对非 KB 集合、通过改名换入 chroma/meta（journal 记在数据根，失败处理步骤按 journal 退回）
             IMAGE_TAG="${{ steps.tag.outputs.tag }}" docker compose -f deploy/container/compose.yml stop
             IMG="$IMAGE:${{ steps.tag.outputs.tag }}"
             if ! python3 deploy/kbsync/kbsync.py deploy-swap --data-root "$DATA_ROOT" \
                 --image "$IMG" --target-fp "$FP" --chromadb-version "$CHROMA_V"; then
-              # 换到一半失败 (journal 在) → 先退数据, 再起原容器; 退不干净 / 判不出则不起, 交给人工
+              # 换到一半失败（journal 存在）时，先退回数据，再启动原容器；如果数据未完全退回或无法判断 journal 状态，则不启动容器，转人工处理
               JS=0; python3 deploy/kbsync/kbsync.py journal-state --image "$IMG" --data-root "$DATA_ROOT" || JS=$?
               case "$JS" in
                 0) ;;
                 3) python3 deploy/kbsync/kbsync.py --via "$IMG" restore --data-root "$DATA_ROOT" \
-                     || { echo "restore 失败, 服务保持停止, 需人工处理"; exit 1; } ;;
-                *) echo "journal 状态判不出, 服务保持停止, 需人工处理"; exit 1 ;;
+                     || { echo "restore 失败，服务保持停止状态，需要人工处理"; exit 1; } ;;
+                *) echo "无法判断 journal 状态，服务保持停止状态，需要人工处理"; exit 1 ;;
               esac
-              echo "换数据被拒/失败, 数据已是部署前状态, 原容器重新启动"
+              echo "换数据被拒绝或失败，数据处于部署前状态，重新启动原容器"
               IMAGE_TAG=x docker compose -f deploy/container/compose.yml start
               exit 1
             fi
@@ -190,22 +190,22 @@ jobs:
           done
           echo "健康检查失败，最后返回 $code"; docker logs --tail 80 sdtm-rag-api; exit 1
 
-      - name: KB 索引新鲜度
+      - name: 检查 KB 索引新鲜度
         if: steps.kbcheck.outputs.decision == 'swap'
         run: docker exec sdtm-rag-api python -m scripts.check_index_freshness
 
-      - name: 换数据收尾 (删 journal, 旧副本留最新 2 份)
+      - name: 换数据收尾（删除 journal，旧副本保留最新 2 份）
         if: success() && steps.kbcheck.outputs.decision == 'swap'
         env:
           IMG: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
         run: |
           python3 deploy/kbsync/kbsync.py --via "$IMG" finish --data-root "$DATA_ROOT"
-          # finish 之后不许再让本 job 失败 (否则退回镜像却找不到 journal 退数据)
+          # finish 之后不能再让本 job 失败（否则退回镜像时找不到 journal，无法退回数据）
           python3 deploy/kbsync/kbsync.py --via "$IMG" prune --data-root "$DATA_ROOT" --keep 2 \
-            || echo "::warning::prune 失败 (不影响本次部署), 旧 chroma_prev_* 请人工清理"
+            || echo "::warning::prune 失败（不影响本次部署），请人工清理旧的 chroma_prev_*"
 
-      # 必须排在退回镜像之前, 且不受 prev != tag 限制: 同标签重部署也可能换过数据
-      - name: 失败 → 退回换过的 chroma/meta
+      # 本步骤必须排在退回镜像之前，且不受 prev != tag 条件限制：同一标签重新部署时也可能换过数据
+      - name: 失败时退回换过的 chroma/meta
         if: failure() && steps.kbcheck.outputs.decision == 'swap'
         env:
           TAG: ${{ steps.tag.outputs.tag }}
@@ -213,8 +213,8 @@ jobs:
         run: |
           IMG="$IMAGE:$TAG"
           JS=0; python3 deploy/kbsync/kbsync.py journal-state --image "$IMG" --data-root "$DATA_ROOT" || JS=$?
-          [ "$JS" = 0 ] && { echo "未换数据, 无需退回"; exit 0; }
-          [ "$JS" = 3 ] || { echo "journal 状态判不出, 不动数据, 需人工处理"; exit 1; }
+          [ "$JS" = 0 ] && { echo "未换数据，无需退回"; exit 0; }
+          [ "$JS" = 3 ] || { echo "无法判断 journal 状态，不改动数据，需要人工处理"; exit 1; }
           IMAGE_TAG="$TAG" docker compose -f deploy/container/compose.yml stop
           python3 deploy/kbsync/kbsync.py --via "$IMG" restore --data-root "$DATA_ROOT"
           if [ "$PREV" = "$TAG" ]; then
@@ -222,7 +222,7 @@ jobs:
             [ -n "$APP_DIR" ] || APP_DIR=/app
             APP_DIR="$APP_DIR" IMAGE_TAG="$TAG" docker compose -f deploy/container/compose.yml up -d
           fi
-          echo "已退回部署前的 chroma/meta; 镜像由下一步退回"
+          echo "已退回部署前的 chroma/meta；镜像由下一步退回"
 
       - name: 健康检查失败 → 退回部署前的镜像
         if: failure() && steps.deploy.outputs.started == 'true' && steps.prev.outputs.prev != '' && steps.prev.outputs.prev != steps.tag.outputs.tag
@@ -230,9 +230,9 @@ jobs:
           PREV: ${{ steps.prev.outputs.prev }}
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          # 数据没退干净 (journal 还在) 或判不出时绝不起旧镜像: 旧镜像 + 换了一半的数据 = 本步骤要防的错配
+          # 数据未完全退回（journal 仍在）或无法判断时，绝不启动旧镜像：旧镜像加上换了一半的数据，正是本步骤要防止的错配
           JS=0; python3 deploy/kbsync/kbsync.py journal-state --image "$IMAGE:$TAG" --data-root "$DATA_ROOT" || JS=$?
-          [ "$JS" = 0 ] || { echo "数据根 journal 未清 (状态码 $JS), 不退镜像, 服务需人工处理 (见 deploy/README「KB 同步」)"; exit 1; }
+          [ "$JS" = 0 ] || { echo "数据根的 journal 未清除 (状态码 $JS)，不退回镜像，服务需要人工处理（见 deploy/README「KB 同步」）"; exit 1; }
           printf '%s' "$PREV" | grep -Eqx '[0-9a-f]{40}' || { echo "部署前镜像标签不是 40 位 SHA ($PREV)，不自动退回，请手动处理"; exit 1; }
           APP_DIR=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMAGE:$PREV")
           [ -n "$APP_DIR" ] || APP_DIR=/app

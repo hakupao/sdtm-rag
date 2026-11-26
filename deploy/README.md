@@ -11,7 +11,7 @@
 | `container/Dockerfile.dockerignore` | 只放镜像需要的目录 |
 | `container/compose.yml` | `api` 8000 + `ui` Streamlit 8501 (只转发到 mini 本机); `data/` → `$APP_DIR/data`, `.env` → `$APP_DIR/.env` (只读; `APP_DIR` 缺省 `/app`) |
 | `../.gitea/workflows/sdtm-rag.yml` | push main → 测试 → 构建 → 推镜像 → 部署 → 健康检查; checkout `submodules: true` (公开 GitHub 仓, 无需凭据) |
-| `../.gitea/workflows/kb-sync.yml` + `kbsync/kbsync.py` | KB→RAG 同步 (step 1.9): 每天检测 A 仓最新 `kb-*` tag → 生产副本上灌库 + CDISC 闸; 见下「KB 同步」 |
+| `../.gitea/workflows/kb-sync.yml` + `kbsync/kbsync.py` | KB→RAG 同步（step 1.9）：每天检测 A 仓最新的 `kb-*` tag，在生产数据副本上入库并运行 CDISC 闸；详见下文「KB 同步」 |
 | `deploy.sh` + `.env.service.template` | **遗留** (launchd 时代服务目录同步), 删除候选 |
 
 宿主侧: 数据 `/Volumes/DevSSD/deploy-data/sdtm-rag/data` (chroma / study / 反馈记录); 密钥 虚拟机 `/opt/sdtm-rag/.env` (600)。
@@ -27,39 +27,46 @@ push 到 Gitea `main` (路径过滤见 workflow) → 自动部署, 镜像标签 
 
 ## KB 同步 (kb-sync)
 
-目录身份只看 chroma stamp 的 `kb_fingerprint` (+ 候选里的 `kbsync_gate.json`), 不看 SHA。数据根 (`deploy-data/sdtm-rag/data`) 下:
+目录身份只由 chroma stamp 中的 `kb_fingerprint` 确定（候选目录另加 `kbsync_gate.json`），不使用 SHA。数据根（`deploy-data/sdtm-rag/data`）下的目录如下：
 
 | 目录 | 含义 |
 |------|------|
-| `chroma/` `meta/` | 生产 |
-| `chroma_cand_<fp12>/` `meta_cand_<fp12>/` | kb-sync 过闸候选 (marker `verdict=PASS`), 等部署换上 |
-| `chroma_prev_<fp12>_<ts>/` `meta_prev_*` | 被换下的旧生产, 部署成功后留最新 2 份 (回滚用) |
-| `chroma_failed_<fp12>_<ts>[_stale]/` `meta_failed_*` | 闸不过 / 中断的候选, **永不自动删** (规则 B); 盘紧时人工清 |
+| `chroma/` `meta/` | 生产数据 |
+| `chroma_cand_<fp12>/` `meta_cand_<fp12>/` | 通过 kb-sync 闸的候选（marker 中为 `verdict=PASS`），等待部署时换入 |
+| `chroma_prev_<fp12>_<ts>/` `meta_prev_*` | 被换下的旧生产数据，用于回滚；部署成功后保留最新 2 份 |
+| `chroma_failed_<fp12>_<ts>[_stale]/` `meta_failed_*` | 未通过闸或中途中断的候选，**永不自动删除**（规则 B）；磁盘空间紧张时人工清理 |
 
-1. **kb-sync** (定时每天 03:17 / 手动 `ref`): A 仓 KB 指纹 == 生产 stamp 或已有过闸候选 → no-op。否则本机建候选镜像
-   (不推送) → 复制生产 chroma/meta → 基线 = **当前生产镜像**在副本上跑 CDISC 140q retrieval-only → 候选镜像
-   `scripts.ingest --no-backup` (只重建 `sdtm_kb_v1`) + `scripts.build_meta` → 同一 eval。闸: 候选 stamp 指纹 ==
-   检测指纹; 两边题号集合相同且 ≥ 140 题; 逐题 `source_recall` 回退 (含缺题) ≤ 1; 候选满分题数 ≥ 基线 − 1;
-   候选 `summary.source_recall_avg` ≥ 0.95; eval 崩/空 = FAIL。闸结果只打计数与题号; 但某一步 (eval / ingest /
-   build_meta) 非零退出时会打该步 stderr 末 20 行 (CDISC 题集, 不含研究数据)。marker 记录候选镜像的 chromadb 版本,
-   部署时目标镜像 chromadb 版本不同则不选该候选。
-2. **「KB 更新」** (本地) 升 submodule → push → **部署**: 目标镜像 KB 指纹 ≠ 生产 stamp → 停服务 → 在**副本**
-   (`kbsync_guard_<ts>/`, 用完即删) 上核对非 KB 集合 (名 + 条数 + 内容摘要) 候选 == 生产 (不同 = study 集合在候选
-   建好后变过, 拒换, 重跑 kb-sync) → 改名换入 (journal `kbsync_swap.json`) → 起服务 → 健康检查 →
-   `check_index_freshness` rc=0 → 删 journal + prune。换到一半失败 → 先按 journal 退数据再起原容器。
-   找不到过闸候选 / 保留副本 → **生产未动即失败**。数据根残留 journal (上次 job 被取消/超时) → 任何部署 (含
-   force) 都先失败, 人工 `restore` (或确认已生效后 `finish`)。
-3. 手工排查: `python3 deploy/kbsync/kbsync.py --via <镜像> detect|predeploy-check|swap-status --data-root <数据根> ...`
-   (job 容器看不到数据根, 文件操作都在兄弟容器里做)。
+1. **kb-sync**（每天 03:17 定时运行，也可手动指定 `ref`）：如果 A 仓 KB 指纹与生产 stamp 相同，或该指纹已有过闸候选，
+   则不做任何操作（no-op）。否则，先在本机构建候选镜像（不推送），再复制生产 chroma/meta 作为副本；用**当前生产镜像**
+   在副本上运行 CDISC 140 题 retrieval-only 评测，结果作为基线；然后用候选镜像运行 `scripts.ingest --no-backup`
+   （只重建 `sdtm_kb_v1`）和 `scripts.build_meta`，再运行同一评测。
+   闸条件：候选 stamp 指纹与检测到的指纹一致；两边题号集合相同，且不少于 140 题；逐题 `source_recall` 回退
+   （缺题也算回退）不超过 1 题；候选满分题数不低于基线减 1；候选 `summary.source_recall_avg` ≥ 0.95。
+   评测崩溃或结果为空时判为 FAIL。
+   闸结果只输出计数和题号。但如果某一步（eval、ingest 或 build_meta）以非零状态退出，会输出该步 stderr 的最后 20 行
+   （只涉及 CDISC 题集，不含研究数据）。marker 中记录候选镜像的 chromadb 版本；部署时如果目标镜像的 chromadb 版本
+   与之不同，则不选用该候选。
+2. **「KB 更新」**：在本地升级 submodule 并 push，触发**部署**。如果目标镜像的 KB 指纹与生产 stamp 不同，部署按以下
+   顺序换数据：停止服务；在**副本**（`kbsync_guard_<ts>/`，用完即删）上核对候选与生产的非 KB 集合（名称、条数、
+   内容摘要）是否一致；通过改名换入候选（journal 记在 `kbsync_swap.json`）；启动服务；健康检查；确认
+   `check_index_freshness` 返回 rc=0；最后删除 journal 并执行 prune。
+   如果非 KB 集合不一致，说明候选建好后 study 集合发生过变化，此时拒绝换入，需要重新运行 kb-sync。
+   换到一半失败时，先按 journal 回退数据，再启动原容器。
+   找不到过闸候选或保留副本时，部署失败，**生产保持不变**。
+   如果数据根残留 journal（上次 job 被取消或超时），任何部署（包括 force）都会在一开始失败，需要人工执行 `restore`
+   （或在确认换入已生效后执行 `finish`）。
+3. 人工排查：`python3 deploy/kbsync/kbsync.py --via <镜像> detect|predeploy-check|swap-status --data-root <数据根> ...`
+   （job 容器无法访问数据根，所有文件操作都在兄弟容器中执行）。
 
 ## 回滚
 
-- **自动**: 健康检查 (或换数据后的 freshness) 失败时, workflow 先按 journal 退回 chroma/meta, 再退回部署前正在跑的镜像 (按其 WorkingDir 挂载)。
-- **数据跟着镜像走**: 手动 `tag=` 回滚时同样比 KB 指纹; 不同则换上保留的 `chroma_prev_<fp12>_*`。没有匹配副本、或旧镜像判不出指纹
-  (无 `scripts.kb_freshness`) → 默认失败; 勾选 `force_data_mismatch` 则不换数据照常部署 (日志告警, 回答可能基于错配索引)。
-  ⚠ force 只覆盖 unknown / missing: 决定已是 swap (有匹配副本) 而非 KB 集合核对不过时, force **救不了**, 部署失败;
-  需人工处理该副本 (改名移开后即变 missing, 才能 force)。
-  手工退数据: 停服务后 `kbsync.py --via <镜像> restore --data-root <数据根>` (只在 journal 还在时生效)。
+- **自动**：健康检查失败（或换数据后的 freshness 检查失败）时，workflow 先按 journal 退回 chroma/meta，再退回部署前正在运行的镜像（按该镜像的 WorkingDir 挂载）。
+- **数据随镜像回滚**：手动指定 `tag=` 回滚时，同样会比较 KB 指纹；指纹不同时，换入保留的 `chroma_prev_<fp12>_*`。
+  如果没有匹配的副本，或无法确定旧镜像的指纹（旧镜像没有 `scripts.kb_freshness`），默认部署失败；勾选
+  `force_data_mismatch` 后不换数据，照常部署（日志中告警，回答可能基于不匹配的索引）。
+  ⚠ force 只对 unknown 和 missing 两种决定生效。如果决定已经是 swap（存在匹配副本），但非 KB 集合核对不通过，
+  force **也无效**，部署失败。此时需要人工处理该副本：将其改名移走后，决定变为 missing，才能使用 force。
+  人工退回数据：先停止服务，再执行 `kbsync.py --via <镜像> restore --data-root <数据根>`（仅在 journal 仍存在时有效）。
 - **只构建不部署**: 手动运行 workflow, tag 留空、取消勾选 deploy → 只构建+推送镜像, 用于切换前在测试端口验证。
 - **.env**: ⚑ 记录默认写 `data/dogfood_failures.md` (挂载卷内), 无需 `SDTM_RAG_DOGFOOD_LOG_OVERRIDE`; 旧 `.env` 里若有指向旧绝对路径的该键, 注释掉即可 (新旧镜像都不受影响)。
 
