@@ -129,3 +129,12 @@ a 1 / b 2 / c 3 / d 2 / e1 2 / e2 1 / e3 1 / e4 1 / f 2 / g 1 / **n1 1 / n2 1 / 
   日志: `curl -u … https://git.bojiang.org/api/v1/repos/bojiang/sdtm-rag/actions/jobs/363/logs`。
 - 反例演练: 见 `failures/step_1.9_drill_neg_attempt_1.md` — 闸拦下 (9 题回退), 生产未动。
 - 剩: 正例演练 (A 仓改一行 KB + 新 tag, 需用户确认) → 「KB 更新」→ 部署步骤首次实跑换数据 (测 N6 停机时长)。
+## 1.9 部署步骤首次实跑 (同指纹路径, 2026-11-26)
+- 用户裁定: 现在做 (只构建 → 测试端口 → 直接部署)。
+- 只构建: Gitea task 287 (dispatch tag 空, deploy=false) success, 36499a7。
+- 测试端口 (VM, `tp.sh`: 新镜像 36499a7 与线上 cb5fd06 各起一容器, 各用一份 chroma 副本, data/ 只读): 两边 freshness OK f863e45445a6;
+  CDISC 140q avg 0.9917 = 0.9917, 逐题 0 差 (非满分 q126 q38); study 51 条 avg 0.875 = 0.875, 逐题 0 差, 非满分 6 题同一组; 新镜像 `/api/ask` 正常返回。容器与副本已删。
+- 部署: task 296 (run 内 job 391; dispatch tag=36499a7…, deploy=true) success。「KB 数据对齐检查」→「镜像 KB 指纹与生产 chroma 一致，不换数据」;
+  新鲜度/收尾/退回步 skipped (符合同指纹路径)。部署前线上 cb5fd06。
+- 部署后: api/ui = 36499a7 running; `check_index_freshness` OK; LAN /api/health 200。
+- 回滚: dispatch tag=cb5fd0691c8a42ae1bb61f310a0caab7ad5e1fb4, deploy=true。
