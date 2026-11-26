@@ -102,7 +102,7 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, request, tier
 | `site_busy` (v1.2) | 503 | `retry_after_s` (+ `Retry-After` 头) | L2: 进行中预留 (上界估算) 暂时占满池子, 已结算花费未到顶 ⇒ 稍后重试 (前端保留重试按钮, 不算额度类拒绝) |
 | `storage_full` (v1.2) | 507 | — | L2 `/api/flag`: dogfood 日志达 `flag_file_max_bytes` |
 
-`rate_limited` (429) 的来源 (v1.2 起): 每分钟限流 (访客 / IP)、每 IP 同时进行的计量请求数 (`quota_inflight_per_ip`, 默认 3)、BYOK 每 IP 每日错 key 次数
+`rate_limited` (429) 的来源 (v1.2 起): 每分钟限流 (访客 / IP)、每 IP 同时进行的计量请求数 (`quota_inflight_per_ip`, 默认 5)、BYOK 每 IP 每日错 key 次数
 (`quota_byok_bad_key_per_ip_day`, 默认 20)、BYOK 附加 (服务器 key) 调用每 IP 每日份额 (`quota_byok_side_per_ip_usd`, 默认 $0.5)、BYOK 每日联网次数、`/api/flag` 每 IP 每日字节
 (`flag_bytes_per_ip_day`)。
 
@@ -223,5 +223,6 @@ export SDTM_RAG_CHROMA_DIR_OVERRIDE=/Volumes/DevSSD/Project/sdtm-rag/data/chroma
 **部署要求 (P3.2 compose 落实, 本轮不改 compose)**: 公开容器的服务端口只绑 `127.0.0.1` 或专用 docker 网络, 不暴露到宿主机 LAN;
 `SDTM_RAG_QUOTA_TRUSTED_PROXIES` 只写 cloudflared 容器 / 主机的那一个地址 (/32 或其所在的专用 /24 网络)。否则 LAN 上任何主机直连端口即可绕过隧道、伪造访客 IP。
 
-**已裁 (主会话, 2026-11-26)**: 免费题每 IP 每日 30 题 (`quota_free_per_ip_day`) 与「每访客 10 题」并存 —— 接受; 换 cookie 的同一 IP 最多 30 题,
+**已裁 (主会话, 2026-11-26)**: 免费题每 IP 每日上限与「每访客 10 题」并存 —— 接受; P2.9 末轮 (N1) 因公司共享出口 IP 把默认值上调:
+`quota_free_per_ip_day` 30 → **50**, `quota_inflight_per_ip` 3 → **5**; 换 cookie 的同一 IP 最多 50 题,
 总量由免费池 $3 (= $5 封顶 − $2 BYOK 附加预算) 兜底。BYOK 附加调用每 IP 每日 $0.5 (≤ $2 池的 1/4: 至少 4 个 IP 才能耗尽; 够 30 次联网检索 $0.48 + embedding)。

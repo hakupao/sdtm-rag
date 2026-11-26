@@ -68,11 +68,26 @@ def _clear_rejection(e: BaseException) -> bool:
     or the connection was never established (request never sent). Timeouts, cancellation, read /
     protocol errors and unknown exceptions are ambiguous (the request may be running upstream)."""
     import httpx
+    import openai
 
+    if isinstance(e, openai.APIConnectionError):
+        # litellm's APIConnectionError carries status 500 for ANY transport failure (read errors,
+        # resets after the request was sent): clear only when it never connected.
+        return _caused_by(e, httpx.ConnectError)
     status = getattr(e, "status_code", None)
     if isinstance(status, int) and 400 <= status <= 599 and not isinstance(e, TimeoutError):
         return status not in (408, 504)   # gateway / request timeouts: may have run upstream
     return isinstance(e, httpx.ConnectError)
+
+
+def _caused_by(e: BaseException, cls) -> bool:
+    seen = 0
+    cur = e.__cause__ or e.__context__
+    while cur is not None and seen < 10:
+        if isinstance(cur, cls):
+            return True
+        cur, seen = cur.__cause__ or cur.__context__, seen + 1
+    return False
 
 
 def _streamed_text(chunk, out: list) -> None:

@@ -53,7 +53,7 @@ _DEFAULTS: dict = {
     "quota_enabled": None,             # None = on iff tier == "public"
     "free_tier_disabled": False,       # kill switch: no server-key questions at all (503)
     "quota_free_per_day": 10,          # free questions per visitor (cookie) per UTC day
-    "quota_free_per_ip_day": 30,       # … and per client IP (cookie clearing / cookieless clients)
+    "quota_free_per_ip_day": 50,       # … and per client IP (cookie clearing / cookieless clients)
     "quota_site_cap_usd": 5.0,         # ALL server-key spend combined, per UTC day (hard)
     "quota_byok_side_budget_usd": 2.0,  # carved out of the cap for BYOK requests' server-key calls
     "quota_rate_per_min": 6,           # questions per visitor per minute (BYOK too)
@@ -82,7 +82,7 @@ _DEFAULTS: dict = {
     # P2.9 fixes (checkpoint p2.9_fix.md)
     "quota_abort_buffer_tokens": 4096,  # usage-less stream closed early: output still generated upstream
     "quota_busy_retry_s": 15,          # site_busy: open reservations (not settled spend) fill the pool
-    "quota_inflight_per_ip": 3,        # concurrent metered requests per client IP (0 = off)
+    "quota_inflight_per_ip": 5,        # concurrent metered requests per client IP (0 = off)
     "quota_byok_side_per_ip_usd": 0.5,  # one IP's share of the BYOK side budget per UTC day
     "quota_byok_bad_key_per_ip_day": 20,  # byok_key_invalid refusals per IP per day, then 429
     "quota_retention_days": 14,        # counters / spend / reservations older than this are pruned
@@ -144,6 +144,10 @@ def validate(s) -> dict:
             v = cfg(s, key)
         except ValueError as e:
             raise RuntimeError(f"bad quota setting SDTM_RAG_{key.upper()}: {e}") from None
+        if isinstance(v, (int, float)) and not isinstance(v, bool) \
+                and (not math.isfinite(v) or v < 0):
+            # fail closed: inf / nan / negative caps would disable or invert a limit
+            raise RuntimeError(f"bad quota setting SDTM_RAG_{key.upper()}: {v!r} (must be finite, ≥ 0)")
         eff[key] = ("set" if v else "unset") if key in _SECRET_KEYS else v
     if app_enabled(s):
         known = {"SDTM_RAG_" + k.upper() for k in (*_DEFAULTS, *Settings.model_fields)}

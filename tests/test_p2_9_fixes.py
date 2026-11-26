@@ -482,3 +482,42 @@ def test_narrow_retry_spends_one_round(make):  # noqa: F811
 
     retried = spend([_BadRequest("stream_options unsupported"), list(ok)])
     assert plain > 0 and retried == pytest.approx(plain)
+
+
+# ── N2: validate() fails closed on non-finite / negative numbers ────────────
+
+@pytest.mark.parametrize(("key", "raw"), [("QUOTA_SITE_CAP_USD", "inf"), ("QUOTA_SITE_CAP_USD", "nan"),
+                                          ("QUOTA_FREE_PER_DAY", "-1"), ("QUOTA_INFLIGHT_PER_IP", "-3"),
+                                          ("QUOTA_BYOK_SIDE_PER_IP_USD", "-0.5")])
+def test_validate_rejects_non_finite_and_negative(monkeypatch, engines, key, raw):  # noqa: F811
+    monkeypatch.setenv(f"SDTM_RAG_{key}", raw)
+    with pytest.raises(RuntimeError, match=f"SDTM_RAG_{key}"):
+        quota.validate(S(engines[0], quota_enabled=True))
+
+
+def test_validate_accepts_zero(monkeypatch, engines):  # noqa: F811
+    monkeypatch.setenv("SDTM_RAG_QUOTA_INFLIGHT_PER_IP", "0")     # 0 = off is legitimate
+    assert quota.validate(S(engines[0], quota_enabled=True))["quota_inflight_per_ip"] == 0
+
+
+# ── N3: litellm APIConnectionError (status 500) is clear only if it never connected ──
+
+def _api_conn_error(cause):
+    from litellm.exceptions import APIConnectionError
+
+    try:
+        try:
+            raise cause
+        except Exception as inner:
+            raise APIConnectionError(message="conn", llm_provider="deepseek", model="m") from inner
+    except APIConnectionError as e:
+        return e
+
+
+def test_api_connection_error_clear_only_when_never_connected():
+    import httpx
+
+    assert outbound._clear_rejection(_api_conn_error(httpx.ConnectError("refused"))) is True
+    for cause in (httpx.ReadError("reset"), httpx.RemoteProtocolError("eof"), RuntimeError("x")):
+        e = _api_conn_error(cause)
+        assert e.status_code == 500 and outbound._clear_rejection(e) is False, cause

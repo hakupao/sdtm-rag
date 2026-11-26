@@ -1,48 +1,52 @@
-| #1a streamed tokens priced | server/quota.py | KILLED | 1 failed, 1 passed, 7 warnings in 1.10s |
-| #1b usage-less stream not charged full | server/quota.py | KILLED | 2 failed, 7 warnings in 1.09s |
-| #1c reasoning counted | server/outbound.py | KILLED | 1 failed in 0.71s |
-| #1d narrow-retry refund (clear only) | server/outbound.py | KILLED | 1 failed in 0.71s |
-| #1e clear open failure prompt-only | server/outbound.py | KILLED | 1 failed in 0.71s |
-| #1f router passes refund flag | server/router.py | KILLED | 1 failed, 7 warnings in 1.11s |
-| #1g abort buffer on early close | server/quota.py | KILLED | 1 failed in 0.70s |
-| #1h early close detected | server/outbound.py | KILLED | 1 failed in 0.77s |
-| #1i mid-stream exception keeps full | server/outbound.py | KILLED | 2 failed, 7 warnings in 1.07s |
-| #1j timeouts statuses ambiguous | server/outbound.py | KILLED | 1 failed in 0.72s |
-| #1k unknown open errors ambiguous | server/outbound.py | KILLED | 2 failed in 0.71s |
-| #2a public never unmetered | server/auth.py | KILLED | 2 failed, 7 warnings in 1.09s |
-| #2b strict bool | server/quota.py | KILLED | 5 failed, 7 warnings in 1.08s |
-| #3 unknown quota env | server/quota.py | KILLED | 1 failed, 1 warning in 1.04s |
-| #3b validate called at startup | server/auth.py | KILLED | 1 failed, 7 warnings in 1.05s |
-| #4a explicit SELECTABLE_MODELS | server/instance.py | KILLED | 1 failed in 0.74s |
-| #4b explicit max_output_tokens | server/instance.py | KILLED | 1 failed in 0.72s |
-| #4c round <= free pool / 10 | server/instance.py | KILLED | 1 failed in 0.74s |
-| #4d security headers | server/instance.py | KILLED | 1 failed in 0.78s |
-| #5 site_busy vs cap | server/quota.py | KILLED | 1 failed, 1 passed in 0.75s |
-| #6 trusted proxies narrow | server/auth.py | KILLED | 4 failed, 3 passed, 1 warning in 1.10s |
-| #7a global RL keyed on visitor | server/auth.py | KILLED | 1 failed, 7 warnings in 1.13s |
-| #7b trust_forwarded refused | server/auth.py | KILLED | 1 failed, 1 warning in 1.09s |
-| #10a in-flight cap | server/quota.py | KILLED | 1 failed in 0.16s |
-| #10b in-flight release | server/quota.py | KILLED | 2 failed in 0.17s |
-| #10c in-flight TTL | server/quota.py | KILLED | 1 failed in 0.17s |
-| #11a flag file cap | server/quota.py | KILLED | 1 failed, 7 warnings in 1.06s |
-| #11b flag per-IP bytes | server/quota.py | KILLED | 1 failed, 7 warnings in 1.07s |
-| #11c flag endpoint calls admit_flag | server/router.py | KILLED | 1 failed, 7 warnings in 1.05s |
-| #12a stdlib message redaction | server/providers.py | KILLED | 1 failed in 0.16s |
-| #12b stdlib exc_text redaction | server/providers.py | KILLED | 1 failed in 0.16s |
-| #12c public loggers at WARNING | server/providers.py | KILLED | 1 failed in 0.16s |
-| #13 continue refusal keeps parts | server/router.py | KILLED | 1 failed, 7 warnings in 1.03s |
-| #14a free web single owner | server/providers.py | KILLED | 2 failed, 7 warnings in 1.09s |
-| #14b key actually enables web | server/quota.py | KILLED | 2 failed, 7 warnings in 1.10s |
-| #14c web_status off on downgrade | server/router.py | KILLED | 1 failed, 7 warnings in 1.04s |
-| #15a bad-key probing gate | server/quota.py | KILLED | 2 failed, 7 warnings in 1.08s |
-| #15b upstream 401 counted | server/providers.py | KILLED | 1 failed, 7 warnings in 1.06s |
-| #15c format-invalid key counted | server/providers.py | KILLED | 1 failed, 7 warnings in 1.06s |
-| #15d BYOK side budget per IP | server/quota.py | KILLED | 1 failed in 0.73s |
-| #15e side counter settled to actual | server/quota.py | KILLED | 1 failed in 0.74s |
-| #16 prune | server/quota_store.py | KILLED | 1 failed in 0.17s |
-| #17 trust_env=False | server/provider_registry_net.py | KILLED | 1 failed, 1 passed in 0.28s |
-| #18 info no-store | server/instance.py | KILLED | 1 failed, 7 warnings in 1.05s |
+| #1a streamed tokens priced | server/quota.py | KILLED | 1 failed, 1 passed, 7 warnings in 2.05s |
+| #1b usage-less stream not charged full | server/quota.py | KILLED | 2 failed, 7 warnings in 1.25s |
+| #1c reasoning counted | server/outbound.py | KILLED | 1 failed in 0.80s |
+| #1d narrow-retry refund (clear only) | server/outbound.py | KILLED | 1 failed in 0.79s |
+| #1e clear open failure prompt-only | server/outbound.py | KILLED | 1 failed in 0.81s |
+| #1f router passes refund flag | server/router.py | KILLED | 1 failed, 7 warnings in 1.25s |
+| #1g abort buffer on early close | server/quota.py | KILLED | 1 failed in 0.81s |
+| #1h early close detected | server/outbound.py | KILLED | 1 failed in 0.79s |
+| #1g' abort buffer (e2e real disconnect) | server/quota.py | KILLED | 1 failed, 7 warnings in 1.20s |
+| N2 validate non-finite / negative | server/quota.py | KILLED | 5 failed, 1 warning in 1.20s |
+| N3 APIConnectionError clear only if never connected | server/outbound.py | KILLED | 1 failed in 0.83s |
+| N3b cause chain walked | server/outbound.py | KILLED | 1 failed in 0.81s |
+| #1i mid-stream exception keeps full | server/outbound.py | KILLED | 2 failed, 7 warnings in 1.24s |
+| #1j timeouts statuses ambiguous | server/outbound.py | KILLED | 1 failed in 0.83s |
+| #1k unknown open errors ambiguous | server/outbound.py | KILLED | 2 failed in 0.80s |
+| #2a public never unmetered | server/auth.py | KILLED | 2 failed, 7 warnings in 1.25s |
+| #2b strict bool | server/quota.py | KILLED | 5 failed, 7 warnings in 1.23s |
+| #3 unknown quota env | server/quota.py | KILLED | 1 failed, 1 warning in 1.27s |
+| #3b validate called at startup | server/auth.py | KILLED | 1 failed, 7 warnings in 1.45s |
+| #4a explicit SELECTABLE_MODELS | server/instance.py | KILLED | 1 failed in 0.95s |
+| #4b explicit max_output_tokens | server/instance.py | KILLED | 1 failed in 0.83s |
+| #4c round <= free pool / 10 | server/instance.py | KILLED | 1 failed in 0.84s |
+| #4d security headers | server/instance.py | KILLED | 1 failed in 0.83s |
+| #5 site_busy vs cap | server/quota.py | KILLED | 1 failed, 1 passed in 0.84s |
+| #6 trusted proxies narrow | server/auth.py | KILLED | 4 failed, 3 passed, 1 warning in 1.17s |
+| #7a global RL keyed on visitor | server/auth.py | KILLED | 1 failed, 7 warnings in 1.19s |
+| #7b trust_forwarded refused | server/auth.py | KILLED | 1 failed, 1 warning in 1.18s |
+| #10a in-flight cap | server/quota.py | KILLED | 1 failed in 0.19s |
+| #10b in-flight release | server/quota.py | KILLED | 2 failed in 0.20s |
+| #10c in-flight TTL | server/quota.py | KILLED | 1 failed in 0.19s |
+| #11a flag file cap | server/quota.py | KILLED | 1 failed, 7 warnings in 1.20s |
+| #11b flag per-IP bytes | server/quota.py | KILLED | 1 failed, 7 warnings in 1.20s |
+| #11c flag endpoint calls admit_flag | server/router.py | KILLED | 1 failed, 7 warnings in 1.23s |
+| #12a stdlib message redaction | server/providers.py | KILLED | 1 failed in 0.18s |
+| #12b stdlib exc_text redaction | server/providers.py | KILLED | 1 failed in 0.19s |
+| #12c public loggers at WARNING | server/providers.py | KILLED | 1 failed in 0.18s |
+| #13 continue refusal keeps parts | server/router.py | KILLED | 1 failed, 7 warnings in 1.22s |
+| #14a free web single owner | server/providers.py | KILLED | 2 failed, 7 warnings in 1.24s |
+| #14b key actually enables web | server/quota.py | KILLED | 2 failed, 7 warnings in 1.24s |
+| #14c web_status off on downgrade | server/router.py | KILLED | 1 failed, 7 warnings in 1.21s |
+| #15a bad-key probing gate | server/quota.py | KILLED | 2 failed, 7 warnings in 1.23s |
+| #15b upstream 401 counted | server/providers.py | KILLED | 1 failed, 7 warnings in 1.23s |
+| #15c format-invalid key counted | server/providers.py | KILLED | 1 failed, 7 warnings in 1.21s |
+| #15d BYOK side budget per IP | server/quota.py | KILLED | 1 failed in 0.83s |
+| #15e side counter settled to actual | server/quota.py | KILLED | 1 failed in 0.88s |
+| #16 prune | server/quota_store.py | KILLED | 1 failed in 0.19s |
+| #17 trust_env=False | server/provider_registry_net.py | KILLED | 1 failed, 1 passed in 0.33s |
+| #18 info no-store | server/instance.py | KILLED | 1 failed, 7 warnings in 1.21s |
 | #19 FORBID_TAGS passed | webchat/js/markdown.js | KILLED | ℹ fail 1 |
 | #20 compare cancels siblings | server/compare.py | KILLED | 1 failed in 5.19s |
-| #21 web counter untaken | server/quota.py | KILLED | 1 failed in 0.16s |
-47/47 killed; all files restored byte-identical
+| #21 web counter untaken | server/quota.py | KILLED | 1 failed in 0.19s |
+51/51 killed; all files restored byte-identical

@@ -177,17 +177,52 @@ def test_usage_less_normal_end_charges_streamed_heuristic(pub):  # noqa: F811
 
 def test_client_closing_the_stream_early_settles_partial(pub):  # noqa: F811
     client, router, s = pub()
-    router.stream_script = [[_chunk(f"tok{i} ") for i in range(200)]
-                            + [_chunk(finish="stop")]]   # no usage chunk ever
-    with client.stream("POST", "/api/ask_stream", json={"question": "q", "model": MODEL}) as r:
-        for line in r.iter_lines():
-            if line.startswith("event: token"):
-                break                         # reader goes away mid-answer
+    ds = "deepseek/deepseek-v4-pro"   # reported model => DeepSeek rates (below the reservation)
+    router.stream_script = [[_chunk(f"tok{i} ", model=ds) for i in range(200)]
+                            + [_chunk(finish="stop", model=ds)]]   # no usage chunk ever
+    # Real ASGI disconnect (TestClient would drain the whole stream): after the first token the
+    # client sends http.disconnect; Starlette cancels the response, the generators get closed.
+    import asyncio
+
+    body = json.dumps({"question": "q", "model": MODEL}).encode()
+    sent = []
+
+    async def run():
+        got_token = asyncio.Event()
+        delivered = False
+
+        async def receive():
+            nonlocal delivered
+            if not delivered:
+                delivered = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            await got_token.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(msg):
+            sent.append(msg)
+            if msg["type"] == "http.response.body" and b"event: token" in msg.get("body", b""):
+                got_token.set()
+                await asyncio.sleep(0.05)     # the disconnect lands while the stream is open
+
+        scope = {"type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"},
+                 "http_version": "1.1", "method": "POST", "scheme": "https", "path": "/api/ask_stream",
+                 "raw_path": b"/api/ask_stream", "root_path": "", "query_string": b"",
+                 "headers": [(b"host", b"testserver"), (b"content-type", b"application/json"),
+                             (b"content-length", str(len(body)).encode())],
+                 "client": ("testclient", 1), "server": ("testserver", 443)}
+        await client.app(scope, receive, send)
+
+    asyncio.run(run())                        # loop shutdown also finalizes abandoned generators
+    assert any(b"event: token" in m.get("body", b"") for m in sent)
+    assert not any(b"event: done" in m.get("body", b"") for m in sent)   # really cut mid-answer
     store = quota._store(s)
     rows = store._db.execute("SELECT status, usd FROM reservations").fetchall()
-    # settled from what streamed (prompt + 1.5 x text) — not left open, not the 32K-output charge
+    # settled as an early close: streamed + the abort buffer (provider kept generating), not left
+    # open, not the 32K-output charge
     assert rows and all(st == "settled" for st, _ in rows)
-    assert 0 < store.spent(quota._day()) < quota.round_estimate_usd(s, MODEL) / 2
+    buf = quota._price(s, ds, 0, int(quota.cfg(s, "quota_abort_buffer_tokens")))
+    assert buf <= store.spent(quota._day()) < quota.round_estimate_usd(s, MODEL) / 2
 
 
 def test_public_info_is_not_cacheable(pub):  # noqa: F811
