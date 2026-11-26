@@ -14,8 +14,14 @@ export function prepareStreaming(md) {
   return text + "\n" + last;
 }
 
+// 表单类 / <style> 一律剥掉 (P2.9 SR13): 页面里有 BYOK key, LLM 输出 (含联网结果的转述) 里的
+// 假表单 / 输入框 / 样式覆盖是钓鱼面。DOMPurify 默认放行它们。
+export const SANITIZE_CONFIG = Object.freeze({
+  FORBID_TAGS: ["form", "input", "button", "textarea", "select", "style"],
+});
+
 export function mdToSafeHTML(md) {
-  return DOMPurify.sanitize(marked.parse(md || ""));
+  return DOMPurify.sanitize(marked.parse(md || ""), SANITIZE_CONFIG);
 }
 
 // 统一入口: 出处处理 → (流中) 围栏补全 → 解析 → 净化。
