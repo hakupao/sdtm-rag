@@ -23,3 +23,13 @@
 ## 未决
 - 定时 workflow 与候选目录需在 VM 上有写权限 (runner 与部署同机, 已能 docker compose); 细节实现时核对 runner 挂载。
 - failures 归档在公开仓: study 结果只写计数 / 题号。
+
+## v0.2 修订 (2026-11-26, 实现版; 与 v0.1 不同处以此为准)
+- **身份**: 每个 chroma 目录 = stamp `kb_fingerprint` + 候选 marker `kbsync_gate.json` (指纹/ref/A commit/镜像/基线与候选计数/回退题号/时间/verdict); 不用任何 SHA 判定。
+- **检测源**: A 仓最新 `kb-*` tag (`git ls-remote --tags`), 不是 `main`; 手动 dispatch 可给 `ref` (tag 或 40 位 commit, 格式校验)。比对对象 = **生产 stamp** (不是当前钉的 submodule)。已有过闸候选 → no-op。与部署同 `concurrency` 组。
+- **候选**: 本机候选镜像 `sdtm-rag-kbcand:<fp12>` (不推送, 结束即删; KB 在原生路径, 无覆盖) 而非"当前镜像 + 挂新 KB"; 目录 `chroma_cand_<fp12>` + `meta_cand_<fp12>`。容器里 `data/` 只读、候选 chroma/meta 以原生路径可写覆盖 (`--mount` 源缺失即报错), `--memory 1536m`。
+- **基线**: 每次现跑 (当前生产镜像 × 灌库前的副本), 不存历史基线。闸 = 逐题 `source_recall` 回退 (候选 < 基线, 或缺题) ≤ 1, 且候选 stamp 指纹 == 检测指纹; eval 崩/空 = FAIL。FAIL → 改名 `chroma_failed_<fp12>_<ts>` (不删)。只跑 CDISC。
+- **`ingest.py --no-backup`**: R-16 备份写 `chroma_dir.parent` = 只读的 `/app/data` (会崩) 且磁盘翻倍; 候选本身即生产副本, 故跳过。
+- **job 看不到数据根** (runner valid_volumes 只放行 CA): 文件操作全部经 `kbsync.py --via <镜像>` 在兄弟容器里执行 (数据根按原路径挂载, 脚本走 stdin)。chromadb 打不开只读目录 (实测 sqlite readonly) → 集合核对用可写挂载、生产已停。
+- **部署**: 换数据前核对非 KB 集合 (名 + 条数) 候选 == 生产, 否则拒换; 换后 `check_index_freshness` rc=0; 失败先按 journal 退数据 (不受 `prev != tag` 限制) 再退镜像; 旧副本 prune 留 2 份, `chroma_failed_*` 不碰。旧镜像判不出指纹 / 无匹配副本 → 默认失败, `force_data_mismatch` 放行不换数据。
+- 演练与实现证据: `step_1.9_impl.md`。
