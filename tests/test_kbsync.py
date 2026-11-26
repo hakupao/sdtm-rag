@@ -153,6 +153,20 @@ def test_gate_two_regressions_fail_and_archive(root):
     assert (root / "chroma" / "chroma.sqlite3").read_text() == "prod"
 
 
+def test_gate_two_partial_regressions_fail_on_threshold_alone(root):
+    # 回退发生在非满分题上: 满分地板 / avg 地板都不响, 只有逐题阈值能拦 (防地板掩护阈值变异)
+    base = {**BASE, "q003": 0.8, "q004": 0.8}
+    _prepared(root, {**base, "q003": 0.5, "q004": 0.5}, base=base)
+    mk = ks.gate(root, NEW, 1, TS, {})
+    assert mk["verdict"] == "FAIL" and mk["reason"] == "regressions 2 > 1", mk
+
+
+def test_gate_one_partial_regression_passes(root):
+    base = {**BASE, "q003": 0.8}
+    _prepared(root, {**base, "q003": 0.5}, base=base)
+    assert ks.gate(root, NEW, 1, TS, {})["verdict"] == "PASS"
+
+
 def test_gate_missing_question_counts_as_regression(root):
     cand = dict(BASE)
     cand.pop("q001")
