@@ -18,6 +18,14 @@ M = [
  ("M14 missing tier treated as public", "js/byok.js", "tier: i.tier === \"public\" ? \"public\" : \"private\",", "tier: i.tier || \"public\","),
  ("M15 BYOK panel shown without providers", "app.js", "section.hidden = !tierView.providers.length;", "section.hidden = false;"),
  ("M16 downgrade unknown reason dropped", "js/notices.js", "const why = reasons[r] || r;", "const why = reasons[r] || \"\";"),
+ ("M17 stream.js drops byok.provider guard", "js/stream.js", "if (byok && byok.provider && byok.headers) {", "if (byok && byok.headers) {"),
+ ("M18 saveKey skips ASCII validation", "js/byok.js", "  if (!KEY_RE.test(k)) { clearKey(); return false; }\n", ""),
+ ("M19 abort during error-body read -> onError", "js/stream.js", "上面吞掉了)\n    if (signal?.aborted) { onAbort?.(); return; }\n", "上面吞掉了)\n"),
+ ("M20 quota refusal still offers Retry", "app.js", "if (!isQuotaRefusal(detail)) appendRetry(", "if (true) appendRetry("),
+ ("M21 public tier sends selected model as-is", "js/byok.js", "return view.selectable.includes(selected) ? selected : view.selectable[0];", "return selected;"),
+ ("M22 web visibility ORs federation", "js/byok.js", "typeof i.web_search === \"boolean\" ? i.web_search : !!i.federation", "!!i.federation || i.web_search === true"),
+ ("M23 downgrade line via innerHTML", "js/notices.js", "  el.textContent = lines.join(\" · \");", "  el.innerHTML = lines.join(\" · \");"),
+ ("M24 error text via innerHTML", "js/render.js", "e.textContent = \"⚠ \" + msg;", "e.innerHTML = \"⚠ \" + msg;"),
 ]
 sha = lambda b: hashlib.sha256(b).hexdigest()
 def committed(rel):
