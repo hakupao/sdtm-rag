@@ -22,11 +22,26 @@ from scripts.spec_loader import SpecLoader
 from server.auth import install_security
 from server.config import settings
 from server.domain_expand import build_expander
+from server import providers
 from server.llm_config import create_router
 from server.rag import RAGEngine
 from server.router import api_router
 
+# structlog's default chain, with two P2.0 changes: providers.log_processors() (L1 redaction hook)
+# before the renderer, and rich tracebacks WITHOUT frame locals — show_locals=True (the default)
+# printed every frame's locals (question text, and with BYOK the `api_key` in outbound's kwargs).
+LOG_PROCESSORS = [
+    structlog.contextvars.merge_contextvars,
+    structlog.processors.add_log_level,
+    structlog.processors.StackInfoRenderer(),
+    structlog.dev.set_exc_info,
+    structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
+    *providers.log_processors(),
+    structlog.dev.ConsoleRenderer(
+        exception_formatter=structlog.dev.RichTracebackFormatter(show_locals=False)),
+]
 structlog.configure(
+    processors=LOG_PROCESSORS,
     wrapper_class=structlog.make_filtering_bound_logger(
         logging.getLevelName(settings.log_level)
     ),

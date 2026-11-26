@@ -1,6 +1,10 @@
-# P2 请求上下文接缝 (P2.0) — 出站清单 / 前后端契约 v1 / 分线归属
+# P2 请求上下文接缝 (P2.0) — 出站清单 / 前后端契约 v1.1 / 分线归属
 
-> 状态: **§2 契约 v1 已冻结** (2026-11-26, 分支 `p2`)。改契约 = 发 v2 并通知 L1-L4, 不在某条线里顺手改。
+> 状态: **§2 契约 v1.1 已冻结** (2026-11-26, 分支 `p2`)。改契约 = 发新版本并通知 L1-L4, 不在某条线里顺手改。
+>
+> 变更记录: **v1** (2026-11-26) 首版。**v1.1** (2026-11-26, 独立复审 PASS-with-fixes 后) 断开时 settle 先于 finalize 且 finalize 后的 settle 必须 no-op;
+> compare 拒绝上浮为请求级 4xx; `providers.log_processors()` 钩子 + rich traceback 关 show_locals; `route_corpus(None)` 保持旧兜底;
+> 公开档未知模型的错误形态; L4 须容忍 `/api/info` 缺键; `/api/ask` 续写中途被拒丢弃半截答案; L2 存储线程安全; L1 跟进 Anthropic cache_control。
 > 计划: `.work/10_split_and_public/PLAN.md` §2 P2、§6。证据: `.work/10_split_and_public/evidence/checkpoints/p2.0_seam.md`。
 
 接缝的形状:
@@ -25,15 +29,15 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, request, tier
 
 | # | file:line | 调用 | purpose | 触发路径 | 流式 |
 |---|---|---|---|---|---|
-| 1 | `server/router.py:646` | `Router.completion(model=body.model)` | `answer` / `continue` (触顶续写) / `regen` (研读包闸重答) | `/api/ask` | 否 |
-| 2 | `server/router.py:926,932` | `Router.acompletion(stream=True, [tools])` (第二次 = 去掉 `stream_options` 的窄重试) | `answer` / `continue` / `regen`; 联网时同一 purpose 跑多轮工具 | `/api/ask_stream` | 是 |
-| 3 | `server/router.py:1142` → `server/web_search.py:101` | Tavily `requests.post` | `web` | `/api/ask_stream` 且 `web=true` 且 `web_search_enabled` | 否 |
-| 4 | `server/federation.py:100` | `Router.completion(model="light")` 判库 | `route` | `/api/ask`, `/api/ask_stream` 在 federation 开 + `corpus=auto` | 否 |
+| 1 | `server/router.py:647` | `Router.completion(model=body.model)` | `answer` / `continue` (触顶续写) / `regen` (研读包闸重答) | `/api/ask` | 否 |
+| 2 | `server/router.py:927,933` | `Router.acompletion(stream=True, [tools])` (第二次 = 去掉 `stream_options` 的窄重试) | `answer` / `continue` / `regen`; 联网时同一 purpose 跑多轮工具 | `/api/ask_stream` | 是 |
+| 3 | `server/router.py:1146` → `server/web_search.py:101` | Tavily `requests.post` | `web` | `/api/ask_stream` 且 `web=true` 且 `web_search_enabled` | 否 |
+| 4 | `server/federation.py:104` | `Router.completion(model="light")` 判库 | `route` | `/api/ask`, `/api/ask_stream` 在 federation 开 + `corpus=auto` | 否 |
 | 5 | `server/rag.py:761` | `litellm.embedding(text-embedding-3-small)` | `embedding` | 每次 `retrieve` (CDISC / study cards / study docs 各一次; 研读包 CDISC 补取; validate 2-3 次; compare 1 次) | 否 |
 | 6 | `server/rag.py:1009` | `litellm.completion(expansion_model, temperature=0)` | `hyde` / `multiquery` | 仅 `query_expansion != none` (**生产 OFF**) | 否 |
 | 7 | `server/reviewer.py:208` | `Router.completion(model="hard")` | `review` | `/api/validate` 且 `semantic_review=true` | 否 |
-| 8 | `server/compare.py:58` | `litellm.acompletion(model=任意串)` ×N 并发 | `compare` | `/api/ask_compare` | 否 |
-| 9 | `server/compare.py:229` | `litellm.acompletion(judge_model, temperature=0)` | `judge` | `/api/ask_compare` 且 `judge.enabled` | 否 |
+| 8 | `server/compare.py:59` | `litellm.acompletion(model=任意串)` ×N 并发 | `compare` | `/api/ask_compare` | 否 |
+| 9 | `server/compare.py:232` | `litellm.acompletion(judge_model, temperature=0)` | `judge` | `/api/ask_compare` 且 `judge.enabled` | 否 |
 | — | `server/rag.py:963` | Cohere `rerank` (SDK, 非 litellm) | — | 仅 `rerank_enabled` (**生产 OFF**), **不经接缝** | 否 |
 | — | 启动期 | 无出站 (lifespan 只建索引 / 读文件) | — | — | — |
 
@@ -41,7 +45,7 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, request, tier
 
 开放项: Cohere rerank 不经接缝 —— 公开档 L3 须在启动期拒绝 `rerank_enabled=true` (或 L1 把它接进 outbound)。
 
-## §2 前后端契约 v1 (冻结)
+## §2 前后端契约 v1.1 (冻结)
 
 ### 2.1 BYOK 请求头
 | 头 | 含义 | 档位 |
@@ -86,7 +90,13 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, request, tier
 | `provider_required` | 400 | — | L1, 见 2.1 组合表 |
 | `byok_key_missing` | 400 | `provider` | L1, 见 2.1 组合表 |
 
-既有错误不变: 空问题 422 `{"detail": "question must not be empty"}`; 未知模型 422 `{"detail": "unknown model …"}` (字符串 detail); 检索失败 502; LLM 失败 502。前端判别: `typeof detail === "object" && detail.code`。
+既有错误不变: 空问题 422 `{"detail": "question must not be empty"}`; 检索失败 502; LLM 失败 502。
+未知模型: **私有档**保持旧形态 422 `{"detail": "unknown model …; known: […]"}` (字符串 detail); **公开档**未知 id 与内部组 id
+(`default` / `hard` / `light` / `default-fallback`) 一律 422 `model_not_allowed` (对象 detail, `allowed` = 公开可选 id), 不区分"不存在"与"不给用"。
+前端判别: `typeof detail === "object" && detail.code`, 否则把字符串 detail 当文案。
+
+`/api/ask` (非流式) 在续写轮 / 重答轮被拒 (`ServiceRefusal`, 例: 续写撞全站封顶) ⇒ 整个请求返回该 4xx/429, **已生成的半截答案丢弃**
+(与"续写普通失败保留半截 + `truncated`"不同: 拒绝是计费决定, 不是上游故障)。流式端点已流出的 token 留在前端, 以 `error` 事件收尾。
 
 ### 2.4 SSE (`/api/ask_stream`)
 **v1 不新增事件名** (`tests/test_sse_contract.py` 要求后端每个事件名前端都认得)。新信息挂在既有事件上:
@@ -117,7 +127,8 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, request, tier
 | `providers` | `[{id, label, byok: true, base_fixed: bool, models: [{id, label, capabilities: {tools, vision, context_tokens}}]}]` | 同左, 无 `custom` |
 | `quota` | 可缺 | 2.5 形状 |
 
-`selectable_models` 两档都在 (服务器 key 可选模型; 公开档只列公开模型 id)。新增键由 `providers.info_fields` / `quota.info_fields` 提供, `instance.shape_info` 合成 (L3 可改形状)。
+`selectable_models` 两档都在 (服务器 key 可选模型; 公开档只列公开模型 id)。
+⚠ L4 必须容忍 `/api/info` **任何键缺失** (旧服务端 / 私有档 / L3 裁掉的键): 缺 `tier` 当 `private`, 缺 `providers` 不显示 BYOK 面板, 缺 `quota` 不显示额度。新增键由 `providers.info_fields` / `quota.info_fields` 提供, `instance.shape_info` 合成 (L3 可改形状)。
 
 ### 2.7 各档端点
 | 端点 | 私有 | 公开 |
@@ -133,8 +144,8 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, request, tier
 | 线 | 可改的文件 (独占) | 只读 / 不许改 |
 |---|---|---|
 | L3 实例档位 + 接口收口 (2.1/2.3) | `server/instance.py`, `server/main.py`, `server/config.py` (加 `instance` 等字段), `tests/test_p2_l3_*.py` | |
-| L1 provider + BYOK (2.4/2.5/2.6) | `server/providers.py`, `server/llm_config.py`, `server/cost.py`, 新 `server/provider_registry*`, 日志脱敏配置 (structlog 处理器, 放 `server/providers.py` 或新模块, 由 `main.py` 装 —— 这一行与 L3 协调), `tests/test_p2_l1_*.py` | |
-| L2 限额 (2.2/2.7 + 2.3 的 `/api/flag` 频率限制) | `server/quota.py`, `server/auth.py` (`/api/flag` 限频放在这里的 ASGI 中间件, 按路径), 新 `server/quota_store*` (SQLite 在 `data/`), `tests/test_p2_l2_*.py` | `/api/flag` 的字段长度上限已在 `FlagRequest`; 写到 `data/` 挂载 = `dogfood_log_path` 配置 (L3) |
+| L1 provider + BYOK (2.4/2.5/2.6) | `server/providers.py` (含 `log_processors()` 日志脱敏钩子, `main.py` 已调用, L1 不改 main.py), `server/llm_config.py`, `server/cost.py`, 新 `server/provider_registry*`, `tests/test_p2_l1_*.py` | `server/main.py` |
+| L2 限额 (2.2/2.7 + 2.3 的 `/api/flag` 频率限制) | `server/quota.py`, `server/auth.py` (`/api/flag` 限频放在这里的 ASGI 中间件, 按路径), 新 `server/quota_store*` (SQLite 在 `data/`; ⚠ **必须线程安全**: `reserve/settle` 会从线程池调用 —— `/api/ask` 是同步端点跑在线程池, 联网检索走 `asyncio.to_thread`; 每线程独立连接或加锁, 计数用单条 SQL 原子更新), `tests/test_p2_l2_*.py` | `/api/flag` 的字段长度上限已在 `FlagRequest`; 写到 `data/` 挂载 = `dogfood_log_path` 配置 (L3) |
 | L4 UI (2.8) | `webchat/**` only | 只按 §2 写, 不碰 `server/` |
 | 全部 | | **`server/router.py`, `server/rag.py`, `server/federation.py`, `server/reviewer.py`, `server/compare.py`, `server/request_context.py`, `server/outbound.py`, 特征测试与其 golden** |
 
@@ -147,9 +158,12 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, request, tier
 - 访客身份 / 设置从 `ctx.request` 取 (cookie、`CF-Connecting-IP`、`ctx.request.app.state.settings`); ⛔ 不读模块级 `server.config.settings` (与 app.state 可能不是同一份)。
 - `quota.reserve` 返回的句柄原样回到同一次调用的 `settle`; `settle` 的 `model` = provider 报的模型 (Router 回退会改变它, 计价按它)。`route` / `review` / `embedding` / `hyde` 用的不是 `ctx.model`, 以 `reserve` 的 `kw["model"]` 与 `settle` 的 `model` 为准。
 - 拒绝只用 `ServiceRefusal` (状态码 + §2.3 code); 其它异常类型会被各处兜底吞掉。
-- `quota.settle` 的 `usage` 可能为 None (调用失败 / 客户端提前停读), 也可能是 litellm **估算**值: 流结束时没收到 usage 片, litellm 就自己数 token 补一个 —— 上游中途断流 (分块传输缺结束块) litellm **不抛异常**, 也走这条 (BYOK 探针第 5 条)。`finalize` 结算未结清的预留。流在客户端断开时 `settle` 可能晚到或不到, `finalize` 必到。
+- `quota.settle` 的 `usage` 可能为 None (调用失败 / 客户端提前停读), 也可能是 litellm **估算**值: 流结束时没收到 usage 片, litellm 就自己数 token 补一个 —— 上游中途断流 (分块传输缺结束块) litellm **不抛异常**, 也走这条 (BYOK 探针第 5 条)。`finalize` 结算未结清的预留。
+- 顺序 (v1.1): 断开 / 循环体抛错时, 打开着的流先被关闭 (`aclosing` + `finalizing` 先 `aclose` 内层) ⇒ 它的 `settle` **先于** `finalize`。Starlette 断开时不主动关 `body_iterator`, 所以 `finalize` 在响应迭代器被关闭 / 回收时才跑 (CPython 下及时, 但不是同步于断开)。**`finalize` 之后到达的 `settle` 必须是 no-op** (按句柄幂等: 已结算或已被 finalize 按预留扣过的句柄不再计费)。
 - BYOK 调用**不得**走带 `fallbacks` 的 Router 组 (探针: 逐次 `api_key` 会被带进回退目标 = 用户的 A 家 key 发给 B 家)。
-- key 不得出现在日志里: `_open_stream` 等处 `exc_info=True` + rich traceback 会打印帧局部变量, `outbound.*` 帧里的 `kw` 含 `api_key` —— L1 须在日志层脱敏 (或关 show_locals) 并用故意报错的测试证明。
+- key 不得出现在日志里: v1.1 起 `main.py` 的 rich traceback 已关 `show_locals` (测试 `test_rendered_exception_log_line_has_no_frame_locals`), 但异常**消息**本身 (`str(e)` 进 `error=` 字段) 仍可能带 key (有的 SDK 把请求头写进报错)。L1 验收: 让上游带 key 报错, 经 `main.py` 配好的整条处理链**渲染出日志行**再 grep, 不许只测处理器函数的返回值。
+- ⛔ 不序列化 ctx (`asdict` / `vars` / 当 log kwargs): repr 已遮罩, 字段没有。
+- L1 跟进: BYOK 走 Anthropic 时 prompt cache (`cache_control`, 研读包布局) —— `_prompt_cache_capable` 按服务器配置的模型串判, BYOK 的 provider/model 不在其中; 需 L1 通过 `providers.resolve` 改写 messages 或经 v1.2 接缝处理, 并量缓存命中。
 
 ## §4 并行工作树配置 (实测可用)
 

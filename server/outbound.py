@@ -62,6 +62,9 @@ async def _metered(ctx, purpose, handle, stream):
             yield chunk
     finally:
         quota.settle(ctx, purpose, handle, usage, model)
+        close = getattr(stream, "aclose", None)   # release the provider stream too, if closable
+        if close is not None:
+            await close()
 
 
 def embedding(ctx, purpose: str, **kw):

@@ -35,6 +35,8 @@ class Credentials:
 
 @dataclass(repr=False)
 class RequestContext:
+    # ⛔ Never serialise a ctx (dataclasses.asdict / vars / json / log kwargs): repr is masked,
+    # but the fields are not — `credentials.api_key` and `request` (headers) would leak.
     endpoint: str                      # "ask" | "ask_stream" | "ask_compare" | "validate"
     request: Any = None                # the Starlette Request (cookies, CF-Connecting-IP, app.state.settings)
     tier: str = "private"              # instance.tier(); L3
@@ -131,11 +133,23 @@ def request_scope(endpoint: str, *, streaming: bool = False):
 
 async def finalizing(agen, ctx: RequestContext):
     """Wrap an SSE async generator so `quota.finalize(ctx)` runs on normal end, error, or client
-    disconnect (GeneratorExit / CancelledError, which no `except Exception` sees)."""
+    disconnect (GeneratorExit / CancelledError, which no `except Exception` sees).
+
+    Order guarantee (v1.1): the inner generator is closed FIRST — that closes the open
+    `outbound._metered` stream (router wraps it in `aclosing`) so its `quota.settle` lands —
+    and only then `finalize`. Shielded so a cancelled task can still finish the close.
+    ⚠ Starlette does not aclose `body_iterator` on disconnect: this finally runs when the
+    response's iterator is closed / garbage-collected (prompt under CPython refcounting)."""
+    import anyio
+
     from server import quota
 
     try:
         async for item in agen:
             yield item
     finally:
-        quota.finalize(ctx)
+        with anyio.CancelScope(shield=True):
+            try:
+                await agen.aclose()
+            finally:
+                quota.finalize(ctx)

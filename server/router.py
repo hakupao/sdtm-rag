@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime
 import json
 import math
@@ -1005,55 +1006,58 @@ async def ask_stream(body: AskStreamRequest, request: Request):
                             # 读取点在下面的 `if choices:` 里面, 而 usage 片的 choices 是空列表,
                             # 根本进不来 (2026-09-08 复审 M-1 指出)。守卫要防的是尾片, 不是 usage 片。
                             finish_reason = None
-                            async for chunk in resp:
-                                choices = getattr(chunk, "choices", None)
-                                if choices:
-                                    ch = choices[0]
-                                    # **工具**循环是否继续只看 acc 是否攒到工具调用, 不看 finish_reason
-                                    # —— 各 provider 的收尾理由字段并不统一, acc 是唯一可靠的信号。
-                                    # (2026-09-08 起 finish_reason 也读了, 但只用来判"是不是被输出
-                                    # 上限截断", 与工具判定各管各的, 见内层 while 末尾。)
-                                    fr = getattr(ch, "finish_reason", None)
-                                    if fr:
-                                        finish_reason = fr
-                                    # 只取 content / tool_calls, 其余 delta 字段有意丢弃 ——
-                                    # 含 reasoning_content (模型内部思考, 不该进知识库答案,
-                                    # 更不该被当成引用来源)。spec §4.3。
-                                    text = getattr(ch.delta, "content", None)
-                                    if text:
-                                        parts.append(text)
-                                        round_parts.append(text)
-                                        yield sse("token", {"text": text})
-                                    for tc in (getattr(ch.delta, "tool_calls", None) or []):
-                                        # index / id 一律 getattr 兜底: 缺字段的 delta 若让
-                                        # AttributeError 穿透, 用户拿到的是 "LLM stream failed",
-                                        # 整个答案丢光 —— 这比少拼一个分片严重得多。
-                                        slot = acc.setdefault(getattr(tc, "index", 0),
-                                                              {"id": None, "name": "", "args": ""})
-                                        tc_id = getattr(tc, "id", None)
-                                        if tc_id and not slot["id"]:
-                                            slot["id"] = tc_id          # 取首个非空
-                                        fn = getattr(tc, "function", None)
-                                        if fn and getattr(fn, "name", None) and not slot["name"]:
-                                            slot["name"] = fn.name      # 取首个非空: 有 provider 每片都重发
-                                        if fn and getattr(fn, "arguments", None):
-                                            slot["args"] += fn.arguments  # 只有 arguments 是真分片
-                                # 两半各防一件事, 缺任一半 model_used 都会丢成 None (⇒ 回退发生了也报不出来):
-                                # · 搁在 `if choices:` **外面**: usage chunk 的 choices 是空列表, 而有
-                                #   provider 只在那一片上报模型 —— 搁在里面就整条流都取不到。
-                                # · `reported` 为假时**不赋值**: 报模型的往往只有首片, 后续片的 .model
-                                #   是 None, 裸赋值会被最后一片抹掉 (等价于原来的 `or model_used`)。
-                                reported = getattr(chunk, "model", None)
-                                if reported:
-                                    model_used = reported
-                                    # 去重判据在 llm_config 里, 与 fell_back 共用同一个 `_same_model`
-                                    # (终审 I-2): litellm 对同一次回答会报两种拼法, 裸 `not in` 会把
-                                    # 一个模型收成两项 ⇒ 徽章把 2 个模型写成 4 个串, R4 想要的
-                                    # "一眼看出实际是谁答的"就没了。⛔ 不在这里另写一套判据。
-                                    merge_reported_model(models_used, reported)
-                                cu = getattr(chunk, "usage", None)
-                                if cu:
-                                    cu_round = cu
+                            # aclosing: 循环体抛错 / 生成器被关 (断开) 时立刻关掉 outbound._metered,
+                            # 让本轮的 quota.settle 先于请求级 finalize (v1.1)。
+                            async with contextlib.aclosing(resp):
+                                async for chunk in resp:
+                                    choices = getattr(chunk, "choices", None)
+                                    if choices:
+                                        ch = choices[0]
+                                        # **工具**循环是否继续只看 acc 是否攒到工具调用, 不看 finish_reason
+                                        # —— 各 provider 的收尾理由字段并不统一, acc 是唯一可靠的信号。
+                                        # (2026-09-08 起 finish_reason 也读了, 但只用来判"是不是被输出
+                                        # 上限截断", 与工具判定各管各的, 见内层 while 末尾。)
+                                        fr = getattr(ch, "finish_reason", None)
+                                        if fr:
+                                            finish_reason = fr
+                                        # 只取 content / tool_calls, 其余 delta 字段有意丢弃 ——
+                                        # 含 reasoning_content (模型内部思考, 不该进知识库答案,
+                                        # 更不该被当成引用来源)。spec §4.3。
+                                        text = getattr(ch.delta, "content", None)
+                                        if text:
+                                            parts.append(text)
+                                            round_parts.append(text)
+                                            yield sse("token", {"text": text})
+                                        for tc in (getattr(ch.delta, "tool_calls", None) or []):
+                                            # index / id 一律 getattr 兜底: 缺字段的 delta 若让
+                                            # AttributeError 穿透, 用户拿到的是 "LLM stream failed",
+                                            # 整个答案丢光 —— 这比少拼一个分片严重得多。
+                                            slot = acc.setdefault(getattr(tc, "index", 0),
+                                                                  {"id": None, "name": "", "args": ""})
+                                            tc_id = getattr(tc, "id", None)
+                                            if tc_id and not slot["id"]:
+                                                slot["id"] = tc_id          # 取首个非空
+                                            fn = getattr(tc, "function", None)
+                                            if fn and getattr(fn, "name", None) and not slot["name"]:
+                                                slot["name"] = fn.name      # 取首个非空: 有 provider 每片都重发
+                                            if fn and getattr(fn, "arguments", None):
+                                                slot["args"] += fn.arguments  # 只有 arguments 是真分片
+                                    # 两半各防一件事, 缺任一半 model_used 都会丢成 None (⇒ 回退发生了也报不出来):
+                                    # · 搁在 `if choices:` **外面**: usage chunk 的 choices 是空列表, 而有
+                                    #   provider 只在那一片上报模型 —— 搁在里面就整条流都取不到。
+                                    # · `reported` 为假时**不赋值**: 报模型的往往只有首片, 后续片的 .model
+                                    #   是 None, 裸赋值会被最后一片抹掉 (等价于原来的 `or model_used`)。
+                                    reported = getattr(chunk, "model", None)
+                                    if reported:
+                                        model_used = reported
+                                        # 去重判据在 llm_config 里, 与 fell_back 共用同一个 `_same_model`
+                                        # (终审 I-2): litellm 对同一次回答会报两种拼法, 裸 `not in` 会把
+                                        # 一个模型收成两项 ⇒ 徽章把 2 个模型写成 4 个串, R4 想要的
+                                        # "一眼看出实际是谁答的"就没了。⛔ 不在这里另写一套判据。
+                                        merge_reported_model(models_used, reported)
+                                    cu = getattr(chunk, "usage", None)
+                                    if cu:
+                                        cu_round = cu
 
                             if cu_round is not None:
                                 usage_seen = True

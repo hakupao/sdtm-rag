@@ -1,18 +1,24 @@
-M1 resolve: router.completion +api_key: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.15s
-M2 resolve: router.acompletion +api_base: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.14s
-M3 resolve: litellm.embedding +api_key: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.28s
-M4 resolve: litellm.completion (hyde) +api_key: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.14s
-M5 resolve: litellm.acompletion (compare/judge) +timeout: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.23s
-M6 outbound.web_search query altered: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.14s
-M7 router /api/ask bypasses outbound: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.19s
-M8 router /api/ask retrieval swallows refusal: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 2 passed in 1.30s
-M9 finalizing() drops finalize: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.31s
-M10 rag embedding bypasses outbound: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.16s
-M11 federation route bypasses outbound: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.18s
-M12 done drops quota.response_fields: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 6 passed in 1.18s
-M13 route_corpus swallows refusal: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 3 passed in 1.28s
-M14 /api/ask admit gets a copy (history clip lost): applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 10 passed in 1.21s
-M15 settle loses the reserve handle: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.19s
-M16 stream settle loses the reported model: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.33s
-M17 ctx does not carry the request: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 11 passed in 1.37s
+M1 resolve: router.completion +api_key: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 2.63s
+M2 resolve: router.acompletion +api_base: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.62s
+M3 resolve: litellm.embedding +api_key: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.84s
+M4 resolve: litellm.completion (hyde) +api_key: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.88s
+M5 resolve: litellm.acompletion (compare/judge) +timeout: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.98s
+M6 outbound.web_search query altered: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 2.16s
+M7 router /api/ask bypasses outbound: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 2.22s
+M8 router /api/ask retrieval swallows refusal: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 2 passed in 1.69s
+M9 finalizing() drops finalize: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.22s
+M10 rag embedding bypasses outbound: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.33s
+M11 federation route bypasses outbound: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.34s
+M12 done drops quota.response_fields: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 6 passed in 1.68s
+M13 route_corpus swallows refusal: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 3 passed in 1.50s
+M14 /api/ask admit gets a copy (history clip lost): applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 10 passed in 1.30s
+M15 settle loses the reserve handle: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.52s
+M16 stream settle loses the reported model: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.41s
+M17 ctx does not carry the request: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 11 passed in 1.78s
+M18 router stream loop without aclosing: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 14 passed in 2.14s
+M19 finalizing does not close the inner generator: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 14 passed in 1.97s
+M20 compare swallows refusal into a slot error: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 16 passed in 1.75s
+M21 rich tracebacks show locals again: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 18 passed in 1.73s
+M22 main.py skips providers.log_processors(): applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 19 passed in 2.15s
+M23 route_corpus(None) goes to litellm: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 17 passed in 2.39s
 restored all; mutations not killed or not applied: 0

@@ -61,7 +61,8 @@ M = [
 
     # 画面 PDF''', HOOKS),
     ("M9 finalizing() drops finalize", "server/request_context.py",
-     "    finally:\n        quota.finalize(ctx)\n", "    finally:\n        pass\n", HOOKS),
+     "                await agen.aclose()\n            finally:\n                quota.finalize(ctx)\n",
+     "                await agen.aclose()\n            finally:\n                pass\n", HOOKS),
     ("M10 rag embedding bypasses outbound", "server/rag.py",
      '''                resp = outbound.embedding(None, "embedding",
                                           model=self.embedding_model, input=[text])''',
@@ -100,6 +101,23 @@ M = [
      "        quota.settle(ctx, purpose, handle, usage, None)\n", HOOKS),
     ("M17 ctx does not carry the request", "server/request_context.py",
      "        request=request,\n", "        request=None,\n", HOOKS),
+    ("M18 router stream loop without aclosing", "server/router.py",
+     "                            async with contextlib.aclosing(resp):\n",
+     "                            if True:\n", HOOKS),
+    ("M19 finalizing does not close the inner generator", "server/request_context.py",
+     "                await agen.aclose()\n", "                pass\n", HOOKS),
+    ("M20 compare swallows refusal into a slot error", "server/compare.py",
+     """    except ServiceRefusal:
+        raise   # a hook refusal (quota / BYOK) is a request-level 4xx, not one model's slot error
+""", "", HOOKS),
+    ("M21 rich tracebacks show locals again", "server/main.py",
+     "RichTracebackFormatter(show_locals=False)", "RichTracebackFormatter(show_locals=True)", HOOKS),
+    ("M22 main.py skips providers.log_processors()", "server/main.py",
+     "    *providers.log_processors(),\n", "", HOOKS),
+    ("M23 route_corpus(None) goes to litellm", "server/federation.py",
+     """        if llm_router is None:
+            # pre-P2""", """        if False:
+            # pre-P2""", HOOKS),
 ]
 
 

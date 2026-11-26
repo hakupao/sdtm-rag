@@ -279,3 +279,99 @@ def test_dossier_auto_gate_value_reaches_decide_dossier(monkeypatch):
     router_mod.maybe_attach_dossier(req, "q", [], None, "auto")
     assert seen[0] is router_mod._auto_attach_allowed(req.app.state.settings, "default")
     assert seen[1] is sentinel
+
+
+@pytest.fixture
+def order(monkeypatch):
+    seq = []
+    monkeypatch.setattr(quota, "settle", lambda ctx, p, h, u, m: seq.append(("settle", p)))
+    monkeypatch.setattr(quota, "finalize", lambda ctx: seq.append(("finalize", ctx.endpoint)))
+    return seq
+
+
+def test_disconnect_settles_the_open_stream_before_finalize(harness, order):  # noqa: F811
+    import asyncio
+
+    from starlette.requests import Request
+
+    import server.router as router_mod
+    client, _rec, router = harness
+    router.stream_script = [[_chunk("A"), _chunk("B"), _chunk(finish="stop"), _chunk(usage=True)]]
+    req = Request({"type": "http", "app": client.app, "method": "POST", "path": "/", "headers": []})
+
+    async def run():
+        resp = await router_mod.ask_stream(
+            body=router_mod.AskStreamRequest(question="q", corpus="cdisc"), request=req)
+        it = resp.body_iterator
+        await it.__anext__()          # sources
+        await it.__anext__()          # first token: the answer stream is open
+        await it.aclose()             # client went away
+
+    asyncio.run(run())
+    assert order[-2:] == [("settle", "answer"), ("finalize", "ask_stream")]
+
+
+def test_loop_body_error_closes_metered_stream_before_finalize(harness, order):  # noqa: F811
+    from types import SimpleNamespace
+    client, _rec, router = harness
+    broken = SimpleNamespace(model="m", usage=None, choices=[SimpleNamespace(finish_reason=None)])
+    router.stream_script = [[_chunk("A"), broken, _chunk("never")]]   # no .delta -> body raises
+    ev = _events(client.post("/api/ask_stream", json={"question": "q", "corpus": "cdisc"}).text)
+    assert ev[-1][0] == "error"
+    assert order[-2:] == [("settle", "answer"), ("finalize", "ask_stream")]
+
+
+def test_compare_refusal_is_a_request_level_429(harness, monkeypatch):  # noqa: F811
+    client, _rec, _router = harness
+
+    def reserve(ctx, p, kw):
+        if p in ("compare", "judge"):
+            raise ServiceRefusal(429, "site_cap_reached", "daily cap")
+
+    monkeypatch.setattr(quota, "reserve", reserve)
+    r = client.post("/api/ask_compare", json={"question": "q", "models": ["openai/gpt-4o"]})
+    assert r.status_code == 429 and r.json()["detail"]["code"] == "site_cap_reached"
+
+
+def test_route_corpus_without_router_keeps_pre_p2_fallback(monkeypatch):
+    import litellm
+
+    from server.federation import route_corpus
+    called = []
+    monkeypatch.setattr(litellm, "completion", lambda **kw: called.append(kw))
+    assert route_corpus(None, "q") == ("both", True)
+    assert called == []
+
+
+def test_rendered_exception_log_line_has_no_frame_locals():
+    """main.py's structlog chain must not print frame locals (BYOK key would sit in outbound's
+    kw). Renders a real line through the configured processors, then greps it."""
+    import io
+
+    import structlog
+
+    import server.main as main_mod
+
+    def boom(api_key):
+        secret_local = api_key  # noqa: F841 — what show_locals would print
+        raise RuntimeError("upstream failed")
+
+    # main.py's own chain object (not the global config, which other tests may reconfigure)
+    buf = io.StringIO()
+    log = structlog.wrap_logger(structlog.PrintLogger(buf), processors=main_mod.LOG_PROCESSORS)
+    key = "-".join(["sk", "NEVER", "PRINT", str(1234)])   # not a literal: rich prints source lines
+    try:
+        boom(key)
+    except RuntimeError:
+        log.error("llm_failed", exc_info=True)
+    text = buf.getvalue()
+    assert "upstream failed" in text and "llm_failed" in text
+    assert key not in text
+
+
+def test_main_installs_provider_log_processors():
+    import inspect
+
+    import server.main as main_mod
+    assert "*providers.log_processors()" in inspect.getsource(main_mod)
+    assert providers.log_processors() == []

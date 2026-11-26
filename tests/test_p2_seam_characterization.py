@@ -110,14 +110,21 @@ class _FakeRouter:
             return _resp('{"corpus": "cdisc"}')
         if kw["model"] == "hard":
             return _resp("[]")
-        return self.ask_script.pop(0)
+        item = self.ask_script.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
 
     async def acompletion(self, **kw):
         self.rec.add("router.acompletion", kw)
         chunks = self.stream_script.pop(0)
+        if isinstance(chunks, BaseException):   # open-stream failure
+            raise chunks
 
         async def agen():
             for c in chunks:
+                if isinstance(c, BaseException):   # mid-stream failure
+                    raise c
                 yield c
         return agen()
 
@@ -268,9 +275,59 @@ def _run_all(client, rec: _Rec, router: _FakeRouter) -> dict:
     return out
 
 
+def _run_extra(client, rec: _Rec, router: _FakeRouter) -> dict:
+    """Failure / edge paths (added in v1.1; proven identical on pre-refactor 665da8c, see
+    checkpoint p2.0_seam.md)."""
+    import asyncio
+
+    from starlette.requests import Request
+
+    import server.router as router_mod
+
+    out: dict = {}
+
+    def step(name, fn):
+        rec.calls.clear()
+        r = fn()
+        body = r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text
+        out[name] = {"status": r.status_code, "body": body, "calls": list(rec.calls)}
+
+    # provider rejects stream_options -> narrow retry without it
+    router.stream_script = [TypeError("stream_options unsupported"),
+                            [_chunk("Retried."), _chunk(finish="stop")]]
+    step("x_stream_narrow_retry", lambda: client.post("/api/ask_stream", json={
+        "question": "Define AETERM", "corpus": "cdisc"}))
+    # first LLM call fails -> 502
+    router.ask_script = [RuntimeError("provider down")]
+    step("x_ask_llm_fail_502", lambda: client.post("/api/ask", json={
+        "question": "Define AETERM", "corpus": "cdisc"}))
+    # stream dies mid-way -> error event after the tokens already sent
+    router.stream_script = [[_chunk("Half "), RuntimeError("cut")]]
+    step("x_stream_midstream_error", lambda: client.post("/api/ask_stream", json={
+        "question": "Define AETERM", "corpus": "cdisc"}))
+
+    # client disconnect: read sources + first token, then close the body iterator
+    router.stream_script = [[_chunk("A"), _chunk("B"), _chunk(finish="stop"), _chunk(usage=True)]]
+    rec.calls.clear()
+    req = Request({"type": "http", "app": client.app, "method": "POST",
+                   "path": "/api/ask_stream", "headers": []})
+
+    async def disconnect():
+        resp = await router_mod.ask_stream(
+            body=router_mod.AskStreamRequest(question="Define AETERM", corpus="cdisc"), request=req)
+        it = resp.body_iterator
+        items = [await it.__anext__(), await it.__anext__()]
+        await it.aclose()
+        return items
+
+    out["x_stream_disconnect"] = {"status": None, "body": asyncio.run(disconnect()),
+                                  "calls": list(rec.calls)}
+    return out
+
+
 def test_p2_seam_outbound_calls_and_responses_unchanged(harness):
     client, rec, router = harness
-    got = _run_all(client, rec, router)
+    got = {**_run_all(client, rec, router), **_run_extra(client, rec, router)}
     if os.environ.get("P2_SEAM_REGEN") == "1":
         GOLDEN.write_text(json.dumps(got, indent=1, ensure_ascii=False, sort_keys=True) + "\n",
                           encoding="utf-8")
@@ -297,5 +354,10 @@ def test_p2_seam_golden_covers_every_outbound_family():
     assert ("router.completion", "default") in seen    # /api/ask (+ continuation)
     assert ("router.acompletion", "opus-5") in seen    # selectable model, stream
     assert want["ask_stream_web_continue"]["body"].count("event: continue") == 1
+    assert want["x_ask_llm_fail_502"]["status"] == 502
+    assert "event: error" in want["x_stream_midstream_error"]["body"]
+    assert [c.get("stream_options") for c in want["x_stream_narrow_retry"]["calls"]
+            if c["call"] == "router.acompletion"] == [{"include_usage": True}, None]
+    assert len(want["x_stream_disconnect"]["body"]) == 2
     assert sum(1 for c in want["ask_auto_continue"]["calls"]
                if c["call"] == "router.completion" and c["model"] == "default") == 2

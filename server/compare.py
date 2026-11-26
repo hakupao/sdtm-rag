@@ -27,6 +27,7 @@ import structlog
 
 from server import outbound
 from server.cost import estimate_cost
+from server.request_context import ServiceRefusal
 
 log = structlog.get_logger()
 
@@ -79,6 +80,8 @@ async def _one_completion(
             cost_usd=estimate_cost(model, usage),
             error=None,
         )
+    except ServiceRefusal:
+        raise   # a hook refusal (quota / BYOK) is a request-level 4xx, not one model's slot error
     except Exception as exc:  # noqa: BLE001 — isolate this model; surface as a visible slot error
         latency_ms = int((time.perf_counter() - t0) * 1000)
         log.warning("compare_model_failed", model=model, error=str(exc))
@@ -232,6 +235,8 @@ async def run_judge(
             timeout=timeout_s, num_retries=num_retries,
         )
         content = resp.choices[0].message.content or ""
+    except ServiceRefusal:
+        raise
     except Exception as exc:  # noqa: BLE001 — judge is assistive; its failure must not 500 the request
         log.warning("judge_failed", model=judge_model, error=str(exc))
         return None

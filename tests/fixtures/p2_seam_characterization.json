@@ -593,5 +593,173 @@
    }
   ],
   "status": 200
+ },
+ "x_ask_llm_fail_502": {
+  "body": {
+   "detail": "LLM service temporarily unavailable."
+  },
+  "calls": [
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "eda116d2e82a9165",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.completion",
+    "keys": [
+     "messages",
+     "model"
+    ],
+    "messages_sha": "4edf4288d83ac9e7",
+    "model": "default",
+    "roles": [
+     "system",
+     "user"
+    ]
+   }
+  ],
+  "status": 502
+ },
+ "x_stream_disconnect": {
+  "body": [
+   "event: sources\ndata: {\"sources\": [{\"chunk_id\": \"c1\", \"source\": \"domains/AE/spec.md\", \"domain\": \"AE\", \"file_type\": \"spec\", \"section\": \"AE variables\", \"similarity\": 0.8987, \"text_preview\": \"AETERM is the reported term for the adverse event. AE domain Events class.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c4\", \"source\": \"terminology/C66742.md\", \"domain\": null, \"file_type\": \"terminology\", \"section\": \"No Yes Response\", \"similarity\": 0.849, \"text_preview\": \"Codelist C66742 No Yes Response: N, Y, U, NA.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c2\", \"source\": \"domains/AE/assumptions.md\", \"domain\": \"AE\", \"file_type\": \"assumptions\", \"section\": \"AE assumptions\", \"similarity\": 0.7611, \"text_preview\": \"AE domain assumptions: one record per adverse event per subject.\", \"corpus\": \"cdisc\"}], \"routed_corpus\": \"cdisc\", \"dossier\": null}\n\n",
+   "event: token\ndata: {\"text\": \"A\"}\n\n"
+  ],
+  "calls": [
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "eda116d2e82a9165",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "stream",
+     "stream_options"
+    ],
+    "messages_sha": "4edf4288d83ac9e7",
+    "model": "default",
+    "roles": [
+     "system",
+     "user"
+    ],
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    }
+   }
+  ],
+  "status": null
+ },
+ "x_stream_midstream_error": {
+  "body": "event: sources\ndata: {\"sources\": [{\"chunk_id\": \"c1\", \"source\": \"domains/AE/spec.md\", \"domain\": \"AE\", \"file_type\": \"spec\", \"section\": \"AE variables\", \"similarity\": 0.8987, \"text_preview\": \"AETERM is the reported term for the adverse event. AE domain Events class.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c4\", \"source\": \"terminology/C66742.md\", \"domain\": null, \"file_type\": \"terminology\", \"section\": \"No Yes Response\", \"similarity\": 0.849, \"text_preview\": \"Codelist C66742 No Yes Response: N, Y, U, NA.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c2\", \"source\": \"domains/AE/assumptions.md\", \"domain\": \"AE\", \"file_type\": \"assumptions\", \"section\": \"AE assumptions\", \"similarity\": 0.7611, \"text_preview\": \"AE domain assumptions: one record per adverse event per subject.\", \"corpus\": \"cdisc\"}], \"routed_corpus\": \"cdisc\", \"dossier\": null}\n\nevent: token\ndata: {\"text\": \"Half \"}\n\nevent: error\ndata: {\"message\": \"LLM stream failed\"}\n\n",
+  "calls": [
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "eda116d2e82a9165",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "stream",
+     "stream_options"
+    ],
+    "messages_sha": "4edf4288d83ac9e7",
+    "model": "default",
+    "roles": [
+     "system",
+     "user"
+    ],
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    }
+   }
+  ],
+  "status": 200
+ },
+ "x_stream_narrow_retry": {
+  "body": "event: sources\ndata: {\"sources\": [{\"chunk_id\": \"c1\", \"source\": \"domains/AE/spec.md\", \"domain\": \"AE\", \"file_type\": \"spec\", \"section\": \"AE variables\", \"similarity\": 0.8987, \"text_preview\": \"AETERM is the reported term for the adverse event. AE domain Events class.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c4\", \"source\": \"terminology/C66742.md\", \"domain\": null, \"file_type\": \"terminology\", \"section\": \"No Yes Response\", \"similarity\": 0.849, \"text_preview\": \"Codelist C66742 No Yes Response: N, Y, U, NA.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c2\", \"source\": \"domains/AE/assumptions.md\", \"domain\": \"AE\", \"file_type\": \"assumptions\", \"section\": \"AE assumptions\", \"similarity\": 0.7611, \"text_preview\": \"AE domain assumptions: one record per adverse event per subject.\", \"corpus\": \"cdisc\"}], \"routed_corpus\": \"cdisc\", \"dossier\": null}\n\nevent: token\ndata: {\"text\": \"Retried.\"}\n\nevent: done\ndata: {\"model_used\": \"m-stream\", \"models_used\": [\"m-stream\"], \"model_id\": \"default\", \"verified\": null, \"fell_back\": null, \"usage\": null, \"web_status\": \"off\", \"web_searches_ok\": 0, \"continue_rounds\": 0, \"truncated\": false, \"pdf_trigger\": null, \"pdf_pages\": null, \"dossier\": null}\n\n",
+  "calls": [
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "eda116d2e82a9165",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "stream",
+     "stream_options"
+    ],
+    "messages_sha": "4edf4288d83ac9e7",
+    "model": "default",
+    "roles": [
+     "system",
+     "user"
+    ],
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    }
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "stream"
+    ],
+    "messages_sha": "4edf4288d83ac9e7",
+    "model": "default",
+    "roles": [
+     "system",
+     "user"
+    ],
+    "stream": true
+   }
+  ],
+  "status": 200
  }
 }

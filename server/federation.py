@@ -97,6 +97,10 @@ _FEDERATION_RULES = (
 def route_corpus(llm_router, question: str) -> tuple[str, bool]:
     """判库. 返回 (corpus, fallback_used). 任何异常 → ("both", True)."""
     try:
+        if llm_router is None:
+            # pre-P2 behaviour: `None.completion` raised → fallback "both". ⛔ Don't let outbound's
+            # router=None ⇒ litellm path turn this into a direct call of the group name "light".
+            raise TypeError("route_corpus needs an llm_router")
         resp = outbound.completion(
             None, "route", llm_router,
             model="light",

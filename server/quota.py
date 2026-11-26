@@ -14,7 +14,11 @@ P2.0 ships no-op defaults. Lifecycle per request (design doc §3):
                                   which litellm does NOT raise (BYOK probe §5) — litellm synthesizes
                                   it. model = what the provider reported (a Router fallback changes it).
   finalize(ctx)                   exactly once at request end (normal, error, client disconnect);
-                                  charge whatever was reserved but never settled
+                                  charge whatever was reserved but never settled. An open stream is
+                                  closed (and settled) before finalize; any settle that still arrives
+                                  after finalize MUST be a no-op (idempotent per handle).
+Thread safety: hooks are called from the threadpool (/api/ask is a sync endpoint; web search runs in
+asyncio.to_thread) — the store must be safe across threads.
 ctx is None outside a request (eval/scripts) ⇒ every hook must be a pass-through for None.
 """
 from __future__ import annotations

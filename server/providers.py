@@ -51,6 +51,13 @@ def capability(ctx, name: str, default):
     return default
 
 
+def log_processors() -> list:
+    """structlog processors inserted before the renderer (main.py). L1 puts key redaction here.
+    Acceptance (contract §3): a test must render a real log line (incl. an exc_info traceback
+    from a frame holding the key) through main.py's configured chain and grep it. Default: none."""
+    return []
+
+
 def info_fields(request) -> dict:
     """Extra /api/info keys (contract §2.6, e.g. `providers`). Default: none."""
     return {}
