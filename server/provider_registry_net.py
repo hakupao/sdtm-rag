@@ -18,7 +18,7 @@ import httpx
 _BLOCKED_NAMES = {"localhost", "metadata", "metadata.google.internal", "instance-data"}
 
 
-class UnsafeBase(ValueError):
+class UnsafeBase(ValueError):  # noqa: N818 — established name (L1 tests / callers)
     """The custom base URL is not acceptable. Message is safe to show (no key involved)."""
 
 
@@ -148,9 +148,10 @@ def openai_client(pin: PinnedBase, api_key: str, *, is_async: bool, timeout: flo
 
     if is_async:
         http = httpx.AsyncClient(transport=AsyncPinnedTransport(pin, ASYNC_INNER),
-                                 follow_redirects=False, timeout=timeout)
+                                 follow_redirects=False, timeout=timeout,
+                                 trust_env=False)   # no HTTP(S)_PROXY / netrc: the pin is the route
         return openai.AsyncOpenAI(api_key=api_key, base_url=pin.url, http_client=http,
                                   max_retries=0)
     http = httpx.Client(transport=PinnedTransport(pin, SYNC_INNER), follow_redirects=False,
-                        timeout=timeout)
+                        timeout=timeout, trust_env=False)
     return openai.OpenAI(api_key=api_key, base_url=pin.url, http_client=http, max_retries=0)

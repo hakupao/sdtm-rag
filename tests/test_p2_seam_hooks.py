@@ -27,7 +27,7 @@ def spy(monkeypatch):
         seen["reserve"].append((ctx and ctx.endpoint, p))
         return ("H", len(seen["reserve"]))       # handle must come back to settle
 
-    def settle(ctx, p, handle, usage, model):
+    def settle(ctx, p, handle, usage, model, **_kw):   # v1.2: + streamed_text=
         seen["settle"].append((ctx and ctx.endpoint, p, usage is not None, handle, model))
 
     monkeypatch.setattr(providers, "resolve", resolve)
@@ -284,7 +284,7 @@ def test_dossier_auto_gate_value_reaches_decide_dossier(monkeypatch):
 @pytest.fixture
 def order(monkeypatch):
     seq = []
-    monkeypatch.setattr(quota, "settle", lambda ctx, p, h, u, m: seq.append(("settle", p)))
+    monkeypatch.setattr(quota, "settle", lambda ctx, p, h, u, m, **_kw: seq.append(("settle", p)))
     monkeypatch.setattr(quota, "finalize", lambda ctx: seq.append(("finalize", ctx.endpoint)))
     return seq
 

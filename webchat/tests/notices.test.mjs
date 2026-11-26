@@ -16,13 +16,22 @@ test("pickLang: en* ⇒ en, 其它一律 zh (页面今天是 lang=zh)", () => {
 test("§2.3 每个 code 都有 zh 与 en 文案, 且不是 code 原样回显", () => {
   const codes = ["free_quota_exhausted", "site_cap_reached", "free_tier_disabled", "rate_limited",
     "byok_key_invalid", "byok_provider_error", "model_not_allowed", "custom_base_not_allowed",
-    "not_on_this_tier", "request_too_large", "provider_required", "byok_key_missing"];
+    "not_on_this_tier", "request_too_large", "provider_required", "byok_key_missing",
+    "site_busy", "storage_full"];
   for (const lang of ["zh", "en"]) {
     for (const code of codes) {
       const t = refusalText({ code, message: "SERVER_MSG" }, lang);
       assert.ok(t && t !== code && !t.includes("SERVER_MSG"), `${lang}/${code}: ${t}`);
     }
   }
+});
+
+test("site_busy (v1.2) 带重试秒数, 且不算额度类拒绝 (重试按钮保留)", async () => {
+  const { isQuotaRefusal } = await import("../js/notices.js");
+  assert.ok(refusalText({ code: "site_busy", retry_after_s: 15 }, "zh").includes("15 秒"));
+  assert.ok(refusalText({ code: "site_busy" }, "en", "15").includes("15s"));
+  assert.equal(isQuotaRefusal({ code: "site_busy" }), false);
+  assert.equal(isQuotaRefusal({ code: "site_cap_reached" }), true);
 });
 
 test("429 文案带重置时间 / 重试秒数; Retry-After 头兜底", () => {

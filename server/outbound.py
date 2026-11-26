@@ -36,16 +36,27 @@ def completion(ctx, purpose: str, llm_router, **kw):
         _settle(ctx, purpose, handle, resp)
 
 
-async def acompletion(ctx, purpose: str, llm_router, **kw):
+async def acompletion(ctx, purpose: str, llm_router, *, refund_open_error: bool = False, **kw):
     """Non-streamed: settle on return. Streamed: the returned iterator settles with the last usage
-    chunk and the last reported model it saw when it is exhausted / closed (None if never seen)."""
+    chunk and the last reported model it saw when it is exhausted / closed (None if never seen),
+    plus the text it streamed (quota.settle prices a usage-less stream by that, not max_tokens).
+    A stream whose open fails is charged its prompt only — or nothing with refund_open_error=True
+    (router's narrow stream_options retry: the immediate re-open is the one that counts)."""
     ctx = _ctx(ctx)
     fn, kw = providers.resolve(ctx, purpose, "acompletion", llm_router, kw)
     handle = quota.reserve(ctx, purpose, kw)
     try:
         resp = await fn(**kw)
-    except BaseException:
-        _settle(ctx, purpose, handle, None)
+    except Exception:
+        if refund_open_error:
+            quota.settle(ctx, purpose, handle, {"prompt_tokens": 0, "completion_tokens": 0}, None)
+        else:
+            quota.settle(ctx, purpose, handle, None, None,
+                         streamed_text="" if kw.get("stream") else None)
+        raise
+    except BaseException:   # cancelled (timeout / disconnect) while opening
+        quota.settle(ctx, purpose, handle, None, None,
+                     streamed_text="" if kw.get("stream") else None)
         raise
     if not kw.get("stream"):
         _settle(ctx, purpose, handle, resp)
@@ -53,15 +64,35 @@ async def acompletion(ctx, purpose: str, llm_router, **kw):
     return _metered(ctx, purpose, handle, resp)
 
 
+def _streamed_text(chunk, out: list) -> None:
+    """Everything the provider generated in this chunk: content, reasoning and tool-call args."""
+    for ch in getattr(chunk, "choices", None) or []:
+        d = getattr(ch, "delta", None)
+        if d is None:
+            continue
+        for attr in ("content", "reasoning_content"):
+            t = getattr(d, attr, None)
+            if isinstance(t, str) and t:
+                out.append(t)
+        for tc in getattr(d, "tool_calls", None) or []:
+            fn = getattr(tc, "function", None)
+            for attr in ("name", "arguments"):
+                t = getattr(fn, attr, None)
+                if isinstance(t, str) and t:
+                    out.append(t)
+
+
 async def _metered(ctx, purpose, handle, stream):
     usage = model = None
+    streamed: list[str] = []
     try:
         async for chunk in stream:
             usage = getattr(chunk, "usage", None) or usage
             model = getattr(chunk, "model", None) or model
+            _streamed_text(chunk, streamed)
             yield chunk
     finally:
-        quota.settle(ctx, purpose, handle, usage, model)
+        quota.settle(ctx, purpose, handle, usage, model, streamed_text="".join(streamed))
         close = getattr(stream, "aclose", None)   # release the provider stream too, if closable
         if close is not None:
             await close()

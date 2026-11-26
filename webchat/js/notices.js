@@ -28,6 +28,8 @@ const REFUSAL = {
     request_too_large: (d) => `请求过大${d.limit ? ` (上限 ${d.limit})` : ""}, 请缩短问题或新开对话。`,
     provider_required: () => "请在设置里选择这个 API key 对应的服务商。",
     byok_key_missing: (d) => `已选服务商${d.provider ? ` ${d.provider}` : ""}, 但没有填 API key。`,
+    site_busy: (d) => `当前提问的人较多, 请${d.retry ? ` ${d.retry} 秒后` : "稍后"}再试。`,
+    storage_full: () => "反馈记录已满, 暂时无法提交。",
   },
   en: {
     free_quota_exhausted: (d) => `Today's free questions are used up${d.reset ? ` (resets at ${d.reset})` : ""}. Add your own API key in Settings to keep going.`,
@@ -42,10 +44,13 @@ const REFUSAL = {
     request_too_large: (d) => `Request too large${d.limit ? ` (limit ${d.limit})` : ""}; shorten it or start a new chat.`,
     provider_required: () => "Pick the provider this API key belongs to in Settings.",
     byok_key_missing: (d) => `Provider${d.provider ? ` ${d.provider}` : ""} selected but no API key entered.`,
+    site_busy: (d) => `The site is busy right now — please retry${d.retry ? ` in ${d.retry}s` : " shortly"}.`,
+    storage_full: () => "The feedback log is full; flags cannot be saved right now.",
   },
 };
 
 // 额度类拒绝: "重试"没用 (再发一次还是拒), 该做的是去设置里填自己的 key。
+// ⚠ site_busy 不在内: 它是瞬时的 (进行中的预留占满额度), 重试按钮要留着。
 export const QUOTA_CODES = new Set(["free_quota_exhausted", "site_cap_reached", "free_tier_disabled"]);
 export function isQuotaRefusal(detail) {
   return !!detail && typeof detail === "object" && QUOTA_CODES.has(detail.code);

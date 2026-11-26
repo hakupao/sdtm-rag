@@ -12,7 +12,7 @@ from server import provider_registry as reg_mod
 from server import provider_registry_net as net
 from server import providers
 from server.config import SelectableModel, Settings
-from server.request_context import Credentials, RequestContext, ServiceRefusal, _CURRENT
+from server.request_context import _CURRENT, Credentials, RequestContext, ServiceRefusal
 
 KEY = "-".join(["sk", "l1", "TESTKEY", "0123456789abcdef"])   # not a literal: rich prints source
 
@@ -257,7 +257,7 @@ def _chat_json(model="m1"):
 def test_pinned_transport_connects_to_validated_ip_even_if_dns_changes(monkeypatch):
     """Real litellm + OpenAI SDK, network replaced at the socket-transport layer: the connect target
     is the IP validated in check_model; a later DNS answer (rebinding to loopback) is never used."""
-    import litellm
+    import litellm  # noqa: F401 — the real litellm path must import
 
     answers = iter([["93.184.216.34"], ["127.0.0.1"], ["127.0.0.1"]])
     monkeypatch.setattr(net, "_resolve", lambda h, p: next(answers))

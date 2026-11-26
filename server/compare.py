@@ -104,8 +104,17 @@ async def run_compare(
     """Fan all `models` out concurrently on the shared `messages`; return one
     ModelAnswer per model, IN INPUT ORDER (gather preserves order). Never raises for a
     single model's failure — that model's slot carries the error instead."""
-    tasks = [_one_completion(m, messages, timeout_s, num_retries) for m in models]
-    return await asyncio.gather(*tasks)
+    tasks = [asyncio.ensure_future(_one_completion(m, messages, timeout_s, num_retries))
+             for m in models]
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        # Only a hook refusal (ServiceRefusal) or cancellation gets here: stop the siblings
+        # instead of letting them run (and spend) for an answer nobody will receive.
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
 
 # ── Judge ─────────────────────────────────────────────────────────────────

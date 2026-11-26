@@ -3,6 +3,7 @@ estimation, hook pass-through, and reservation accounting through the real outbo
 from __future__ import annotations
 
 import asyncio
+import math
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -212,7 +213,7 @@ def test_day_rollover_resets(settings, monkeypatch):
     quota.admit(_ctx(s), _body())
 
 
-def test_byok_not_counted_free_web_downgraded(settings):
+def test_byok_not_counted_free_web_policy_owned_by_l1(settings):
     s = settings
     s.quota_free_per_day = 1
     creds = Credentials(api_key="sk-user")
@@ -221,8 +222,11 @@ def test_byok_not_counted_free_web_downgraded(settings):
     assert quota._store(s).count("v:v1", quota._day()) == 0
     ctx, body = _ctx(s), _body(web=True)
     quota.admit(ctx, body)
-    assert body.web is False
-    assert ctx.notes == [{"capability": "web_tools", "reason": "free_tier_no_web"}]
+    # P2.9 #14: L2 no longer rewrites body.web / adds the note; L1 capability reads the key.
+    assert body.web is True and ctx.notes == []
+    assert quota.free_web_allowed(ctx) is False
+    s.quota_free_web_enabled = True
+    assert quota.free_web_allowed(ctx) is True
 
 
 def test_rate_limit_applies_to_byok(settings):
@@ -318,22 +322,113 @@ def _spent(s):
     return quota._store(s).spent(quota._day())
 
 
-def test_aborted_stream_is_charged_the_reservation(settings):
+def _abort_kw():
+    return {"model": "default", "messages": [{"role": "user", "content": "q"}], "stream": True}
+
+
+def test_aborted_stream_is_charged_prompt_plus_streamed_not_the_reservation(settings):
+    # P2.9 #1 (was: charged the whole max_output reservation). Deliberate semantic change.
     s = settings
     ctx = _ctx(s, endpoint="ask_stream")
     quota.admit(ctx, _body())
-    kw = {"model": "default", "messages": [{"role": "user", "content": "q"}], "stream": True}
-    est = quota._estimate(s, "answer", kw)[0]
+    kw = _abort_kw()
+    est, _model, pt = quota._estimate_parts(s, "answer", kw)
+    text = "部分回答" * 50 + "partial answer text "
 
     async def run():
-        stream = await outbound.acompletion(ctx, "answer", _Router([_chunk(), _chunk()]), **kw)
+        stream = await outbound.acompletion(ctx, "answer", _Router([_chunk(text), _chunk()]), **kw)
         await stream.__anext__()     # client reads one chunk, then goes away
         await stream.aclose()
 
     asyncio.run(run())
     assert ctx.quota.open == {}
-    assert _spent(s) == pytest.approx(est)
+    # priced as the model the stream REPORTED ("m": unknown => conservative fallback rate)
+    want = quota._price(s, "m", pt, math.ceil(1.5 * quota._text_tokens(text)))
+    prompt_only = quota._price(s, "m", pt, 0)
+    assert prompt_only < want < est / 10       # both sides: above prompt-only, far below reserve
+    assert _spent(s) == pytest.approx(want)
     quota.finalize(ctx)
+    assert _spent(s) == pytest.approx(want)
+
+
+def test_streamed_reasoning_and_tool_args_count(settings):
+    s = settings
+    ctx = _ctx(s, endpoint="ask_stream")
+    quota.admit(ctx, _body())
+    kw = _abort_kw()
+    _est, _model, pt = quota._estimate_parts(s, "answer", kw)
+    fn = SimpleNamespace(name="web_search", arguments='{"q": "AE"}')
+    chunk = SimpleNamespace(model="m", usage=None, choices=[SimpleNamespace(
+        delta=SimpleNamespace(content=None, reasoning_content="思考" * 100,
+                              tool_calls=[SimpleNamespace(function=fn)]), finish_reason=None)])
+
+    async def run():
+        stream = await outbound.acompletion(ctx, "answer", _Router([chunk]), **kw)
+        async for _ in stream:
+            pass
+
+    asyncio.run(run())
+    streamed = "思考" * 100 + "web_search" + '{"q": "AE"}'
+    want = quota._price(s, "m", pt, math.ceil(1.5 * quota._text_tokens(streamed)))
+    assert _spent(s) == pytest.approx(want)
+
+
+def test_usage_less_stream_charge_never_exceeds_reservation(settings):
+    s = settings
+    s.quota_default_max_output_tokens = 10
+    ctx = _ctx(s, endpoint="ask_stream")
+    quota.admit(ctx, _body())
+    kw = {**_abort_kw(), "max_tokens": 10}
+    est = quota._estimate(s, "answer", kw)[0]
+
+    async def run():
+        stream = await outbound.acompletion(ctx, "answer", _Router([_chunk("x" * 3000)]), **kw)
+        async for _ in stream:
+            pass
+
+    asyncio.run(run())
+    assert _spent(s) == pytest.approx(est)
+
+
+class _FailOpen:
+    def __init__(self, exc):
+        self.exc = exc
+
+    async def acompletion(self, **kw):
+        raise self.exc
+
+
+def test_stream_open_failure_is_prompt_only_and_refundable(settings):
+    s = settings
+    ctx = _ctx(s, endpoint="ask_stream")
+    quota.admit(ctx, _body())
+    kw = _abort_kw()
+    _est, model, pt = quota._estimate_parts(s, "answer", kw)
+    with pytest.raises(RuntimeError):
+        asyncio.run(outbound.acompletion(ctx, "answer", _FailOpen(RuntimeError("x")), **kw))
+    assert _spent(s) == pytest.approx(quota._price(s, model, pt, 0))
+    before = _spent(s)
+    with pytest.raises(RuntimeError):   # router's narrow stream_options retry: first try refunded
+        asyncio.run(outbound.acompletion(ctx, "answer", _FailOpen(RuntimeError("x")),
+                                         refund_open_error=True, **kw))
+    assert _spent(s) == pytest.approx(before)
+    assert ctx.quota.open == {}
+
+
+def test_failed_non_streamed_call_keeps_the_reservation(settings):
+    # Decision (P2.9 #1): a failed NON-streamed call may have generated upstream before failing
+    # (timeout after generation) and streamed nothing we could count => the reservation stands.
+    s = settings
+    ctx = _ctx(s)
+    quota.admit(ctx, _body())
+    kw = {"model": "default", "messages": [{"role": "user", "content": "q"}]}
+    est = quota._estimate(s, "answer", kw)[0]
+
+    def boom(**k):
+        raise RuntimeError("x")
+
+    with pytest.raises(RuntimeError):
+        outbound.completion(ctx, "answer", SimpleNamespace(completion=boom), **kw)
     assert _spent(s) == pytest.approx(est)
 
 

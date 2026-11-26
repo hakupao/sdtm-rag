@@ -237,7 +237,10 @@ def test_kill_switch_disables_free_not_byok(make, monkeypatch):
     assert r.status_code == 200 and seen
 
 
-def test_cap_hit_mid_request_refuses_continuation(make, engines):
+def test_cap_hit_mid_request_keeps_the_partial_answer(make, engines):
+    # P2.9 #13 (CR5) — deliberate change of this pinned test: it asserted 429 + the half answer
+    # discarded (contract v1.1 §2.3). v1.2: a refused CONTINUATION round is treated like a failed
+    # one: 200, the parts so far, truncated=True, continue_error=<refusal code>.
     _base, _rag, rec, _ = engines
     client, router = make(quota_site_cap_usd=5.0)
     s = client.app.state.settings
@@ -248,16 +251,19 @@ def test_cap_hit_mid_request_refuses_continuation(make, engines):
         out = real(**kw)
         if kw["model"] == "default":   # after the first answer round: the day's spend hits the cap
             store.reserve("other-visitors", quota._day(), 5.0, None, quota._now())
+            store.settle("other-visitors", 5.0)   # SETTLED spend (open-only would be site_busy)
         return out
 
     router.completion = completion
     router.ask_script = [_resp("Part one. ", finish="length"), _resp("never")]
     rec.calls.clear()
     r = client.post("/api/ask", json={"question": "q", "corpus": "cdisc"})
-    assert r.status_code == 429 and r.json()["detail"]["code"] == "site_cap_reached"
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["answer"].startswith("Part one.") and "never" not in j["answer"]
+    assert j["truncated"] is True and j["continue_error"] == "site_cap_reached"
     answers = [c for c in rec.calls if c["call"] == "router.completion" and c["model"] == "default"]
     assert len(answers) == 1          # first round ran; the continuation was refused before the wire
-    assert "answer" not in r.text     # half answer discarded (contract §2.3)
 
 
 def test_ipv6_clients_keyed_by_64(make):
@@ -278,8 +284,9 @@ def test_aborted_stream_is_still_charged(make):
     st = quota._store(store_s)
     est = quota._estimate(store_s, "answer", {"model": "default", "messages": [
         {"role": "user", "content": "x"}]})[0]
-    # the failed answer round had no usage -> its whole reservation (>= est for a 1-char prompt)
-    assert st.spent(quota._day()) >= est
+    # P2.9 #1 (deliberate change; was ">= est", the whole max_output reservation): no usage =>
+    # prompt + 1.5 x what streamed. Strictly above zero, far below one full reservation.
+    assert 0 < st.spent(quota._day()) < est / 10
     rows = st._db.execute("SELECT status FROM reservations").fetchall()
     assert rows and all(s in ("settled", "charged") for (s,) in rows)
 

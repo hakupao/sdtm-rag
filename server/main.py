@@ -19,10 +19,10 @@ from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
 from scripts.spec_loader import SpecLoader
+from server import instance, providers
 from server.auth import install_security
 from server.config import settings
 from server.domain_expand import build_expander
-from server import instance, providers
 from server.llm_config import create_router
 from server.rag import RAGEngine
 from server.router import api_router
@@ -455,6 +455,8 @@ def create_app(app_settings=None) -> FastAPI:
     # gets no /docs /openapi.json /redoc. Private: no-op, FastAPI defaults unchanged.
     instance.check_startup(app_settings)
     public = app_settings.instance == "public"
+    # stdlib loggers (litellm / httpx) get the same key scrubbing; public also holds them at WARNING
+    providers.install_log_redaction(public)
     no_docs = dict(docs_url=None, redoc_url=None, openapi_url=None) if public else {}
     application = FastAPI(
         title="SDTM RAG Q&A Service",

@@ -220,10 +220,15 @@ class RateLimitMiddleware:
     # 发 no-cache (必须回源校验), 缓存并不能把请求数压下去。真正要挡的 `/api/*` 一个不放。
     def __init__(self, app, *, limiter: TokenBucketLimiter, trust_forwarded: bool = False,
                  exempt: tuple[str, ...] = ("/api/health", "/"),
-                 exempt_prefixes: tuple[str, ...] = ("/static/",)):
+                 exempt_prefixes: tuple[str, ...] = ("/static/",),
+                 trusted_proxies: str | None = None, v6_prefix: int = 64):
         self.app = app
         self.limiter = limiter
         self.trust_forwarded = trust_forwarded
+        # Public tier (P2.9 SR3): key on the real visitor — CF-Connecting-IP from the trusted tunnel
+        # peer only — not the socket peer (= the tunnel, one bucket for every visitor).
+        self.trusted = trusted_proxies
+        self.v6_prefix = v6_prefix
         self.exempt = set(exempt)
         self.exempt_prefixes = tuple(exempt_prefixes)
 
@@ -233,7 +238,10 @@ class RateLimitMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or self._is_exempt(scope["path"]):
             return await self.app(scope, receive, send)
-        ip = _client_ip(scope, self.trust_forwarded)
+        if self.trusted is not None:
+            ip = resolve_client_ip(scope, self.trusted, self.v6_prefix)
+        else:
+            ip = _client_ip(scope, self.trust_forwarded)
         ok, retry = self.limiter.allow(ip)
         if ok:
             return await self.app(scope, receive, send)
@@ -401,21 +409,41 @@ class FlagRateLimitMiddleware:
         return await resp(scope, receive, send)
 
 
+# Public: the CIDRs allowed to set CF-Connecting-IP. The tunnel connector (cloudflared) is ONE
+# host on the container's own network, so anything wider than a /24 (v4) or /120 (v6) trusts hosts
+# that are not the connector and lets them spoof every visitor's identity (quota + rate limits).
+_MIN_TRUSTED_PREFIX = {4: 24, 6: 120}
+
+
+def _check_public_trusted(trusted: str) -> None:
+    broad = [str(n) for n in _trusted_nets(trusted) if n.prefixlen < _MIN_TRUSTED_PREFIX[n.version]]
+    if broad:
+        raise RuntimeError(f"public tier: SDTM_RAG_QUOTA_TRUSTED_PROXIES too broad {broad} "
+                           "(trust only the tunnel connector: ≥ /24 IPv4, ≥ /120 IPv6)")
+
+
 def _install_quota(app, settings) -> None:
     from server import quota
 
+    eff = quota.validate(settings)   # malformed / misspelt quota settings fail at startup
+    public = getattr(settings, "instance", "private") == "public"
     if not quota.app_enabled(settings):
+        if public:
+            raise RuntimeError("public tier refuses to start unmetered: SDTM_RAG_QUOTA_ENABLED "
+                               "must be unset or true")
         return
+    log.info("quota_settings", **eff)
     secret = quota.cfg(settings, "visitor_secret")
     if not secret:
         raise RuntimeError("quota enabled (public tier or SDTM_RAG_QUOTA_ENABLED) requires "
                            "SDTM_RAG_VISITOR_SECRET (fail-loud, no unsigned visitor ids).")
     trusted = quota.cfg(settings, "quota_trusted_proxies")
     _trusted_nets(trusted)   # malformed CIDR => fail at startup, not per request
-    public = getattr(settings, "instance", "private") == "public"
     if public and not trusted:
         raise RuntimeError("public tier requires SDTM_RAG_QUOTA_TRUSTED_PROXIES (the tunnel "
                            "connector's address): without it every visitor is the tunnel's IP.")
+    if public:
+        _check_public_trusted(trusted)
     secure = quota.cfg(settings, "visitor_cookie_secure")
     if secure is None:
         secure = public
@@ -573,12 +601,24 @@ def install_security(app, settings) -> None:
     # RateLimit and outside Session/AuthGate.
     _install_quota(app, settings)
 
+    public = getattr(settings, "instance", "private") == "public"
+    if public and settings.rate_limit_trust_forwarded:
+        # X-Forwarded-For is client-controlled through the tunnel: spoofable bucket key.
+        raise RuntimeError("public tier refuses SDTM_RAG_RATE_LIMIT_TRUST_FORWARDED=true "
+                           "(the client IP comes from CF-Connecting-IP via trusted proxies)")
     if settings.rate_limit_enabled:
         limiter = TokenBucketLimiter(settings.rate_limit_per_min, settings.rate_limit_burst)
+        pub_kw = {}
+        if public:
+            from server import quota
+
+            pub_kw = dict(trusted_proxies=quota.cfg(settings, "quota_trusted_proxies"),
+                          v6_prefix=int(quota.cfg(settings, "quota_ipv6_prefix")))
         app.add_middleware(
             RateLimitMiddleware,
             limiter=limiter,
             trust_forwarded=settings.rate_limit_trust_forwarded,
+            **pub_kw,
         )
 
     if settings.security_headers_enabled:

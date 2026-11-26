@@ -66,7 +66,7 @@ def wire(monkeypatch):
     return SimpleNamespace(calls=calls, script=script)
 
 
-class _Upstream(Exception):
+class _Upstream(Exception):  # noqa: N818
     def __init__(self, status, msg):
         super().__init__(msg)
         self.status_code = status
@@ -285,9 +285,8 @@ def test_byok_never_auto_attaches_dossier_but_server_key_small_context_downgrade
 # ── Anthropic BYOK prompt cache (contract §3 L1 follow-up) ──────────────
 
 def test_byok_anthropic_dossier_layout_gets_cache_breakpoint_without_mutating_router_messages():
-    from server.request_context import Credentials, RequestContext
-
     from server.config import Settings
+    from server.request_context import Credentials, RequestContext
 
     s = Settings()
     req = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(settings=s)))

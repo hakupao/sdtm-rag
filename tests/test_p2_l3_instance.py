@@ -15,8 +15,10 @@ from server.main import create_app
 from server.request_context import ServiceRefusal
 from tests.conftest import set_public_quota_env
 
+# max_output_tokens explicit: public check_startup requires it and bounds one round by free pool / 10
+# (P2.9 #4; 32000 x $3.96/M + prompt allowance ≈ $0.21 ≤ $0.30).
 PUBLIC_MODELS = [SelectableModel(id="ds-v4", label="DeepSeek V4 Pro", model="deepseek/deepseek-v4-pro",
-                                 verified=False)]
+                                 verified=False, max_output_tokens=32000)]
 # Literal on purpose: deriving from config.PUBLIC_FORCED_OFF would shrink with it (Rule 5).
 STUDY_SWITCHES = ("federation_enabled", "study_lookup_enabled", "study_docs_enabled", "dossier_enabled")
 BLOCKED = ["/api/ask_compare", "/api/validate", "/api/validate-study"]
@@ -59,7 +61,7 @@ def _client(s):
     return TestClient(app)
 
 
-class _Passed(Exception):
+class _Passed(Exception):  # noqa: N818
     pass
 
 
@@ -382,9 +384,8 @@ def test_lifespan_runs_check_chroma_on_public(tmp_path, monkeypatch):
 
     monkeypatch.setattr(main_mod, "RAGEngine", FakeRAG)
     app = create_app(_pub(tmp_path, domain_expand_enabled=False))
-    with pytest.raises(RuntimeError, match="study_leftover"):
-        with TestClient(app):
-            pass
+    with pytest.raises(RuntimeError, match="study_leftover"), TestClient(app):
+        pass
 
 
 def test_info_public_models_have_no_litellm_string(tmp_path):

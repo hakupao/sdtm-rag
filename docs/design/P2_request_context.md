@@ -1,10 +1,18 @@
-# P2 请求上下文接缝 (P2.0) — 出站清单 / 前后端契约 v1.1 / 分线归属
+# P2 请求上下文接缝 (P2.0) — 出站清单 / 前后端契约 v1.2 / 分线归属
 
-> 状态: **§2 契约 v1.1 已冻结** (2026-11-26, 分支 `p2`)。改契约 = 发新版本并通知 L1-L4, 不在某条线里顺手改。
+> 状态: **§2 契约 v1.2 已冻结** (2026-11-26, 分支 `p2`, P2.9 修正轮)。改契约 = 发新版本并通知 L1-L4, 不在某条线里顺手改。
 >
 > 变更记录: **v1** (2026-11-26) 首版。**v1.1** (2026-11-26, 独立复审 PASS-with-fixes 后) 断开时 settle 先于 finalize 且 finalize 后的 settle 必须 no-op;
 > compare 拒绝上浮为请求级 4xx; `providers.log_processors()` 钩子 + rich traceback 关 show_locals; `route_corpus(None)` 保持旧兜底;
 > 公开档未知模型的错误形态; L4 须容忍 `/api/info` 缺键; `/api/ask` 续写中途被拒丢弃半截答案; L2 存储线程安全; L1 跟进 Anthropic cache_control。
+> **v1.2** (2026-11-26, P2.9 两份独立审查后; 证据 `.work/10_split_and_public/evidence/checkpoints/p2.9_fix.md`):
+> ① 新拒绝码 `site_busy` (503 + `Retry-After` + `retry_after_s`: 进行中的预留占满额度, 已结算花费未到顶) 与 `storage_full` (507, `/api/flag` 日志满);
+> `rate_limited` 另有三个来源 (每 IP 同时进行数、BYOK 错 key 次数、BYOK 附加调用每 IP 份额), 形状不变;
+> ② **推翻 v1.1 一条**: `/api/ask` 续写轮被拒 ⇒ 保留已生成部分, `truncated=true` + `continue_error=<拒绝码>` (同续写普通失败); 首轮 / 重答轮被拒仍整体返回 4xx;
+> ③ `quota.settle` 加仅关键字参数 `streamed_text`: 流没带 usage 收尾 (断开 / 上游断流) 按「估算 prompt + ceil(1.5 × 已流出 token)」结算 (不超过预留);
+> 开流即失败只扣 prompt; `outbound.acompletion(refund_open_error=True)` (路由窄重试的第一次) 失败不扣; 非流式调用失败仍扣整笔预留 (见 §3);
+> ④ 免费题不联网的唯一归属 = L1 `providers.capability("web_tools")` 读 L2 键 `quota_free_web_enabled` (`quota.free_web_allowed`); L2 不再改写 `body.web`;
+> 降级时 `done.web_status = "off"`; ⑤ `/api/info` 有额外键 / 公开档时带 `Cache-Control: no-store`; ⑥ §5 P3 就绪清单 (新增)。
 > 计划: `.work/10_split_and_public/PLAN.md` §2 P2、§6。证据: `.work/10_split_and_public/evidence/checkpoints/p2.0_seam.md`。
 
 接缝的形状:
@@ -89,14 +97,21 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, request, tier
 | `request_too_large` | 413 | `limit` | L2 2.2 请求体上限 (history 超限是**裁剪**不是拒: 服务端保留最近的轮次) |
 | `provider_required` | 400 | — | L1, 见 2.1 组合表 |
 | `byok_key_missing` | 400 | `provider` | L1, 见 2.1 组合表 |
+| `site_busy` (v1.2) | 503 | `retry_after_s` (+ `Retry-After` 头) | L2: 进行中预留 (上界估算) 暂时占满池子, 已结算花费未到顶 ⇒ 稍后重试 (前端保留重试按钮, 不算额度类拒绝) |
+| `storage_full` (v1.2) | 507 | — | L2 `/api/flag`: dogfood 日志达 `flag_file_max_bytes` |
+
+`rate_limited` (429) 的来源 (v1.2 起): 每分钟限流 (访客 / IP)、每 IP 同时进行的计量请求数 (`quota_inflight_per_ip`, 默认 3)、BYOK 每 IP 每日错 key 次数
+(`quota_byok_bad_key_per_ip_day`, 默认 20)、BYOK 附加 (服务器 key) 调用每 IP 每日份额 (`quota_byok_side_per_ip_usd`, 默认 $0.5)、BYOK 每日联网次数、`/api/flag` 每 IP 每日字节
+(`flag_bytes_per_ip_day`)。
 
 既有错误不变: 空问题 422 `{"detail": "question must not be empty"}`; 检索失败 502; LLM 失败 502。
 未知模型: **私有档**保持旧形态 422 `{"detail": "unknown model …; known: […]"}` (字符串 detail); **公开档**未知 id 与内部组 id
 (`default` / `hard` / `light` / `default-fallback`) 一律 422 `model_not_allowed` (对象 detail, `allowed` = 公开可选 id), 不区分"不存在"与"不给用"。
 前端判别: `typeof detail === "object" && detail.code`, 否则把字符串 detail 当文案。
 
-`/api/ask` (非流式) 在续写轮 / 重答轮被拒 (`ServiceRefusal`, 例: 续写撞全站封顶) ⇒ 整个请求返回该 4xx/429, **已生成的半截答案丢弃**
-(与"续写普通失败保留半截 + `truncated`"不同: 拒绝是计费决定, 不是上游故障)。流式端点已流出的 token 留在前端, 以 `error` 事件收尾。
+`/api/ask` (非流式) **续写轮**被拒 (`ServiceRefusal`, 例: 续写撞全站封顶) ⇒ **v1.2: 200 + 已生成部分**, `truncated=true`, `continue_error` = 拒绝码
+(与续写普通失败同口径; v1.1 的"丢弃半截"已推翻: 已经花掉的钱换来的正文不该扔)。首轮被拒 (没有正文) 与**重答轮**被拒仍整体返回该 4xx/429。
+流式端点已流出的 token 留在前端, 以 `error` 事件收尾。
 
 ### 2.4 SSE (`/api/ask_stream`)
 **v1 不新增事件名** (`tests/test_sse_contract.py` 要求后端每个事件名前端都认得)。新信息挂在既有事件上:
@@ -158,6 +173,9 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, request, tier
 - 访客身份 / 设置从 `ctx.request` 取 (cookie、`CF-Connecting-IP`、`ctx.request.app.state.settings`); ⛔ 不读模块级 `server.config.settings` (与 app.state 可能不是同一份)。
 - `quota.reserve` 返回的句柄原样回到同一次调用的 `settle`; `settle` 的 `model` = provider 报的模型 (Router 回退会改变它, 计价按它)。`route` / `review` / `embedding` / `hyde` 用的不是 `ctx.model`, 以 `reserve` 的 `kw["model"]` 与 `settle` 的 `model` 为准。
 - 拒绝只用 `ServiceRefusal` (状态码 + §2.3 code); 其它异常类型会被各处兜底吞掉。
+- v1.2: `quota.settle(ctx, purpose, handle, usage, model, *, streamed_text=None)`。`outbound._metered` 传本次流已产出的文本 (content + reasoning_content + 工具调用参数);
+  usage 缺失时按 `prompt 估算 + ceil(1.5 × 已流出 token)` 结算 (≤ 预留)。开流失败 = `streamed_text=""` (只扣 prompt); 非流式失败不传 (扣整笔预留:
+  非流式调用可能在上游已生成后才超时失败, 而我们没有可数的输出)。`finalize` / 过期仍按整笔预留扣 (没人 settle 的句柄)。
 - `quota.settle` 的 `usage` 可能为 None (调用失败 / 客户端提前停读), 也可能是 litellm **估算**值: 流结束时没收到 usage 片, litellm 就自己数 token 补一个 —— 上游中途断流 (分块传输缺结束块) litellm **不抛异常**, 也走这条 (BYOK 探针第 5 条)。`finalize` 结算未结清的预留。
 - 顺序 (v1.1): 断开 / 循环体抛错时, 打开着的流先被关闭 (`aclosing` + `finalizing` 先 `aclose` 内层) ⇒ 它的 `settle` **先于** `finalize`。Starlette 断开时不主动关 `body_iterator`, 所以 `finalize` 在响应迭代器被关闭 / 回收时才跑 (CPython 下及时, 但不是同步于断开)。**`finalize` 之后到达的 `settle` 必须是 no-op** (按句柄幂等: 已结算或已被 finalize 按预留扣过的句柄不再计费)。
 - BYOK 调用**不得**走带 `fallbacks` 的 Router 组 (探针: 逐次 `api_key` 会被带进回退目标 = 用户的 A 家 key 发给 B 家)。
@@ -183,3 +201,23 @@ export SDTM_RAG_CHROMA_DIR_OVERRIDE=/Volumes/DevSSD/Project/sdtm-rag/data/chroma
 **复制可以**: hook 过、`git status` 干净、`pytest -m "not slow"` 2656 passed 0 failed。
 ⛔ 不许 `--no-verify`, 也不要用 `OIDSCAN_NO_CATALOG=1` 绕过。工作树里没有 `.env`: 测试不需要 (特征测试自己清掉
 `SDTM_RAG_*` 环境变量); 要真起服务再单独处理。收尾 `git worktree remove` 会连同复制的研究数据一起删掉。
+
+## §5 P3 就绪清单 (v1.2 新增)
+
+公开档启动即校验 (fail-loud, `instance.check_startup` + `auth.install_security`), 下列任一不满足 ⇒ 拒绝启动:
+
+| 要求 | 为什么 |
+|---|---|
+| 计量开着: `SDTM_RAG_QUOTA_ENABLED` 不设或为真 (布尔严格解析, `ture`/`y` 之类拒启动) | 关掉 = 免费题无上限 |
+| `SDTM_RAG_QUOTA_*` / `VISITOR_*` / `FLAG_*` / `FREE_*` 无拼错的键 (`quota.validate`; 生效值启动时打日志, secret 只记 set/unset) | 拼错 = 静默用默认值 |
+| `SDTM_RAG_VISITOR_SECRET` 已设 | 访客 cookie 签名 |
+| `SDTM_RAG_QUOTA_TRUSTED_PROXIES` 已设且每段 ≥ /24 (IPv4) / ≥ /120 (IPv6) | 只信隧道连接器 (cloudflared) 一台主机; 更宽 = 同网段任何主机都能伪造 `CF-Connecting-IP` 冒充任意访客 |
+| `SDTM_RAG_RATE_LIMIT_TRUST_FORWARDED` 不为真 | `X-Forwarded-For` 穿过隧道可被访客伪造; 公开档全局限流按 `CF-Connecting-IP` (仅可信代理来源) 计 |
+| `SDTM_RAG_SELECTABLE_MODELS` 显式设置, 每个模型显式写 `max_output_tokens`, 且单轮预留 ≤ 免费池 / 10 (`quota.round_estimate_usd`: 历史上限 + 40k token prompt 余量 + max_output) | 内置清单是私有站的 Claude 128K 输出 (一轮 ≈ $3); 例: DeepSeek v4-pro 32000 输出 ≈ $0.21 ≤ $0.30 |
+| `security_headers_enabled=true` | BYOK key 在浏览器 localStorage, CSP 是 XSS 的第二道防线 |
+
+**部署要求 (P3.2 compose 落实, 本轮不改 compose)**: 公开容器的服务端口只绑 `127.0.0.1` 或专用 docker 网络, 不暴露到宿主机 LAN;
+`SDTM_RAG_QUOTA_TRUSTED_PROXIES` 只写 cloudflared 容器 / 主机的那一个地址 (/32 或其所在的专用 /24 网络)。否则 LAN 上任何主机直连端口即可绕过隧道、伪造访客 IP。
+
+**已裁 (主会话, 2026-11-26)**: 免费题每 IP 每日 30 题 (`quota_free_per_ip_day`) 与「每访客 10 题」并存 —— 接受; 换 cookie 的同一 IP 最多 30 题,
+总量由免费池 $3 (= $5 封顶 − $2 BYOK 附加预算) 兜底。BYOK 附加调用每 IP 每日 $0.5 (≤ $2 池的 1/4: 至少 4 个 IP 才能耗尽; 够 30 次联网检索 $0.48 + embedding)。

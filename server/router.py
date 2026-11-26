@@ -646,8 +646,16 @@ def ask(body: AskRequest, request: Request):
                 try:
                     response = outbound.completion(ctx, purpose, llm_router,
                                                    model=body.model, messages=msgs)
-                except ServiceRefusal:
-                    raise
+                except ServiceRefusal as e:
+                    if purpose != "continue":
+                        raise   # first round: nothing to keep; regen round: see contract v1.2 §2.3
+                    # 续写轮被拒 (例: 撞全站封顶) 与续写普通失败同口径 (contract v1.2): 已拿到的
+                    # 正文保留, truncated + continue_error=<code> 让调用方看得见。
+                    log.warning("continue_round_refused", round=continue_rounds,
+                                code=e.detail.get("code"))
+                    truncated = True
+                    continue_error = e.detail.get("code")
+                    break
                 except Exception as e:  # noqa: BLE001 — 只吞**续写轮**的失败, 见下
                     if gate is not None and gate.first is not None:
                         # 重答轮 (首调或续写) 失败: 首轮答案已在手且已判过, 不能退化成 502,
@@ -924,8 +932,10 @@ async def ask_stream(body: AskStreamRequest, request: Request):
         if with_tools and tools:
             kw["tools"] = tools
         try:
+            # refund_open_error: this attempt failing = the re-open below is the charged one
             return await outbound.acompletion(ctx, purpose, llm_router, **kw,
-                                              stream_options={"include_usage": True})
+                                              stream_options={"include_usage": True},
+                                              refund_open_error=True)
         except ServiceRefusal:
             raise
         except Exception:  # noqa: BLE001 — 窄重试: 去掉 stream_options, 保住答案
@@ -960,7 +970,8 @@ async def ask_stream(body: AskStreamRequest, request: Request):
         truncated = False
         web_ok = 0
         web_fail: str | None = None   # 最严重的一次联网失败 (见 _WEB_FAIL_RANK)
-        if not body.web:
+        if not body.web or (s.web_search_enabled and not use_web):
+            # 后一半 = capability 降级 (免费题不联网 / 模型不支持工具): 没联网就报 off, 不报 ok
             web_status = "off"
         elif not s.web_search_enabled:
             # 用户勾了联网、服务端关着 —— 报 off 会让界面一声不吭, 那正是最骗人的失败模式。
@@ -1294,6 +1305,7 @@ def flag(body: FlagRequest, request: Request):
         f"**Note:** {note}\n\n"
         f"<details><summary>answer</summary>\n\n{body.answer.strip()}\n\n</details>\n\n---\n"
     )
+    quota.admit_flag(request, len(entry.encode("utf-8")))   # metered tiers: size / per-IP bytes
     try:
         new = not path.exists()
         with path.open("a", encoding="utf-8") as f:

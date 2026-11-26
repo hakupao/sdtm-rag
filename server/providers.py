@@ -12,6 +12,7 @@ directly with the user's key, and an upstream failure never retries on the serve
 """
 from __future__ import annotations
 
+import logging
 import re
 
 import structlog
@@ -116,7 +117,8 @@ def check_model(ctx, s) -> None:
         if ctx.provider is not None or has_key_hdr or has_base_hdr:
             # ⛔ never answer a "use my key" request on the server key
             raise ServiceRefusal(403, "not_on_this_tier", "本站未开启自带 key (BYOK)", feature="byok")
-        return _check_server_model(ctx, s)
+        _check_server_model(ctx, s)
+        return
 
     public = ctx.tier == "public"
     if has_base_hdr and (public or ctx.provider != CUSTOM):
@@ -126,12 +128,17 @@ def check_model(ctx, s) -> None:
         if ctx.provider is not None:
             raise ServiceRefusal(400, "byok_key_missing", "选择了 provider 但没有提供 API key",
                                  provider=ctx.provider)
-        return _check_server_model(ctx, s)
+        _check_server_model(ctx, s)
+        return
     if ctx.provider is None:
         raise ServiceRefusal(400, "provider_required", "提供了 API key 时必须同时指定 provider")
 
+    from server import quota
+
+    quota.check_byok_probing(ctx)   # N bad keys from this IP today ⇒ 429 (metered tiers)
     key = ctx.credentials.api_key
     if len(key) > _MAX_KEY_LEN or not key.isprintable():
+        quota.note_bad_key(ctx)
         raise ServiceRefusal(401, "byok_key_invalid", "API key 格式无效", provider=ctx.provider)
     reg = _registry(request)
     prov = reg.provider(ctx.provider)
@@ -233,18 +240,18 @@ def _byok_call(ctx, purpose, kind, t, kw):
                 resp = await litellm.acompletion(**k)
             except Exception as e:  # noqa: BLE001
                 await _aclose_client(client)
-                raise _translate(e, purpose, provider, k) from None
+                raise _translate(e, purpose, provider, k, ctx) from None
             if not k.get("stream"):
                 await _aclose_client(client)
                 return resp
-            return _translating_stream(resp, purpose, provider, client)
+            return _translating_stream(resp, purpose, provider, client, ctx)
         return acall, out
 
     def call(**k):
         try:
             return litellm.completion(**k)
         except Exception as e:  # noqa: BLE001
-            raise _translate(e, purpose, provider, k) from None
+            raise _translate(e, purpose, provider, k, ctx) from None
         finally:
             if k.get("client") is not None:
                 k["client"].close()
@@ -256,12 +263,12 @@ async def _aclose_client(client) -> None:
         await client.close()
 
 
-async def _translating_stream(stream, purpose, provider, client=None):
+async def _translating_stream(stream, purpose, provider, client=None, ctx=None):
     try:
         async for chunk in stream:
             yield chunk
     except Exception as e:  # noqa: BLE001
-        raise _translate(e, purpose, provider, {}) from None
+        raise _translate(e, purpose, provider, {}, ctx) from None
     finally:
         try:
             close = getattr(stream, "aclose", None)
@@ -271,7 +278,7 @@ async def _translating_stream(stream, purpose, provider, client=None):
             await _aclose_client(client)
 
 
-def _translate(e: Exception, purpose: str, provider: str, kw: dict) -> Exception:
+def _translate(e: Exception, purpose: str, provider: str, kw: dict, ctx=None) -> Exception:
     """Upstream error -> what the router should see. 401/403 ⇒ byok_key_invalid. Other failures
     on the first answer call ⇒ byok_provider_error (no upstream text: it may echo the key) — except
     a failure with stream_options set, which stays raw so the router's narrow retry runs.
@@ -282,6 +289,10 @@ def _translate(e: Exception, purpose: str, provider: str, kw: dict) -> Exception
     log.warning("byok_upstream_error", provider=provider, purpose=purpose,
                 upstream_status=status, error_type=type(e).__name__)
     if status in (401, 403):
+        if ctx is not None:
+            from server import quota
+
+            quota.note_bad_key(ctx)
         return ServiceRefusal(401, "byok_key_invalid", "API key 无效或无权限", provider=provider)
     if purpose != "answer" or "stream_options" in kw:
         return e
@@ -310,7 +321,10 @@ def capability(ctx, name: str, default):
         return default
     caps = _caps(ctx)
     if name == "web_tools":
-        if default and ctx.tier == "public" and ctx.credentials is None:
+        from server import quota
+
+        # the ONE owner of the free-question web policy (key: quota_free_web_enabled)
+        if default and ctx.credentials is None and not quota.free_web_allowed(ctx):
             _note(ctx, "web_tools", "free_tier_no_web")
             return False
         if default and caps is not None and not caps.tools:
@@ -408,3 +422,46 @@ def _redact_processor(logger, method_name, event_dict):
 def log_processors() -> list:
     """structlog processors inserted before the renderer (main.py)."""
     return [_redact_processor]
+
+
+# ── stdlib logging (litellm / httpx / openai log through `logging`, not structlog) ──
+
+class RedactFilter(logging.Filter):
+    """Handler filter: renders the record's message (args merged) and exception text, then scrubs
+    them like _redact_processor. On HANDLERS, so records from child loggers (httpcore.http11 …)
+    that propagate up are covered too (a logger filter only sees its own records)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            secrets = _secrets()
+            msg = record.getMessage()
+            record.msg, record.args = redact_text(msg, secrets), None
+            if record.exc_info and not record.exc_text:
+                record.exc_text = logging.Formatter().formatException(record.exc_info)
+            if record.exc_text:
+                record.exc_text = redact_text(record.exc_text, secrets)
+            if record.stack_info:
+                record.stack_info = redact_text(record.stack_info, secrets)
+        except Exception:  # noqa: BLE001 — a logging filter must never break logging
+            pass
+        return True
+
+
+_REDACT_FILTER = RedactFilter()
+_THIRD_PARTY_LOGGERS = ("LiteLLM", "LiteLLM Router", "LiteLLM Proxy", "litellm", "httpx",
+                        "httpcore", "openai", "anthropic")
+
+
+def install_log_redaction(public: bool) -> None:
+    """Attach RedactFilter to every handler that can emit a third-party record: root's, the
+    named loggers', and logging.lastResort (used when root has none). Public: those loggers are
+    held at WARNING (litellm/httpx INFO/DEBUG lines carry request detail). Idempotent."""
+    handlers = [*logging.getLogger().handlers, logging.lastResort]
+    for name in _THIRD_PARTY_LOGGERS:
+        lg = logging.getLogger(name)
+        handlers += lg.handlers
+        if public and lg.getEffectiveLevel() < logging.WARNING:
+            lg.setLevel(logging.WARNING)
+    for h in handlers:
+        if h is not None and _REDACT_FILTER not in h.filters:
+            h.addFilter(_REDACT_FILTER)

@@ -7,7 +7,6 @@ App settings use SDTM_RAG_ prefix.
 from __future__ import annotations
 
 from pathlib import Path
-
 from typing import Literal
 
 from dotenv import load_dotenv

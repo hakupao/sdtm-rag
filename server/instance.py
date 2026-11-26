@@ -50,12 +50,36 @@ def check_startup(s) -> None:
     present = sorted({str(p) for p in study_paths if p.exists()})
     if present:
         problems.append(f"study data present: {present}")
+    problems += _public_cost_problems(s)
     data = s.data_dir.resolve()
     log_path = s.dogfood_log_path.resolve()
     if not log_path.is_relative_to(data):
         problems.append(f"dogfood log {log_path} is not under data dir {data}")
     if problems:
         raise RuntimeError("SDTM_RAG_INSTANCE=public refuses to start: " + "; ".join(problems))
+
+
+def _public_cost_problems(s) -> list[str]:
+    """P2.9 (SR9/CR7): the free pool must bound EVERY public model's single answer round — the
+    built-in selectable list is the private Claude set at 128K output (one round ≈ $3+)."""
+    from server import quota
+
+    out = []
+    if "selectable_models" not in s.model_fields_set:
+        out.append("SDTM_RAG_SELECTABLE_MODELS not set (public must list its free models explicitly)")
+    budget = quota._pool_caps(s)["free"] / 10
+    for m in s.selectable_models:
+        if m.id in INTERNAL_GROUPS:
+            continue
+        if "max_output_tokens" not in m.model_fields_set:
+            out.append(f"selectable model {m.id!r} has no explicit max_output_tokens")
+        est = quota.round_estimate_usd(s, m.id)
+        if est > budget:
+            out.append(f"selectable model {m.id!r}: one answer round reserves ${est:.3f} > free "
+                       f"pool / 10 = ${budget:.3f} (lower its max_output_tokens)")
+    if not s.security_headers_enabled:
+        out.append("security_headers_enabled=false (CSP is required with BYOK keys in the browser)")
+    return out
 
 
 def _is_study_collection(s, name: str) -> bool:
@@ -123,4 +147,5 @@ def shape_info(request, payload, extra: dict):
         body = {k: body[k] for k in PUBLIC_INFO_KEYS if k in body} | {"tier": "public"}
         body["selectable_models"] = [{k: m[k] for k in PUBLIC_MODEL_KEYS if k in m}
                                      for m in body.get("selectable_models", [])]
-    return JSONResponse({**body, **extra})
+    # per-visitor (quota) / per-tier content: never cached by a browser or the tunnel's edge
+    return JSONResponse({**body, **extra}, headers={"Cache-Control": "no-store"})

@@ -146,6 +146,13 @@ class QuotaStore:
                 (older_than,))
         return cur.rowcount
 
+    def prune(self, before_day: str) -> None:
+        """Delete every row of a UTC day earlier than `before_day` (ISO date; string order = date
+        order). Open reservations of those days are long past their TTL."""
+        with self._lock:
+            for table in ("counters", "spend", "reservations"):
+                self._db.execute(f"DELETE FROM {table} WHERE day < ?", (before_day,))
+
     def status(self, rid: str) -> str | None:
         with self._lock:
             row = self._db.execute("SELECT status FROM reservations WHERE id=?", (rid,)).fetchone()

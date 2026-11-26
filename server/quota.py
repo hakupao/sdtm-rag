@@ -61,7 +61,7 @@ _DEFAULTS: dict = {
     "quota_ip_rate_per_min": 20,       # questions per client IP per minute
     "quota_ip_rate_burst": 6,
     "quota_byok_web_per_day": 30,      # Tavily searches per BYOK visitor per UTC day
-    "quota_free_web_enabled": False,   # PLAN Q2: free questions do not search the web
+    "quota_free_web_enabled": False,   # PLAN Q2: free questions do not search the web (L1 enforces)
     "quota_history_max_messages": 8,
     "quota_history_max_chars": 20000,
     "quota_max_body_bytes": 2_000_000,
@@ -79,6 +79,14 @@ _DEFAULTS: dict = {
     "visitor_cookie_max_age_s": 31_536_000,
     "flag_rate_per_min": 5,
     "flag_rate_burst": 3,
+    # P2.9 fixes (checkpoint p2.9_fix.md)
+    "quota_busy_retry_s": 15,          # site_busy: open reservations (not settled spend) fill the pool
+    "quota_inflight_per_ip": 3,        # concurrent metered requests per client IP (0 = off)
+    "quota_byok_side_per_ip_usd": 0.5,  # one IP's share of the BYOK side budget per UTC day
+    "quota_byok_bad_key_per_ip_day": 20,  # byok_key_invalid refusals per IP per day, then 429
+    "quota_retention_days": 14,        # counters / spend / reservations older than this are pruned
+    "flag_bytes_per_ip_day": 512_000,  # /api/flag bytes appended per client IP per UTC day
+    "flag_file_max_bytes": 64_000_000,  # dogfood log size ceiling (507 storage_full)
 }
 
 _ANSWER_PURPOSES = frozenset({"answer", "continue", "regen"})
@@ -89,6 +97,15 @@ _FIRST_ROUND_PURPOSES = frozenset({"answer", "continue", "regen", "compare", "re
 # unless listed here. None are exempt today: ask/ask_stream/validate = 1, ask_compare = N answers.
 _EXEMPT_ENDPOINTS: frozenset = frozenset()
 _TRUE = {"1", "true", "yes", "on"}
+_FALSE = {"0", "false", "no", "off"}
+# Env families validate() owns: an SDTM_RAG_* name with one of these prefixes that is neither a
+# _DEFAULTS key nor a Settings field is a typo (e.g. SDTM_RAG_QUOTA_ENABLD) => refuse to start.
+_ENV_FAMILIES = ("SDTM_RAG_QUOTA_", "SDTM_RAG_VISITOR_", "SDTM_RAG_FLAG_", "SDTM_RAG_FREE_")
+_SECRET_KEYS = frozenset({"visitor_secret"})
+# Prompt-side allowance for the public per-round estimate (instance.check_startup): history
+# (≤ quota_history_max_chars, 1 token/char worst case) + this (question ≤ 10k chars, system prompt,
+# retrieved context).
+PROMPT_OVERHEAD_TOKENS = 40_000
 _CAP_MSG = "今日全站免费额度已用完, 请明天再来或使用自己的 API key。"
 
 _now = time.time   # monkeypatched by tests (day rollover / expiry)
@@ -103,8 +120,38 @@ def cfg(s, key: str):
     if raw is None or raw == "":
         return default
     if default is None or isinstance(default, bool):
-        return raw.strip().lower() in _TRUE
+        v = raw.strip().lower()
+        if v in _TRUE:
+            return True
+        if v in _FALSE:
+            return False
+        # strict: a kill-switch / enable typo ("ture", "y") must not silently mean False
+        raise ValueError(f"SDTM_RAG_{key.upper()}={raw!r} is not a boolean "
+                         f"(use one of {sorted(_TRUE | _FALSE)})")
     return type(default)(raw)
+
+
+def validate(s) -> dict:
+    """Startup check (auth._install_quota): parse every key (malformed => RuntimeError naming the
+    key) and, when quota is on, refuse unknown names in the quota env families. Returns the
+    effective values with secrets reduced to "set"/"unset" (safe to log)."""
+    from server.config import Settings
+
+    eff = {}
+    for key in _DEFAULTS:
+        try:
+            v = cfg(s, key)
+        except ValueError as e:
+            raise RuntimeError(f"bad quota setting SDTM_RAG_{key.upper()}: {e}") from None
+        eff[key] = ("set" if v else "unset") if key in _SECRET_KEYS else v
+    if app_enabled(s):
+        known = {"SDTM_RAG_" + k.upper() for k in (*_DEFAULTS, *Settings.model_fields)}
+        unknown = sorted(k for k in (n.upper() for n in os.environ)
+                         if k.startswith(_ENV_FAMILIES) and k not in known)
+        if unknown:
+            raise RuntimeError(f"unknown quota setting(s) {unknown} (typo?); known keys: "
+                               "server/quota.py _DEFAULTS")
+    return eff
 
 
 def _on(s, tier: str) -> bool:
@@ -124,7 +171,7 @@ def _pool_caps(s) -> dict:
 
 
 def _settings(ctx):
-    return getattr(ctx.request.app.state, "settings", None)
+    return getattr(getattr(getattr(ctx.request, "app", None), "state", None), "settings", None)
 
 
 def _enabled(ctx) -> bool:
@@ -149,7 +196,20 @@ def _store(s):
     with _STORES_LOCK:
         if key not in _STORES:
             _STORES[key] = QuotaStore(Path(key))
-        return _STORES[key]
+        store = _STORES[key]
+    _maybe_prune(s, store)
+    return store
+
+
+def _maybe_prune(s, store) -> None:
+    """Drop rows older than quota_retention_days, at most once per store per UTC day."""
+    today = _day()
+    if getattr(store, "_pruned_for", None) == today:
+        return
+    store._pruned_for = today
+    cutoff = (datetime.date.fromisoformat(today)
+              - datetime.timedelta(days=int(cfg(s, "quota_retention_days")))).isoformat()
+    store.prune(cutoff)
 
 
 class _Limiter:
@@ -181,7 +241,51 @@ def _limiters(ctx):
         return lim
 
 
+# ── in-flight cap (per client IP, process memory) ────────────────────────────
+
+_INFLIGHT_LOCK = threading.Lock()
+
+
+def _inflight_acquire(ctx, ip: str, cap: int, ttl: float) -> str | None:
+    """A slot token, or None when `ip` already has `cap` live requests. Slots older than `ttl`
+    are dropped (finalize may be delayed to GC on a client disconnect; never lock an IP out)."""
+    state = ctx.request.app.state
+    now = _now()
+    with _INFLIGHT_LOCK:
+        table = getattr(state, "quota_inflight", None)
+        if table is None:
+            table = state.quota_inflight = {}
+        slots = {t: t0 for t, t0 in table.get(ip, {}).items() if now - t0 < ttl}
+        if len(slots) >= cap:
+            table[ip] = slots
+            return None
+        tok = uuid.uuid4().hex
+        slots[tok] = now
+        table[ip] = slots
+        return tok
+
+
+def _inflight_release(ctx, ip: str, tok: str) -> None:
+    with _INFLIGHT_LOCK:
+        table = getattr(ctx.request.app.state, "quota_inflight", None) or {}
+        slots = table.get(ip)
+        if slots is not None:
+            slots.pop(tok, None)     # idempotent
+            if not slots:
+                table.pop(ip, None)
+
+
 # ── per-request state (ctx.quota) ────────────────────────────────────────────
+
+@dataclass
+class _Open:
+    """One open reservation: what reserve charged and what settle needs to replace it."""
+    est: float          # USD charged at reserve
+    model: str          # priced model
+    pt: int             # estimated prompt tokens (an aborted stream settles at pt + 1.5 x streamed)
+    day: str
+    sub: tuple | None = None   # (counter key, micro-USD charged) — BYOK per-IP side budget
+
 
 @dataclass
 class _ReqState:
@@ -189,10 +293,11 @@ class _ReqState:
     ip: str
     byok: bool
     day: str
-    open: dict = field(default_factory=dict)   # rid -> (est_usd, model); guarded by `lock`
+    open: dict = field(default_factory=dict)   # rid -> _Open; guarded by `lock`
     lock: threading.Lock = field(default_factory=threading.Lock)
     taken: tuple | None = None   # (keys, day, n) of the free questions this request counted
     answered: bool = False       # a first answering round got its reservation
+    inflight: str | None = None  # in-flight slot token (released by finalize)
 
 
 def _day(t: float | None = None) -> str:
@@ -296,6 +401,13 @@ def admit(ctx, body) -> None:
                 r = max(1, math.ceil(retry))
                 _refuse(429, "rate_limited", "提问太频繁, 请稍后再试。", r, retry_after_s=r)
 
+    cap = int(cfg(s, "quota_inflight_per_ip"))
+    if metered and cap > 0:
+        tok = _inflight_acquire(ctx, st.ip, cap, float(cfg(s, "quota_reservation_ttl_s")))
+        if tok is None:
+            _refuse(429, "rate_limited", "同时进行的提问太多, 请等上一个回答结束。", 5, retry_after_s=5)
+        st.inflight = tok
+
     if body is not None and getattr(body, "history", None):
         body.history = trim_history(body.history, int(cfg(s, "quota_history_max_messages")),
                                     int(cfg(s, "quota_history_max_chars")))
@@ -310,9 +422,17 @@ def admit(ctx, body) -> None:
         _refuse(429, "free_quota_exhausted", "今日免费提问次数已用完, 请明天再来或使用自己的 API key。",
                 reset_s, remaining=0, reset_at=reset_at)
     st.taken = ([k for k, _ in limits], st.day, n)
-    if getattr(body, "web", False) and not cfg(s, "quota_free_web_enabled"):
-        body.web = False
-        ctx.notes.append({"capability": "web_tools", "reason": "free_tier_no_web"})
+    # Free questions and the web: one owner = providers.capability("web_tools") via free_web_allowed.
+
+
+def free_web_allowed(ctx) -> bool:
+    """Server-key (free) request may use web search? Metered (public / quota on) ⇒ only when
+    quota_free_web_enabled. Unmetered private ⇒ yes (pre-P2). The policy owner is L1's
+    capability gate, which calls this (single source of the key)."""
+    s = _settings(ctx)
+    if ctx.tier != "public" and not (ctx.request is not None and _on(s, ctx.tier)):
+        return True
+    return bool(cfg(s, "quota_free_web_enabled"))
 
 
 def _weight(ctx, body, s) -> int:
@@ -374,16 +494,32 @@ def _price(s, model: str, pt: int, ct: int) -> float:
 
 
 def _estimate(s, purpose: str, kw: dict) -> tuple[float, str]:
+    usd, model, _pt = _estimate_parts(s, purpose, kw)
+    return usd, model
+
+
+def _estimate_parts(s, purpose: str, kw: dict) -> tuple[float, str, int]:
+    """(reserved USD, priced model, estimated prompt tokens)."""
     if purpose == "web":
-        return float(cfg(s, "quota_web_search_usd")), "tavily"
+        return float(cfg(s, "quota_web_search_usd")), "tavily", 0
     model, max_out = _group_model(s, str(kw.get("model", "")))
     if purpose == "embedding":
         inp = kw.get("input") or []
         inp = [inp] if isinstance(inp, str) else inp
-        return _price(s, model, sum(_text_tokens(str(x)) for x in inp), 0), model
+        pt = sum(_text_tokens(str(x)) for x in inp)
+        return _price(s, model, pt, 0), model, pt
     pt = sum(_text_tokens(_content_text(m.get("content"))) + 4 for m in kw.get("messages") or [])
     ct = int(kw.get("max_tokens") or max_out or cfg(s, "quota_default_max_output_tokens"))
-    return _price(s, model, pt, ct), model
+    return _price(s, model, pt, ct), model, pt
+
+
+def round_estimate_usd(s, model_id: str) -> float:
+    """Worst-case reservation of ONE answer round on `model_id` (same pricing path as reserve):
+    prompt = full trimmed history + PROMPT_OVERHEAD_TOKENS, output = the deployment max_tokens."""
+    model, max_out = _group_model(s, model_id)
+    pt = int(cfg(s, "quota_history_max_chars")) + PROMPT_OVERHEAD_TOKENS
+    ct = int(max_out or cfg(s, "quota_default_max_output_tokens"))
+    return _price(s, model, pt, ct)
 
 
 def _user_paid(ctx, purpose: str, kw: dict) -> bool:
@@ -402,25 +538,48 @@ def reserve(ctx, purpose: str, kw: dict):
     s = _settings(ctx)
     store = _store(s)
     reset_at, reset_s = _reset_at()
+    now = _now()
+    day = _day(now)
+    web_taken = None
     if purpose == "web" and st.byok:
         limits = [(f"w:{k}", int(cfg(s, "quota_byok_web_per_day"))) for k in _keys(st)]
-        if not store.take(limits, _day()):
+        if not store.take(limits, day):
             _refuse(429, "rate_limited", "今日联网检索次数已用完。", reset_s, retry_after_s=reset_s)
-    est, model = _estimate(s, purpose, kw)
-    now = _now()
+        web_taken = ([k for k, _ in limits], day)
+    est, model, pt = _estimate_parts(s, purpose, kw)
     store.expire(now - float(cfg(s, "quota_reservation_ttl_s")))
     pool = "byok" if st.byok else "free"   # BYOK requests' server-key calls use the carved-out pool
+    sub = None
+    if st.byok:
+        # One IP's share of the BYOK side budget (micro-USD counter): one IP cannot drain the pool.
+        key, micros = f"bs:{st.ip}", math.ceil(est * 1e6)
+        if not store.take([(key, int(float(cfg(s, "quota_byok_side_per_ip_usd")) * 1e6))], day, micros):
+            if web_taken:
+                store.untake(*web_taken)
+            _refuse(429, "rate_limited", "今日自带 key 的附加调用额度已用完, 请明天再来。", reset_s,
+                    retry_after_s=reset_s)
+        sub = (key, micros)
     rid = uuid.uuid4().hex
-    if not store.reserve(rid, _day(now), est, _pool_caps(s)[pool], now, pool):
+    cap = _pool_caps(s)[pool]
+    if not store.reserve(rid, day, est, cap, now, pool):
         with st.lock:
             refund = None if st.answered else st.taken
             if refund:
                 st.taken = None
         if refund:
             store.untake(*refund)
+        if web_taken:
+            store.untake(*web_taken)
+        if sub:
+            store.untake([sub[0]], day, sub[1])
+        if store.settled(day, pool) + est <= cap + 1e-9:
+            # Only still-open reservations (upper-bound estimates of in-flight calls) are in the
+            # way, not real spend: transient, retry shortly.
+            r = int(cfg(s, "quota_busy_retry_s"))
+            _refuse(503, "site_busy", "当前提问的人较多, 请稍后再试。", r, retry_after_s=r)
         _refuse(429, "site_cap_reached", _CAP_MSG, reset_s, reset_at=reset_at)
     with st.lock:
-        st.open[rid] = (est, model)
+        st.open[rid] = _Open(est=est, model=model, pt=pt, day=day, sub=sub)
         if purpose in _FIRST_ROUND_PURPOSES:
             st.answered = True
     return rid
@@ -436,7 +595,11 @@ def _usage_tokens(usage) -> tuple[int, int] | None:
     return int(pt or 0), int(ct or 0)
 
 
-def settle(ctx, purpose: str, handle, usage, model) -> None:
+def settle(ctx, purpose: str, handle, usage, model, *, streamed_text: str | None = None) -> None:
+    """usage None + streamed_text None (failed non-streamed call, web) => the reservation is the
+    charge. usage None + streamed_text given (a stream that ended without usage: aborted, cut, or
+    an open that failed before its first chunk with streamed_text="") => estimated prompt +
+    ceil(1.5 x tokens actually streamed), never more than the reservation."""
     st = getattr(ctx, "quota", None) if ctx is not None else None
     if handle is None or not isinstance(st, _ReqState):
         return
@@ -445,11 +608,22 @@ def settle(ctx, purpose: str, handle, usage, model) -> None:
     if entry is None:       # already settled / finalized: no-op
         return
     s = _settings(ctx)
-    est, est_model = entry
     tokens = _usage_tokens(usage) if purpose != "web" else None
-    # No usable usage (failed call, aborted stream, web) => the reservation is the charge.
-    actual = est if tokens is None else _price(s, model or est_model, *tokens)
-    _store(s).settle(handle, actual)
+    if tokens is not None:
+        actual = _price(s, model or entry.model, *tokens)
+    elif streamed_text is not None and purpose != "web":
+        out = math.ceil(1.5 * _text_tokens(streamed_text))
+        actual = min(entry.est, _price(s, model or entry.model, entry.pt, out))
+    else:
+        actual = entry.est
+    store = _store(s)
+    if store.settle(handle, actual) and entry.sub:
+        key, micros = entry.sub
+        diff = math.ceil(actual * 1e6) - micros
+        if diff < 0:
+            store.untake([key], entry.day, -diff)
+        elif diff > 0:
+            store.take([(key, 2**62)], entry.day, diff)
 
 
 def finalize(ctx) -> None:
@@ -459,8 +633,11 @@ def finalize(ctx) -> None:
     store = _store(_settings(ctx))
     with st.lock:
         rids, st.open = list(st.open), {}
+        tok, st.inflight = st.inflight, None
     for rid in rids:
         store.close(rid)
+    if tok is not None:
+        _inflight_release(ctx, st.ip, tok)
 
 
 def response_fields(ctx) -> dict:
@@ -482,3 +659,55 @@ def info_fields(request) -> dict:
     st = _ReqState(visitor=visitor, ip=ip, byok=providers.credentials_from(request) is not None,
                    day=_day())
     return {"quota": _quota_shape(s, st)}
+
+
+# ── BYOK bad-key probing (L1 calls these) ────────────────────────────────────
+
+def _bad_key_counter(ctx):
+    """(store, key, limit, day) when metering is on, else None. No ASGI scope (a bare request
+    object outside the app stack) = no client identity to key on => not counted."""
+    if not _enabled(ctx) or getattr(ctx.request, "scope", None) is None:
+        return None
+    s = _settings(ctx)
+    _visitor, ip = _identity(ctx.request)
+    return _store(s), f"bk:{ip}", int(cfg(s, "quota_byok_bad_key_per_ip_day")), _day()
+
+
+def check_byok_probing(ctx) -> None:
+    """Refuse a BYOK request from an IP that already had N byok_key_invalid refusals today: each
+    bad-key attempt runs server-key side calls (retrieval, routing) from the BYOK pool."""
+    c = _bad_key_counter(ctx)
+    if c is None:
+        return
+    store, key, limit, day = c
+    if store.count(key, day) >= limit:
+        reset_at, reset_s = _reset_at()
+        _refuse(429, "rate_limited", "API key 校验失败次数过多, 请明天再试。", reset_s,
+                retry_after_s=reset_s)
+
+
+def note_bad_key(ctx) -> None:
+    c = _bad_key_counter(ctx)
+    if c is not None:
+        store, key, _limit, day = c
+        store.take([(key, 2**62)], day)
+
+
+# ── /api/flag (not a request_scope endpoint) ─────────────────────────────────
+
+def admit_flag(request, nbytes: int) -> None:
+    """Metered tiers: bound the dogfood log (507 storage_full) and each IP's daily flag bytes
+    (429 rate_limited). Unmetered private: no-op."""
+    from server import instance
+
+    s = getattr(request.app.state, "settings", None)
+    if not _on(s, instance.tier(request)):
+        return
+    path = s.dogfood_log_path
+    size = path.stat().st_size if path.exists() else 0
+    if size + nbytes > int(cfg(s, "flag_file_max_bytes")):
+        raise ServiceRefusal(507, "storage_full", "反馈记录已满, 请联系站长。")
+    _visitor, ip = _identity(request)
+    if not _store(s).take([(f"fb:{ip}", int(cfg(s, "flag_bytes_per_ip_day")))], _day(), nbytes):
+        reset_at, reset_s = _reset_at()
+        _refuse(429, "rate_limited", "今日反馈已达上限, 请明天再来。", reset_s, retry_after_s=reset_s)
