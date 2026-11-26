@@ -245,7 +245,7 @@ def _ctx_same_app(ctx, creds=None, visitor="v1"):
 
 def test_reserve_rejects_over_remaining_budget_free_only(settings):
     s = settings
-    s.quota_site_cap_usd = 0.001
+    s.quota_site_cap_usd, s.quota_byok_side_budget_usd = 0.002, 0.001   # free share 0.001
     ctx = _ctx(s)
     quota.admit(ctx, _body())
     big = {"model": "default", "messages": [{"role": "user", "content": "x" * 30000}]}
@@ -260,7 +260,7 @@ def test_reserve_rejects_over_remaining_budget_free_only(settings):
     assert h is not None
     assert quota.reserve(bctx, "answer", big) is None
     assert quota.reserve(bctx, "route", {**big, "api_key": "sk-user"}) is None
-    with pytest.raises(ServiceRefusal):   # BYOK Tavily is server-paid: respects the cap
+    with pytest.raises(ServiceRefusal):   # BYOK Tavily is server-paid: from the BYOK pool
         quota.reserve(bctx, "web", {"query": "q"})
 
 
@@ -364,13 +364,58 @@ def test_reservation_never_finalized_expires_charged(settings, monkeypatch):
 
 def test_admit_refuses_at_cap_before_counting(settings):
     s = settings
-    s.quota_site_cap_usd = 1.0
-    assert quota._store(s).reserve("seed", quota._day(), 1.0, None, quota._now())
+    s.quota_site_cap_usd, s.quota_byok_side_budget_usd = 3.0, 1.0      # free share = 2.0
+    assert quota._store(s).reserve("seed", quota._day(), 2.0, None, quota._now())
+    quota.admit(_ctx(s, visitor="early"), _body())   # only an OPEN reservation: admit lets it in
+    assert quota._store(s).settle("seed", 2.0)       # settled at the free share -> admit refuses
     with pytest.raises(ServiceRefusal) as e:
         quota.admit(_ctx(s), _body())
     assert e.value.status_code == 429 and e.value.detail["code"] == "site_cap_reached"
     assert quota._store(s).count("v:v1", quota._day()) == 0
     quota.admit(_ctx(s, creds=Credentials(api_key="sk-user")), _body())   # BYOK admitted
+
+
+def test_question_refunded_if_cap_refuses_before_first_answer_round(settings):
+    s = settings
+    s.quota_site_cap_usd, s.quota_byok_side_budget_usd = 1.0, 0.0
+    store = quota._store(s)
+    big = {"model": "default", "messages": [{"role": "user", "content": "q"}]}   # est > $1
+    ctx = _ctx(s)
+    quota.admit(ctx, _body())
+    assert store.count("v:v1", quota._day()) == 1
+    with pytest.raises(ServiceRefusal):
+        quota.reserve(ctx, "answer", big)
+    assert store.count("v:v1", quota._day()) == 0 and store.count("ip:1.2.3.4", quota._day()) == 0
+    # after the first answering round reserved, a later refusal keeps the question
+    s.quota_site_cap_usd = 100.0
+    ctx2 = _ctx(s)
+    quota.admit(ctx2, _body())
+    quota.reserve(ctx2, "answer", {**big, "max_tokens": 10})
+    s.quota_site_cap_usd = 0.0001
+    with pytest.raises(ServiceRefusal):
+        quota.reserve(ctx2, "continue", big)
+    assert store.count("v:v1", quota._day()) == 1
+
+
+def test_open_handles_are_settled_or_closed_once_across_threads(settings):
+    s = settings
+    ctx = _ctx(s)
+    quota.admit(ctx, _body())
+    kw = {"model": "default", "messages": [{"role": "user", "content": "q"}], "max_tokens": 10}
+    handles = [quota.reserve(ctx, "embedding", kw) for _ in range(40)]
+    barrier = threading.Barrier(41)
+
+    def settle(h):
+        barrier.wait()
+        quota.settle(ctx, "embedding", h, None, None)
+
+    ts = [threading.Thread(target=settle, args=(h,)) for h in handles]
+    ts.append(threading.Thread(target=lambda: (barrier.wait(), quota.finalize(ctx))))
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    st = quota._store(s)
+    assert ctx.quota.open == {}
+    assert all(st.status(h) in ("settled", "charged") for h in handles)
 
 
 def test_client_key_normalizes_ipv6():
@@ -383,19 +428,30 @@ def test_client_key_normalizes_ipv6():
     assert client_key("testclient") == "testclient"
 
 
-def test_byok_side_calls_have_a_hard_ceiling(settings):
+def test_byok_sub_budget_is_carved_out_of_the_cap(settings):
     s = settings
-    s.quota_site_cap_usd, s.quota_byok_side_cap_usd = 1.0, 2.0
-    store = quota._store(s)
-    assert store.reserve("seed", quota._day(), 1.5, None, quota._now())   # over free cap
-    ctx = _ctx(s, creds=Credentials(api_key="junk-key"))
-    quota.admit(ctx, _body())
-    emb = {"model": "text-embedding-3-small", "input": ["x"]}
-    assert quota.reserve(ctx, "embedding", emb) is not None            # BYOK still works
-    assert store.reserve("seed2", quota._day(), 0.5, None, quota._now())  # now at the ceiling
-    with pytest.raises(ServiceRefusal) as e:
-        quota.reserve(ctx, "embedding", emb)
+    s.quota_site_cap_usd, s.quota_byok_side_budget_usd = 5.0, 2.0
+    assert quota._pool_caps(s) == {"free": 3.0, "byok": 2.0}
+    store, day = quota._store(s), quota._day()
+    assert store.reserve("free-seed", day, 3.0, None, quota._now()) and store.settle("free-seed", 3.0)
+    with pytest.raises(ServiceRefusal) as e:          # free share used up -> free off
+        quota.admit(_ctx(s), _body())
     assert e.value.detail["code"] == "site_cap_reached"
+    ctx = _ctx(s, creds=Credentials(api_key="junk-key"))
+    quota.admit(ctx, _body())                         # BYOK still works
+    emb = {"model": "text-embedding-3-small", "input": ["x"]}
+    assert quota.reserve(ctx, "embedding", emb) is not None
+    assert store.spent(day, "byok") > 0
+    assert store.reserve("byok-seed", day, 2.0 - store.spent(day, "byok"), None, quota._now(), "byok")
+    with pytest.raises(ServiceRefusal):               # BYOK pool used up -> refused at reserve
+        quota.reserve(ctx, "embedding", emb)
+    quota.finalize(ctx)
+    assert store.spent(day) <= 5.0 + 1e-9             # total never exceeds the cap
+    store._db.execute("UPDATE reservations SET status='settled' WHERE id='byok-seed'")
+    with pytest.raises(ServiceRefusal):               # ... and at admit once settled
+        quota.admit(_ctx(s, creds=Credentials(api_key="junk-key"), visitor="b2"), _body())
+    s.quota_byok_side_budget_usd = 99.0               # budget is clamped into the cap
+    assert quota._pool_caps(s) == {"free": 0.0, "byok": 5.0}
 
 
 def test_every_metered_endpoint_counts_compare_weighted(settings):

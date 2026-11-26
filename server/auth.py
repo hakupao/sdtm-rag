@@ -412,9 +412,13 @@ def _install_quota(app, settings) -> None:
                            "SDTM_RAG_VISITOR_SECRET (fail-loud, no unsigned visitor ids).")
     trusted = quota.cfg(settings, "quota_trusted_proxies")
     _trusted_nets(trusted)   # malformed CIDR => fail at startup, not per request
+    public = getattr(settings, "instance", "private") == "public"
+    if public and not trusted:
+        raise RuntimeError("public tier requires SDTM_RAG_QUOTA_TRUSTED_PROXIES (the tunnel "
+                           "connector's address): without it every visitor is the tunnel's IP.")
     secure = quota.cfg(settings, "visitor_cookie_secure")
     if secure is None:
-        secure = getattr(settings, "instance", "private") == "public"
+        secure = public
     v6 = int(quota.cfg(settings, "quota_ipv6_prefix"))
     app.add_middleware(FlagRateLimitMiddleware, trusted_proxies=trusted, v6_prefix=v6, limiter=TokenBucketLimiter(
         int(quota.cfg(settings, "flag_rate_per_min")), int(quota.cfg(settings, "flag_rate_burst"))))
@@ -422,7 +426,10 @@ def _install_quota(app, settings) -> None:
                        cookie_name=quota.cfg(settings, "visitor_cookie_name"), secure=bool(secure),
                        max_age=int(quota.cfg(settings, "visitor_cookie_max_age_s")),
                        trusted_proxies=trusted, v6_prefix=v6)
-    app.add_middleware(BodyLimitMiddleware, limit=int(quota.cfg(settings, "quota_max_body_bytes")))
+    # /api/validate* (CSV upload) is exempt only on private: on public it is not registered, and
+    # if it ever were, its body must be bounded like every other endpoint.
+    app.add_middleware(BodyLimitMiddleware, limit=int(quota.cfg(settings, "quota_max_body_bytes")),
+                       exempt=() if public else ("/api/validate", "/api/validate-study"))
 
 
 # ── Login brute-force throttle (failure-based, per-IP) ──────────────────────

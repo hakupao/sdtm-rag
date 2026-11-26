@@ -26,9 +26,11 @@ L2 policy (checkpoint .work/10_split_and_public/evidence/checkpoints/p2_l2.md):
   P2.0 no-op (private default byte-identical; no DB file is created).
 - Free (server-key) request: kill switch → site cap → rate limit → history trim → free count (visitor
   AND client IP, both must have room). Free questions get no web search (downgrade note).
-- BYOK request: rate limit + history trim only. Its server-key side calls (embedding, routing…) are
-  charged to the site spend but never refused by the cap (else "cap reached ⇒ BYOK still works"
-  breaks); its Tavily searches have their own per-visitor daily quota and do respect the cap.
+- Spend pools (user decision): total server-key spend ≤ quota_site_cap_usd. BYOK requests'
+  server-key calls (embedding, routing, Tavily…) draw on their own pool of quota_byok_side_budget_usd
+  carved OUT of the cap; free requests get the rest. Free exhausting its share does not stop BYOK
+  until the BYOK pool is used; the two pools together never exceed the cap. BYOK Tavily also has a
+  per-visitor daily quota.
 - Every server-key call reserves an estimate (charged at once); settle swaps in the actual cost.
 - Config: `cfg(settings, key)` = settings attribute if L3 added it, else env `SDTM_RAG_<KEY>`,
   else `_DEFAULTS`.
@@ -52,8 +54,8 @@ _DEFAULTS: dict = {
     "free_tier_disabled": False,       # kill switch: no server-key questions at all (503)
     "quota_free_per_day": 10,          # free questions per visitor (cookie) per UTC day
     "quota_free_per_ip_day": 30,       # … and per client IP (cookie clearing / cookieless clients)
-    "quota_site_cap_usd": 5.0,         # all server-key calls, per UTC day
-    "quota_byok_side_cap_usd": 10.0,   # hard ceiling for BYOK requests' server-key side calls
+    "quota_site_cap_usd": 5.0,         # ALL server-key spend combined, per UTC day (hard)
+    "quota_byok_side_budget_usd": 2.0,  # carved out of the cap for BYOK requests' server-key calls
     "quota_rate_per_min": 6,           # questions per visitor per minute (BYOK too)
     "quota_rate_burst": 3,
     "quota_ip_rate_per_min": 20,       # questions per client IP per minute
@@ -80,6 +82,9 @@ _DEFAULTS: dict = {
 }
 
 _ANSWER_PURPOSES = frozenset({"answer", "continue", "regen"})
+# Reserving one of these = the request started producing its answer; a later cap refusal keeps the
+# free question (the visitor got a partial result / used real spend). Before it: refunded.
+_FIRST_ROUND_PURPOSES = frozenset({"answer", "continue", "regen", "compare", "review"})
 # Deny-by-default: every metered endpoint counts as (weighted) free questions and is rate-limited
 # unless listed here. None are exempt today: ask/ask_stream/validate = 1, ask_compare = N answers.
 _EXEMPT_ENDPOINTS: frozenset = frozenset()
@@ -109,6 +114,13 @@ def _on(s, tier: str) -> bool:
 
 def app_enabled(s) -> bool:
     return _on(s, getattr(s, "instance", "private"))
+
+
+def _pool_caps(s) -> dict:
+    """{"free": cap - byok_budget, "byok": byok_budget}; the budget is clamped into [0, cap]."""
+    cap = float(cfg(s, "quota_site_cap_usd"))
+    byok = min(max(0.0, float(cfg(s, "quota_byok_side_budget_usd"))), cap)
+    return {"free": cap - byok, "byok": byok}
 
 
 def _settings(ctx):
@@ -177,7 +189,10 @@ class _ReqState:
     ip: str
     byok: bool
     day: str
-    open: dict = field(default_factory=dict)   # rid -> (purpose, est_usd, model)
+    open: dict = field(default_factory=dict)   # rid -> (est_usd, model); guarded by `lock`
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    taken: tuple | None = None   # (keys, day, n) of the free questions this request counted
+    answered: bool = False       # a first answering round got its reservation
 
 
 def _day(t: float | None = None) -> str:
@@ -260,11 +275,15 @@ def admit(ctx, body) -> None:
     reset_at, reset_s = _reset_at()
     store = _store(s)
 
-    if not st.byok:
-        if cfg(s, "free_tier_disabled"):
-            _refuse(503, "free_tier_disabled", "免费体验已暂停, 请使用自己的 API key。")
-        if store.spent(st.day) >= float(cfg(s, "quota_site_cap_usd")):
-            _refuse(429, "site_cap_reached", _CAP_MSG, reset_s, reset_at=reset_at)
+    pool = "byok" if st.byok else "free"
+    if not st.byok and cfg(s, "free_tier_disabled"):
+        _refuse(503, "free_tier_disabled", "免费体验已暂停, 请使用自己的 API key。")
+    # Gate on SETTLED spend of this request's pool: open reservations are upper-bound estimates of
+    # in-flight calls and would refuse new visitors while real spend is far below the cap. The hard
+    # guarantee stays in reserve (atomic, counts open reservations); a question refused there before
+    # its first answering round is refunded.
+    if store.settled(st.day, pool) >= _pool_caps(s)[pool]:
+        _refuse(429, "site_cap_reached", _CAP_MSG, reset_s, reset_at=reset_at)
 
     metered = ctx.endpoint not in _EXEMPT_ENDPOINTS
     if metered:
@@ -286,9 +305,11 @@ def admit(ctx, body) -> None:
     limits = [(f"ip:{st.ip}", int(cfg(s, "quota_free_per_ip_day")))]
     if st.visitor:
         limits.append((f"v:{st.visitor}", int(cfg(s, "quota_free_per_day"))))
-    if not store.take(limits, st.day, _weight(ctx, body, s)):
+    n = _weight(ctx, body, s)
+    if not store.take(limits, st.day, n):
         _refuse(429, "free_quota_exhausted", "今日免费提问次数已用完, 请明天再来或使用自己的 API key。",
                 reset_s, remaining=0, reset_at=reset_at)
+    st.taken = ([k for k, _ in limits], st.day, n)
     if getattr(body, "web", False) and not cfg(s, "quota_free_web_enabled"):
         body.web = False
         ctx.notes.append({"capability": "web_tools", "reason": "free_tier_no_web"})
@@ -388,14 +409,20 @@ def reserve(ctx, purpose: str, kw: dict):
     est, model = _estimate(s, purpose, kw)
     now = _now()
     store.expire(now - float(cfg(s, "quota_reservation_ttl_s")))
-    # BYOK side calls are not stopped by the free cap (BYOK must keep working after it) but by a
-    # higher hard ceiling: a junk BYOK header must not buy unlimited server-key spend.
-    cap = float(cfg(s, "quota_byok_side_cap_usd") if (st.byok and purpose != "web")
-                else cfg(s, "quota_site_cap_usd"))
+    pool = "byok" if st.byok else "free"   # BYOK requests' server-key calls use the carved-out pool
     rid = uuid.uuid4().hex
-    if not store.reserve(rid, _day(now), est, cap, now):
+    if not store.reserve(rid, _day(now), est, _pool_caps(s)[pool], now, pool):
+        with st.lock:
+            refund = None if st.answered else st.taken
+            if refund:
+                st.taken = None
+        if refund:
+            store.untake(*refund)
         _refuse(429, "site_cap_reached", _CAP_MSG, reset_s, reset_at=reset_at)
-    st.open[rid] = (est, model)
+    with st.lock:
+        st.open[rid] = (est, model)
+        if purpose in _FIRST_ROUND_PURPOSES:
+            st.answered = True
     return rid
 
 
@@ -413,7 +440,8 @@ def settle(ctx, purpose: str, handle, usage, model) -> None:
     st = getattr(ctx, "quota", None) if ctx is not None else None
     if handle is None or not isinstance(st, _ReqState):
         return
-    entry = st.open.pop(handle, None)
+    with st.lock:
+        entry = st.open.pop(handle, None)
     if entry is None:       # already settled / finalized: no-op
         return
     s = _settings(ctx)
@@ -429,8 +457,9 @@ def finalize(ctx) -> None:
     if not isinstance(st, _ReqState):
         return
     store = _store(_settings(ctx))
-    for rid in list(st.open):
-        st.open.pop(rid, None)
+    with st.lock:
+        rids, st.open = list(st.open), {}
+    for rid in rids:
         store.close(rid)
 
 

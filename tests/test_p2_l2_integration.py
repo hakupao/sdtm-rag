@@ -89,7 +89,7 @@ def make(engines, tmp_path):
         opts = dict(quota_enabled=True, quota_db_path=str(db), visitor_secret="t" * 32,
                     quota_rate_per_min=10_000, quota_rate_burst=10_000,
                     quota_ip_rate_per_min=10_000, quota_ip_rate_burst=10_000,
-                    dogfood_log_override=str(tmp_path / "dogfood.md"))
+                    dogfood_log_path=tmp_path / "dogfood.md")
         opts.update(over)
         s = S(base, **opts)
         app = FastAPI()
@@ -198,18 +198,20 @@ def _byok(monkeypatch):
 
 def test_cap_reached_free_off_byok_still_works(make, monkeypatch):
     _byok(monkeypatch)
-    client, router = make(quota_site_cap_usd=1.0)
+    client, router = make(quota_site_cap_usd=5.0, quota_byok_side_budget_usd=2.0)
     store = quota._store(client.app.state.settings)
-    assert store.reserve("seed", quota._day(), 1.0, None, quota._now())
+    assert store.reserve("seed", quota._day(), 3.0, None, quota._now())   # free share used up
+    assert store.settle("seed", 3.0)
     r = _ask(client, router)
     assert r.status_code == 429 and r.json()["detail"]["code"] == "site_cap_reached"
-    before = store.spent(quota._day())
+    before = store.spent(quota._day(), "byok")
     router.ask_script = [_resp("BYOK answer [Source: x].")]
     # fresh question: the query-embedding cache must not hide the server-key embedding call
     r = client.post("/api/ask", json={"question": "BYOK question about AESEV?", "corpus": "cdisc"},
                     headers={providers.BYOK_KEY_HEADER: "sk-user"})
     assert r.status_code == 200 and r.json()["quota"]["byok"] is True
-    assert store.spent(quota._day()) > before     # server-key embedding still metered
+    assert store.spent(quota._day(), "byok") > before   # its server-key embedding: BYOK pool
+    assert store.spent(quota._day()) <= 5.0 + 1e-9
 
 
 def test_kill_switch_disables_free_not_byok(make, monkeypatch):
@@ -301,13 +303,18 @@ def test_body_too_large_is_413(make):
     assert _ask(client, router).status_code == 200   # small body passes through intact
 
 
-def test_flag_rate_limited(make):
+def test_flag_rate_limited(make, engines, tmp_path):
+    real = engines[0].dogfood_log_path                 # the base settings' (repo data/) path
+    before = real.stat().st_mtime_ns if real.exists() else None
     client, _router = make(flag_rate_per_min=1, flag_rate_burst=2)
+    assert client.app.state.settings.dogfood_log_path.is_relative_to(tmp_path)
     codes = [client.post("/api/flag", json={"question": "q", "note": "n"}).status_code
              for _ in range(3)]
     assert codes == [200, 200, 429]
     r = client.post("/api/flag", json={"question": "q"})
     assert r.json()["detail"]["code"] == "rate_limited" and "retry-after" in r.headers
+    assert (tmp_path / "dogfood.md").read_text(encoding="utf-8").count("**Q:** q") == 2
+    assert (real.stat().st_mtime_ns if real.exists() else None) == before   # nothing outside tmp
 
 
 def test_free_stream_gets_no_web(make, engines):
@@ -365,3 +372,29 @@ def test_declared_oversized_body_is_refused_without_reading_it():
              "headers": [(b"content-length", b"999999999")]}
     asyncio.run(mw(scope, receive, send))
     assert sent[0]["status"] == 413
+
+
+def test_public_tier_requires_trusted_proxies(engines):
+    from fastapi import FastAPI
+
+    from server.auth import install_security
+
+    base = engines[0]
+    with pytest.raises(RuntimeError, match="TRUSTED_PROXIES"):
+        install_security(FastAPI(), S(base, instance="public", visitor_secret="t" * 32))
+    install_security(FastAPI(), S(base, instance="public", visitor_secret="t" * 32,
+                                  quota_trusted_proxies="10.0.0.1/32"))
+
+
+def test_validate_body_exempt_only_on_private(make):
+    big = {"file": ("a.csv", b"x" * 6000, "text/csv")}
+    from scripts.spec_loader import SpecLoader
+    from server.config import settings as global_settings
+
+    client, _ = make(quota_max_body_bytes=5000)
+    client.app.state.spec_loader = SpecLoader(global_settings.kb_root)
+    assert client.post("/api/validate", files=big).status_code != 413
+    client, _ = make(quota_max_body_bytes=5000, instance="public",
+                     quota_trusted_proxies="10.0.0.1/32")
+    r = client.post("/api/validate", files=big)
+    assert r.status_code == 413 and r.json()["detail"]["code"] == "request_too_large"
