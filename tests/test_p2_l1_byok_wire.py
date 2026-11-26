@@ -222,12 +222,12 @@ def test_downgrade_web_tools_no_tool_calling(harness, tier, wire, monkeypatch): 
     assert not any(c["call"] == "tavily.post" for c in rec.calls)
 
 
-def test_downgrade_web_tools_free_tier_no_web(harness, tier, monkeypatch):  # noqa: F811
+def test_downgrade_web_tools_free_tier_no_web(harness, tier, monkeypatch, tmp_path):  # noqa: F811
     client, rec, router = harness
     s = client.app.state.settings
     free = SelectableModel(id="ds-free", label="DS", model="deepseek/deepseek-v4-pro", verified=False)
     monkeypatch.setattr(s, "selectable_models", [*s.selectable_models, free])
-    tier(instance="public")
+    tier(instance="public", quota_db_path=str(tmp_path / "quota.sqlite"))   # L2 store off repo data/
     router.stream_script = [[_chunk("ok"), _chunk(finish="stop"), _chunk(usage=True)]]
     rec.calls.clear()
     ev = dict(_events(client.post("/api/ask_stream", json={

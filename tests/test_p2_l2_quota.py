@@ -284,10 +284,16 @@ def test_settle_uses_reported_model_and_actual_usage(settings):
     h = quota.reserve(ctx, "answer", {"model": "default", "messages": [{"role": "user", "content": "q"}]})
     usage = SimpleNamespace(prompt_tokens=1000, completion_tokens=100)
     quota.settle(ctx, "answer", h, usage, "deepseek-v4-pro")
-    assert quota._store(s).spent(quota._day()) == pytest.approx(
-        (1000 * 0.435 + 100 * 0.87) / 1e6)
+    from server.cost import estimate_cost  # the price source (L1-owned), per 1M tokens
+
+    r_in = estimate_cost("deepseek-v4-pro", {"prompt_tokens": 1_000_000, "completion_tokens": 0})
+    r_out = estimate_cost("deepseek-v4-pro", {"prompt_tokens": 0, "completion_tokens": 1_000_000})
+    expected = (1000 * r_in + 100 * r_out) / 1e6
+    assert r_in and r_out and expected != pytest.approx(quota._estimate(s, "answer", {
+        "model": "default", "messages": [{"role": "user", "content": "q"}]})[0])
+    assert quota._store(s).spent(quota._day()) == pytest.approx(expected)
     quota.settle(ctx, "answer", h, usage, "deepseek-v4-pro")   # repeat: no-op
-    assert quota._store(s).spent(quota._day()) == pytest.approx((1000 * 0.435 + 100 * 0.87) / 1e6)
+    assert quota._store(s).spent(quota._day()) == pytest.approx(expected)
 
 
 # ── reservation accounting through the real outbound seam ──

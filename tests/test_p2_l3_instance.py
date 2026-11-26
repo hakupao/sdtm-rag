@@ -13,6 +13,7 @@ from server.config import SelectableModel, Settings
 from server.llm_config import INTERNAL_GROUPS
 from server.main import create_app
 from server.request_context import ServiceRefusal
+from tests.conftest import set_public_quota_env
 
 PUBLIC_MODELS = [SelectableModel(id="ds-v4", label="DeepSeek V4 Pro", model="deepseek/deepseek-v4-pro",
                                  verified=False)]
@@ -26,6 +27,7 @@ def _clean_env(monkeypatch):
     for k in list(os.environ):
         if k.startswith("SDTM_RAG_"):
             monkeypatch.delenv(k)
+    set_public_quota_env(monkeypatch)   # L2 startup requirements for public apps (test values)
 
 
 def _paths(tmp_path, data_dir=None):
@@ -193,8 +195,10 @@ def test_flag_on_public_keeps_field_size_limit(tmp_path):
 
 def test_info_public_shape_has_no_internal_fields(tmp_path):
     body = _client(_pub(tmp_path)).get("/api/info").json()
-    # L1 adds `providers` on public (contract §2.6: BYOK registry, no `custom`)
-    assert set(body) == {"tier", "top_k", "web_search", "selectable_models", "index_fresh", "providers"}
+    # L1 adds `providers`, L2 adds `quota` on public (contract §2.6: BYOK registry, no `custom`)
+    assert set(body) == {"tier", "top_k", "web_search", "selectable_models", "index_fresh", "providers",
+                         "quota"}
+    assert set(body["quota"]) == {"free_remaining", "free_per_day", "reset_at", "byok"}
     assert body["tier"] == "public" and "custom" not in [p["id"] for p in body["providers"]]
     assert [m["id"] for m in body["selectable_models"]] == ["ds-v4"]
 

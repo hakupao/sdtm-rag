@@ -9,7 +9,6 @@ from types import SimpleNamespace
 import pytest
 
 from server import providers, quota
-from server.request_context import Credentials
 from tests.test_p2_seam_characterization import _DOCS, _chunk, _FakeRouter, _Rec, _resp, _vec
 
 
@@ -190,40 +189,52 @@ def test_tampered_cookie_is_a_new_visitor(make):
     assert r.status_code == 200 and "set-cookie" in r.headers  # re-minted, not the old visitor
 
 
+BYOK_KEY = "sk-user-test-key"
+BYOK_BODY = {"provider": "openai", "model": "gpt-5.4-mini"}   # an L1 registry provider/model
+
+
 def _byok(monkeypatch):
-    monkeypatch.setattr(providers, "credentials_from",
-                        lambda request: Credentials(api_key="sk-user") if request.headers.get(
-                            providers.BYOK_KEY_HEADER) else None)
+    """Real L1 BYOK path (byok_enabled on private + registry provider/model); only the provider wire
+    (litellm.completion, which L1 calls directly for BYOK answers) is faked. Returns its calls."""
+    import litellm
+
+    seen = []
+
+    def fake_completion(**kw):
+        seen.append(kw)
+        return _resp("BYOK answer [Source: x].", model=kw["model"])
+
+    monkeypatch.setattr(litellm, "completion", fake_completion)
+    return seen
 
 
 def test_cap_reached_free_off_byok_still_works(make, monkeypatch):
-    _byok(monkeypatch)
-    client, router = make(quota_site_cap_usd=5.0, quota_byok_side_budget_usd=2.0)
+    seen = _byok(monkeypatch)
+    client, router = make(quota_site_cap_usd=5.0, quota_byok_side_budget_usd=2.0, byok_enabled=True)
     store = quota._store(client.app.state.settings)
     assert store.reserve("seed", quota._day(), 3.0, None, quota._now())   # free share used up
     assert store.settle("seed", 3.0)
     r = _ask(client, router)
     assert r.status_code == 429 and r.json()["detail"]["code"] == "site_cap_reached"
     before = store.spent(quota._day(), "byok")
-    router.ask_script = [_resp("BYOK answer [Source: x].")]
     # fresh question: the query-embedding cache must not hide the server-key embedding call
-    r = client.post("/api/ask", json={"question": "BYOK question about AESEV?", "corpus": "cdisc"},
-                    headers={providers.BYOK_KEY_HEADER: "sk-user"})
+    r = client.post("/api/ask", json={"question": "BYOK question about AESEV?", "corpus": "cdisc",
+                                      **BYOK_BODY}, headers={providers.BYOK_KEY_HEADER: BYOK_KEY})
     assert r.status_code == 200 and r.json()["quota"]["byok"] is True
+    assert seen and all(kw["api_key"] == BYOK_KEY for kw in seen)   # answer on the user's key
     assert store.spent(quota._day(), "byok") > before   # its server-key embedding: BYOK pool
     assert store.spent(quota._day()) <= 5.0 + 1e-9
 
 
 def test_kill_switch_disables_free_not_byok(make, monkeypatch):
-    _byok(monkeypatch)
+    seen = _byok(monkeypatch)
     monkeypatch.setenv("SDTM_RAG_FREE_TIER_DISABLED", "1")
-    client, router = make()
+    client, router = make(byok_enabled=True)
     r = _ask(client, router)
     assert r.status_code == 503 and r.json()["detail"]["code"] == "free_tier_disabled"
-    router.ask_script = [_resp("a")]
-    r = client.post("/api/ask", json={"question": "q", "corpus": "cdisc"},
-                    headers={providers.BYOK_KEY_HEADER: "sk-user"})
-    assert r.status_code == 200
+    r = client.post("/api/ask", json={"question": "q", "corpus": "cdisc", **BYOK_BODY},
+                    headers={providers.BYOK_KEY_HEADER: BYOK_KEY})
+    assert r.status_code == 200 and seen
 
 
 def test_cap_hit_mid_request_refuses_continuation(make, engines):
