@@ -71,6 +71,8 @@ def is_gated_pass(data_root: Path, fp: str) -> bool:
 
 # ── 文件系统子命令 ────────────────────────────────────────────────────────
 def detect(data_root: Path, fp: str) -> dict:
+    if (data_root / JOURNAL).exists():  # 上次换数据未收尾: 生产 stamp 不可信, 不建候选
+        return {"result": "journal_pending"}
     prod = stamp_fp(data_root / "chroma")
     if prod == fp:
         return {"result": "same"}
@@ -227,7 +229,7 @@ def predeploy_check(data_root: Path, target_fp: str | None, chromadb_version: st
     if is_gated_pass(data_root, target_fp):
         c, m = cand_names(target_fp)
         built = (read_marker(data_root / c) or {}).get("chromadb")
-        if chromadb_version and built == chromadb_version:
+        if chromadb_version not in ("", "unknown") and built == chromadb_version:
             return {**base, "decision": "swap", "source_chroma": c, "source_meta": m}
         base["candidate_skipped"] = f"chromadb {built} != target {chromadb_version or None}"
     prev = _newest_prev(data_root, target_fp)
@@ -316,6 +318,10 @@ def prune(data_root: Path, keep: int = 2) -> dict:
             if (data_root / n).exists():
                 shutil.rmtree(data_root / n)
                 removed.append(n)
+    for g in sorted(data_root.glob("kbsync_guard_*")):  # 上次 deploy-swap 异常残留的核对副本
+        if g.is_dir():
+            shutil.rmtree(g)
+            removed.append(g.name)
     return {"kept": [n for _, _, n in prevs[:keep]], "removed": removed}
 
 
@@ -448,8 +454,8 @@ def deploy_swap(docker: Docker, a: argparse.Namespace) -> int:
         print(f"[kbsync] 不可换: {json.dumps(chk)}")
         return 1
     src = chk["source_chroma"]
-    g = via(docker, a.image, D, ["guard-copy", "--data-root", D, "--ts", ts, "--names", "chroma", src])
-    try:
+    try:  # guard-copy 也在 try 内: 拷到一半失败同样清掉 kbsync_guard_<ts>
+        g = via(docker, a.image, D, ["guard-copy", "--data-root", D, "--ts", ts, "--names", "chroma", src])
         prod_cols = non_kb(collections(docker, a.image, f"{D}/{g['guard_dir']}/chroma"))
         src_cols = non_kb(collections(docker, a.image, f"{D}/{g['guard_dir']}/{src}"))
     finally:
@@ -462,6 +468,19 @@ def deploy_swap(docker: Docker, a: argparse.Namespace) -> int:
     print(json.dumps(via(docker, a.image, D, ["swap", "--data-root", D, "--target-fp", a.target_fp,
                                               "--ts", ts, *ver])))
     return 0
+
+
+def journal_state(docker: Docker, image: str, data_root: str) -> int:
+    """workflow 退回步用: 0 = 无 journal, 3 = journal 在 (数据换了一半/未退干净), 2 = 判不出。
+    判不出 ≠ 没有: 调用方对 2 与 3 一样按"不能动镜像/不能起服务"处理。"""
+    try:
+        res = via(docker, image, data_root, ["swap-status", "--data-root", data_root])
+    except (RuntimeError, ValueError) as e:
+        print(f"[kbsync] journal 状态判不出: {e}", file=sys.stderr)
+        return 2
+    if res.get("pending") is True:
+        return 3
+    return 0 if res.get("pending") is False else 2
 
 
 IMAGE_FP_PY = ("from scripts.kb_freshness import kb_fingerprint;from server.config import settings;"
@@ -541,6 +560,7 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--chromadb-version", required=True)
     p("image-fp", data=False).add_argument("--image", required=True)
     p("chromadb-version", data=False).add_argument("--image", required=True)
+    p("journal-state").add_argument("--image", required=True)
     p("fingerprint", data=False).add_argument("--kb-root", required=True)
     return ap
 
@@ -594,6 +614,10 @@ def main(argv: list[str] | None = None, docker: Docker | None = None) -> int:
     if a.cmd == "image-fp":
         print(image_fp(docker, a.image))
         return 0
+    if a.cmd == "journal-state":
+        rc = journal_state(docker, a.image, a.data_root)
+        print({0: "clear", 2: "unknown", 3: "pending"}[rc])
+        return rc
     if a.cmd == "chromadb-version":
         print(chromadb_version(docker, a.image))
         return 0

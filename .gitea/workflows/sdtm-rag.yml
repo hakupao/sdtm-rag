@@ -163,11 +163,14 @@ jobs:
             IMG="$IMAGE:${{ steps.tag.outputs.tag }}"
             if ! python3 deploy/kbsync/kbsync.py deploy-swap --data-root "$DATA_ROOT" \
                 --image "$IMG" --target-fp "$FP" --chromadb-version "$CHROMA_V"; then
-              # 换到一半失败 (journal 在) → 先退数据, 再起原容器; 退不干净则不起, 交给人工
-              if python3 deploy/kbsync/kbsync.py --via "$IMG" swap-status --data-root "$DATA_ROOT" | grep -q '"pending": true'; then
-                python3 deploy/kbsync/kbsync.py --via "$IMG" restore --data-root "$DATA_ROOT" \
-                  || { echo "restore 失败, 服务保持停止, 需人工处理"; exit 1; }
-              fi
+              # 换到一半失败 (journal 在) → 先退数据, 再起原容器; 退不干净 / 判不出则不起, 交给人工
+              JS=0; python3 deploy/kbsync/kbsync.py journal-state --image "$IMG" --data-root "$DATA_ROOT" || JS=$?
+              case "$JS" in
+                0) ;;
+                3) python3 deploy/kbsync/kbsync.py --via "$IMG" restore --data-root "$DATA_ROOT" \
+                     || { echo "restore 失败, 服务保持停止, 需人工处理"; exit 1; } ;;
+                *) echo "journal 状态判不出, 服务保持停止, 需人工处理"; exit 1 ;;
+              esac
               echo "换数据被拒/失败, 数据已是部署前状态, 原容器重新启动"
               IMAGE_TAG=x docker compose -f deploy/container/compose.yml start
               exit 1
@@ -209,8 +212,9 @@ jobs:
           PREV: ${{ steps.prev.outputs.prev }}
         run: |
           IMG="$IMAGE:$TAG"
-          OUT=$(python3 deploy/kbsync/kbsync.py --via "$IMG" swap-status --data-root "$DATA_ROOT")
-          printf '%s' "$OUT" | grep -q '"pending": true' || { echo "未换数据, 无需退回"; exit 0; }
+          JS=0; python3 deploy/kbsync/kbsync.py journal-state --image "$IMG" --data-root "$DATA_ROOT" || JS=$?
+          [ "$JS" = 0 ] && { echo "未换数据, 无需退回"; exit 0; }
+          [ "$JS" = 3 ] || { echo "journal 状态判不出, 不动数据, 需人工处理"; exit 1; }
           IMAGE_TAG="$TAG" docker compose -f deploy/container/compose.yml stop
           python3 deploy/kbsync/kbsync.py --via "$IMG" restore --data-root "$DATA_ROOT"
           if [ "$PREV" = "$TAG" ]; then
@@ -224,7 +228,11 @@ jobs:
         if: failure() && steps.deploy.outputs.started == 'true' && steps.prev.outputs.prev != '' && steps.prev.outputs.prev != steps.tag.outputs.tag
         env:
           PREV: ${{ steps.prev.outputs.prev }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
+          # 数据没退干净 (journal 还在) 或判不出时绝不起旧镜像: 旧镜像 + 换了一半的数据 = 本步骤要防的错配
+          JS=0; python3 deploy/kbsync/kbsync.py journal-state --image "$IMAGE:$TAG" --data-root "$DATA_ROOT" || JS=$?
+          [ "$JS" = 0 ] || { echo "数据根 journal 未清 (状态码 $JS), 不退镜像, 服务需人工处理 (见 deploy/README「KB 同步」)"; exit 1; }
           printf '%s' "$PREV" | grep -Eqx '[0-9a-f]{40}' || { echo "部署前镜像标签不是 40 位 SHA ($PREV)，不自动退回，请手动处理"; exit 1; }
           APP_DIR=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMAGE:$PREV")
           [ -n "$APP_DIR" ] || APP_DIR=/app

@@ -78,6 +78,13 @@ def test_detect_already_gated(root):
     assert ks.detect(root, NEW)["result"] == "gated"
 
 
+def test_detect_journal_pending(root):
+    _gated_cand(root)
+    (root / ks.JOURNAL).write_text("{}")
+    assert ks.detect(root, NEW) == {"result": "journal_pending"}
+    assert ks.detect(root, OLD) == {"result": "journal_pending"}
+
+
 def test_detect_failed_marker_is_not_gated(root):
     _gated_cand(root, verdict="FAIL")
     assert ks.detect(root, NEW)["result"] == "changed"
@@ -291,6 +298,11 @@ def test_candidate_built_with_other_chromadb_is_not_swapped(root):
     assert ks.predeploy_check(root, NEW, "1.4.0")["decision"] == "swap"
 
 
+def test_unknown_chromadb_on_both_sides_is_mismatch(root):
+    _gated_cand(root, chromadb="unknown")
+    assert ks.predeploy_check(root, NEW, "unknown")["decision"] == "missing"
+
+
 def test_restore_refuses_and_keeps_journal_on_bad_end_state(root):
     _gated_cand(root)
     j = ks.swap(root, NEW, TS, CV)
@@ -348,6 +360,7 @@ class FakeDocker(ks.Docker):
         self.D, self.cand_scores, self.ingest_fp = D, cand_scores or dict(BASE), ingest_fp
         self.crash_cmd = crash_cmd
         self.col_dirs: list[Path] = []
+        self.fail_fs: set[str] = set()
         self.cols = collections or {}
         self.image_fp_out = image_fp_out
         self.calls: list[list[str]] = []
@@ -361,6 +374,10 @@ class FakeDocker(ks.Docker):
             return self._ok("/app\n")
         if "-i" in args and "-" in args:  # --via: 本进程内跑文件系统子命令
             fs = args[args.index("-") + 1:]
+            if fs[0] in self.fail_fs:  # 先真跑 (留下半成品), 再报错
+                with contextlib.redirect_stdout(io.StringIO()):
+                    ks.main(fs)
+                return subprocess.CompletedProcess([], 2, b"", b"boom")
             buf = io.StringIO()
             with contextlib.redirect_stdout(buf):
                 try:
@@ -481,6 +498,35 @@ def test_deploy_swap_refuses_on_same_count_different_content(root):
     before = _snapshot(root)
     assert ks.deploy_swap(fd, _deploy_args(root)) == 1
     assert _snapshot(root) == before
+
+
+def test_deploy_swap_guard_copy_failure_leaves_no_guard_dir(root):
+    _gated_cand(root)
+    c, _ = ks.cand_names(NEW)
+    fd = FakeDocker(root, collections={"chroma": _cols(10), c: _cols(12)})
+    fd.fail_fs = {"guard-copy"}
+    before = _snapshot(root)
+    with pytest.raises(RuntimeError):
+        ks.deploy_swap(fd, _deploy_args(root))
+    assert not list(root.glob("kbsync_guard_*"))
+    assert _snapshot(root) == before
+
+
+def test_prune_cleans_stale_guard_dirs(root):
+    (root / "kbsync_guard_20261101T000000Z" / "chroma").mkdir(parents=True)
+    _chroma(root / f"chroma_failed_{NEW[:12]}_20261101T000000Z", NEW)
+    res = ks.prune(root, 2)
+    assert res["removed"] == ["kbsync_guard_20261101T000000Z"]
+    assert (root / f"chroma_failed_{NEW[:12]}_20261101T000000Z").is_dir()
+
+
+def test_journal_state_clear_pending_unknown(root):
+    fd = FakeDocker(root)
+    assert ks.journal_state(fd, "img:1", str(root)) == 0
+    (root / ks.JOURNAL).write_text("{}")
+    assert ks.journal_state(fd, "img:1", str(root)) == 3
+    fd.fail_fs = {"swap-status"}  # via 失败 = 判不出, 绝不当作 "无 journal"
+    assert ks.journal_state(fd, "img:1", str(root)) == 2
 
 
 def test_image_fp_unknown_for_old_image(root, capsys):
