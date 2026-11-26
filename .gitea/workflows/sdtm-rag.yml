@@ -168,7 +168,7 @@ jobs:
           echo "健康检查失败，最后返回 $code"; docker logs --tail 80 sdtm-rag-api; exit 1
 
       - name: KB 索引新鲜度
-        if: steps.kbcheck.outputs.decision == 'same' || steps.kbcheck.outputs.decision == 'swap'
+        if: steps.kbcheck.outputs.decision == 'swap'
         run: docker exec sdtm-rag-api python -m scripts.check_index_freshness
 
       - name: 换数据收尾 (删 journal, 旧副本留最新 2 份)
@@ -177,7 +177,9 @@ jobs:
           IMG: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
         run: |
           python3 deploy/kbsync/kbsync.py --via "$IMG" finish --data-root "$DATA_ROOT"
-          python3 deploy/kbsync/kbsync.py --via "$IMG" prune --data-root "$DATA_ROOT" --keep 2
+          # finish 之后不许再让本 job 失败 (否则退回镜像却找不到 journal 退数据)
+          python3 deploy/kbsync/kbsync.py --via "$IMG" prune --data-root "$DATA_ROOT" --keep 2 \
+            || echo "::warning::prune 失败 (不影响本次部署), 旧 chroma_prev_* 请人工清理"
 
       # 必须排在退回镜像之前, 且不受 prev != tag 限制: 同标签重部署也可能换过数据
       - name: 失败 → 退回换过的 chroma/meta

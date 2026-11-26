@@ -39,6 +39,7 @@ def root(tmp_path):
     D = tmp_path / "data"
     _chroma(D / "chroma", OLD, "prod")
     _meta(D / "meta")
+    (D / "meta" / "implicit_relations.json").write_text("sib")
     (D / "study").mkdir()
     return D
 
@@ -102,6 +103,21 @@ def test_prepare_copies_prod_and_skips_old_gate_files(root):
     assert not (root / c / ks.MARKER).exists()
     assert list((root / c / ks.EVAL_DIR).iterdir()) == []
     assert (root / m / "meta.yaml").read_text() == "old-meta"
+
+
+def test_meta_sibling_files_survive_prepare_build_meta_swap_restore(root):
+    ks.prepare(root, NEW, TS)
+    c, m = ks.cand_names(NEW)
+    assert (root / m / "implicit_relations.json").read_text() == "sib"
+    (root / m / "meta.yaml").write_text("new-meta")  # = build_meta
+    (root / c / ks.STAMP).write_text(f"{ks.STAMP_KEY}={NEW}\n")
+    (root / c / ks.MARKER).write_text(json.dumps({"fingerprint": NEW, "verdict": "PASS"}))
+    ks.swap(root, NEW, TS)
+    assert (root / "meta" / "meta.yaml").read_text() == "new-meta"
+    assert (root / "meta" / "implicit_relations.json").read_text() == "sib"
+    ks.restore(root)
+    assert (root / "meta" / "meta.yaml").read_text() == "old-meta"
+    assert (root / "meta" / "implicit_relations.json").read_text() == "sib"
 
 
 def test_prepare_archives_stale_candidate_never_deletes(root):
@@ -230,8 +246,10 @@ def test_prune_keeps_newest_two_and_spares_failed(root):
 
 # ── 编排 (假 docker) ──────────────────────────────────────────────────────
 class FakeDocker(ks.Docker):
-    def __init__(self, D: Path, cand_scores=None, ingest_fp=NEW, collections=None, image_fp_out=None):
+    def __init__(self, D: Path, cand_scores=None, ingest_fp=NEW, collections=None, image_fp_out=None,
+                 crash_cmd=None):
         self.D, self.cand_scores, self.ingest_fp = D, cand_scores or dict(BASE), ingest_fp
+        self.crash_cmd = crash_cmd
         self.cols = collections or {}
         self.image_fp_out = image_fp_out
         self.calls: list[list[str]] = []
@@ -265,6 +283,8 @@ class FakeDocker(ks.Docker):
         chroma, meta = Path(mounts["/app/data/chroma"]), Path(mounts["/app/data/meta"])
         assert chroma.name.startswith("chroma_cand_"), chroma
         cmd = args[args.index("-m") + 1]
+        if self.crash_cmd and self.crash_cmd(args):
+            return subprocess.CompletedProcess([], 1, b"", b"RuntimeError: VARIABLE_INDEX section map")
         if cmd == "eval.run_eval":
             out = args[args.index("--output") + 1]
             target = chroma / Path(out).relative_to("data/chroma")
@@ -299,6 +319,18 @@ def test_candidate_pipeline_old_kb_image_fails(root):
     assert ks.candidate(fd, _cand_args(root)) == 1
     assert ks.detect(root, NEW)["result"] == "changed"
     assert (root / f"chroma_failed_{NEW[:12]}_{TS}").is_dir()
+
+
+def test_candidate_eval_crash_fails_and_archives(root):
+    # 删 VARIABLE_INDEX.md 实测: 候选 eval 直接崩 rc 1 (不是回退) —— 必须 FAIL + 归档, 生产不动
+    before = (root / "chroma" / "chroma.sqlite3").read_text()
+    fd = FakeDocker(root, crash_cmd=lambda a: "candidate.json" in " ".join(a))
+    assert ks.candidate(fd, _cand_args(root)) == 1
+    failed = root / f"chroma_failed_{NEW[:12]}_{TS}"
+    assert json.loads((failed / ks.MARKER).read_text())["reason"] == "candidate_eval_rc1"
+    assert (root / f"meta_failed_{NEW[:12]}_{TS}").is_dir()
+    assert ks.detect(root, NEW)["result"] == "changed"
+    assert (root / "chroma" / "chroma.sqlite3").read_text() == before
 
 
 def _deploy_args(D: Path):

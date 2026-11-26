@@ -103,8 +103,8 @@ def prepare(data_root: Path, fp: str, ts: str) -> dict:
     shutil.copytree(prod, data_root / c, symlinks=True,
                     ignore=shutil.ignore_patterns(MARKER, EVAL_DIR))
     (data_root / c / EVAL_DIR).mkdir()
-    (data_root / m).mkdir()
-    shutil.copy2(data_root / "meta" / "meta.yaml", data_root / m / "meta.yaml")
+    # 整个 meta/ 复制 (除 meta.yaml 还有 implicit_relations.json 等), build_meta 只覆盖 meta.yaml
+    shutil.copytree(data_root / "meta", data_root / m, symlinks=True)
     return {"candidate": c, "meta": m, "archived_stale": stale}
 
 
