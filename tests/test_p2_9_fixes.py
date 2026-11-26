@@ -394,3 +394,88 @@ def test_compare_cancels_siblings_on_refusal(monkeypatch):
 
     assert asyncio.run(run()) < 2
     assert sorted(cancelled) == ["slow-a", "slow-b"]
+
+
+# ── #4: public cost / header startup gates (instance.check_startup) ─────────
+
+def _pub_settings(tmp_path, **kw):
+    from server.config import SelectableModel
+
+    data = tmp_path / "data"
+    data.mkdir(exist_ok=True)
+    st = tmp_path / "nostudy"
+    base = dict(instance="public", data_dir_override=str(data), study_kb_root=st / "cards",
+                study_catalog_path=st / "catalog.json", study_aliases_path=st / "aliases.yml",
+                selectable_models=[SelectableModel(id="ds-v4", label="DS", model="deepseek/deepseek-v4-pro",
+                                                   verified=False, max_output_tokens=32000)])
+    return Settings(**{**base, **kw})
+
+
+def _startup_error(s):
+    from server import instance
+
+    try:
+        instance.check_startup(s)
+    except RuntimeError as e:
+        return str(e)
+    return None
+
+
+def test_public_cost_gates_pass_for_a_bounded_model(tmp_path, monkeypatch):
+    monkeypatch.delenv("SDTM_RAG_SELECTABLE_MODELS", raising=False)
+    assert _startup_error(_pub_settings(tmp_path)) is None
+
+
+def test_public_requires_explicit_selectable_models(tmp_path, monkeypatch):
+    monkeypatch.delenv("SDTM_RAG_SELECTABLE_MODELS", raising=False)
+    s = _pub_settings(tmp_path)
+    kw = {k: getattr(s, k) for k in s.model_fields_set if k != "selectable_models"}
+    err = _startup_error(Settings(**kw))      # built-in list: the private Claude set
+    assert "SDTM_RAG_SELECTABLE_MODELS not set" in err
+
+
+def test_public_model_needs_explicit_max_output_and_a_bounded_round(tmp_path):
+    from server.config import SelectableModel
+
+    implicit = SelectableModel(id="ds-v4", label="DS", model="deepseek/deepseek-v4-pro", verified=False)
+    err = _startup_error(_pub_settings(tmp_path, selectable_models=[implicit]))
+    assert "no explicit max_output_tokens" in err
+    assert "free pool / 10" in err            # implicit 128000 x $3.96/M > $0.30
+    big = SelectableModel(id="ds-v4", label="DS", model="deepseek/deepseek-v4-pro", verified=False,
+                          max_output_tokens=100_000)
+    err = _startup_error(_pub_settings(tmp_path, selectable_models=[big]))
+    assert "free pool / 10" in err and "no explicit" not in err
+
+
+def test_public_requires_security_headers(tmp_path):
+    err = _startup_error(_pub_settings(tmp_path, security_headers_enabled=False))
+    assert "security_headers_enabled=false" in err
+
+
+def test_private_ignores_public_cost_gates(tmp_path):
+    from server.config import SelectableModel
+
+    implicit = SelectableModel(id="x", label="X", model="anthropic/claude-opus-5", verified=False)
+    assert _startup_error(Settings(selectable_models=[implicit], security_headers_enabled=False)) is None
+
+
+# ── #1: the router's narrow stream_options retry is charged as ONE round ───
+
+def test_narrow_retry_spends_one_round(make):  # noqa: F811
+    from tests.test_p2_seam_characterization import _chunk
+
+    client, router = make()
+    store = quota._store(client.app.state.settings)
+    ok = [_chunk("ok"), _chunk(finish="stop"), _chunk(usage=True)]
+
+    def spend(script):
+        router.stream_script = script
+        before = store.spent(quota._day())
+        r = client.post("/api/ask_stream", json={"question": "narrow retry q", "corpus": "cdisc"})
+        assert r.status_code == 200 and "event: done" in r.text
+        return store.spent(quota._day()) - before
+
+    spend([list(ok)])                                  # warm the query-embedding cache
+    plain = spend([list(ok)])
+    retried = spend([TypeError("stream_options unsupported"), list(ok)])
+    assert plain > 0 and retried == pytest.approx(plain)
