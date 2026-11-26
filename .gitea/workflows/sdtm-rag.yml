@@ -2,7 +2,8 @@
 # 部署配置在 deploy/container/；运维说明见 lan-services 仓库（第 6 步）。
 # 回滚：在 Actions 页面手动运行本工作流，tag 填已有镜像的 commit SHA，跳过构建，直接部署该版本。
 # 只构建不部署：手动运行，tag 留空、deploy 取消勾选 → 构建+推送镜像后结束 (切换前先在测试端口验证)。
-# 健康检查失败会自动退回部署前正在跑的镜像。
+# 健康检查失败会自动退回部署前正在跑的镜像 (换过 chroma/meta 的话一并退回)。
+# KB 对齐 (step 1.9): 目标镜像 KB 指纹 ≠ 生产 chroma stamp → 换上 kb-sync 过闸的候选 (或保留的旧副本), 找不到则不动生产直接失败。
 name: sdtm-rag
 on:
   push:
@@ -32,6 +33,10 @@ on:
         description: "false = 只构建并推送镜像, 不部署 (测试端口先验用)"
         type: boolean
         default: true
+      force_data_mismatch:
+        description: "true = 镜像 KB 指纹判不出 / 无匹配的 chroma 副本时仍部署 (不换数据, 只告警)"
+        type: boolean
+        default: false
 
 concurrency:
   group: sdtm-rag-deploy
@@ -40,6 +45,8 @@ concurrency:
 env:
   REGISTRY: 192.168.100.58
   IMAGE: 192.168.100.58/bojiang/sdtm-rag
+  # 数据根是 Docker 守护进程侧路径: job 容器看不到, kbsync 的文件操作经 --via 在兄弟容器里做
+  DATA_ROOT: /Volumes/DevSSD/deploy-data/sdtm-rag/data
 
 jobs:
   deploy:
@@ -97,16 +104,55 @@ jobs:
           echo "prev=$PREV" >> "$GITHUB_OUTPUT"
           echo "部署前线上镜像标签：${PREV:-无}"
 
+      # 只读: 决定 chroma/meta 怎么办 (same / swap / missing / unknown), 生产此时未动
+      - name: KB 数据对齐检查
+        id: kbcheck
+        if: gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          FORCE: ${{ format('{0}', inputs.force_data_mismatch) }}
+        run: |
+          IMG="$IMAGE:$TAG"
+          docker pull "$IMG"
+          FP=$(python3 deploy/kbsync/kbsync.py image-fp --image "$IMG")
+          OUT=$(python3 deploy/kbsync/kbsync.py --via "$IMG" predeploy-check --data-root "$DATA_ROOT" --target-fp "$FP")
+          echo "$OUT"
+          DECISION=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["decision"])')
+          case "$DECISION" in
+            same) echo "镜像 KB 指纹与生产 chroma 一致, 不换数据" ;;
+            swap) echo "镜像 KB 指纹 ${FP:0:12} ≠ 生产 → 部署时换上 $(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["source_chroma"])')" ;;
+            unknown|missing)
+              if [ "$FORCE" = true ]; then
+                echo "::warning::force_data_mismatch: 镜像 KB 指纹 ${FP:0:12} 与生产 chroma 对不上 ($DECISION), 不换数据照常部署 —— 回答可能基于错配索引"
+                DECISION=forced
+              else
+                echo "镜像 KB 指纹 ${FP:0:12} 与生产 chroma 不同, 且无过闸候选 / 保留副本 ($DECISION); 生产未动。"
+                echo "先对该 KB tag 跑 kb-sync 工作流 (过闸后再部署); 回滚旧镜像且确认可接受错配时勾选 force_data_mismatch"
+                exit 1
+              fi ;;
+            *) echo "未知决定 $DECISION"; exit 1 ;;
+          esac
+          { echo "decision=$DECISION"; echo "fp=$FP"; } >> "$GITHUB_OUTPUT"
+
       - name: 部署
         if: gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false'
+        env:
+          DECISION: ${{ steps.kbcheck.outputs.decision }}
+          FP: ${{ steps.kbcheck.outputs.fp }}
         run: |
-          docker pull "$IMAGE:${{ steps.tag.outputs.tag }}"
           # 挂载目标跟随镜像的 WorkingDir: step 1.5a 前 (monorepo 时代) 的镜像是
           # /Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag, 之后是 /app —— 回滚旧镜像时 data/.env 才挂得对
           APP_DIR=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMAGE:${{ steps.tag.outputs.tag }}")
           [ -n "$APP_DIR" ] || APP_DIR=/app
           export APP_DIR
           echo "挂载目标目录：$APP_DIR"
+          if [ "$DECISION" = swap ]; then
+            # 停服务 → 非 KB 集合核对 → 改名换 chroma/meta (journal 记在数据根, 失败步按它退回)
+            IMAGE_TAG="${{ steps.tag.outputs.tag }}" docker compose -f deploy/container/compose.yml stop
+            python3 deploy/kbsync/kbsync.py deploy-swap --data-root "$DATA_ROOT" \
+              --image "$IMAGE:${{ steps.tag.outputs.tag }}" --target-fp "$FP" \
+              || { echo "换数据被拒, 原容器重新启动"; IMAGE_TAG=x docker compose -f deploy/container/compose.yml start; exit 1; }
+          fi
           IMAGE_TAG="${{ steps.tag.outputs.tag }}" docker compose -f deploy/container/compose.yml up -d
           docker inspect sdtm-rag-api sdtm-rag-ui --format '{{.Name}} 运行镜像：{{.Config.Image}}'
 
@@ -120,6 +166,37 @@ jobs:
             sleep 3
           done
           echo "健康检查失败，最后返回 $code"; docker logs --tail 80 sdtm-rag-api; exit 1
+
+      - name: KB 索引新鲜度
+        if: steps.kbcheck.outputs.decision == 'same' || steps.kbcheck.outputs.decision == 'swap'
+        run: docker exec sdtm-rag-api python -m scripts.check_index_freshness
+
+      - name: 换数据收尾 (删 journal, 旧副本留最新 2 份)
+        if: success() && steps.kbcheck.outputs.decision == 'swap'
+        env:
+          IMG: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+        run: |
+          python3 deploy/kbsync/kbsync.py --via "$IMG" finish --data-root "$DATA_ROOT"
+          python3 deploy/kbsync/kbsync.py --via "$IMG" prune --data-root "$DATA_ROOT" --keep 2
+
+      # 必须排在退回镜像之前, 且不受 prev != tag 限制: 同标签重部署也可能换过数据
+      - name: 失败 → 退回换过的 chroma/meta
+        if: failure() && steps.kbcheck.outputs.decision == 'swap'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          PREV: ${{ steps.prev.outputs.prev }}
+        run: |
+          IMG="$IMAGE:$TAG"
+          OUT=$(python3 deploy/kbsync/kbsync.py --via "$IMG" swap-status --data-root "$DATA_ROOT")
+          printf '%s' "$OUT" | grep -q '"pending": true' || { echo "未换数据, 无需退回"; exit 0; }
+          IMAGE_TAG="$TAG" docker compose -f deploy/container/compose.yml stop
+          python3 deploy/kbsync/kbsync.py --via "$IMG" restore --data-root "$DATA_ROOT"
+          if [ "$PREV" = "$TAG" ]; then
+            APP_DIR=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMG")
+            [ -n "$APP_DIR" ] || APP_DIR=/app
+            APP_DIR="$APP_DIR" IMAGE_TAG="$TAG" docker compose -f deploy/container/compose.yml up -d
+          fi
+          echo "已退回部署前的 chroma/meta; 镜像由下一步退回"
 
       - name: 健康检查失败 → 退回部署前的镜像
         if: failure() && steps.prev.outputs.prev != '' && steps.prev.outputs.prev != steps.tag.outputs.tag
