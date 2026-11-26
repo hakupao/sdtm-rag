@@ -176,10 +176,12 @@ test("公开档: 面板 / 额度 / 联网置灰 → 填 key → 请求带头 + p
     assert.equal(app.mem.has(KEY_LS), false, "清除 key 后 localStorage 还留着");
     assert.equal($("byok-key").value, "");
     assert.equal($("scope-web").disabled, true);
+    $("scope-web").checked = true;   // 置灰的框哪怕残留勾选, 请求里也不能是 web=true
     await app.send("问题二");
     assert.equal(app.calls.length, 2);
     assert.ok(!("X-LLM-Api-Key" in app.calls[1].headers), "清除后仍发 key 头");
     assert.ok(!("provider" in JSON.parse(app.calls[1].body)));
+    assert.equal(JSON.parse(app.calls[1].body).web, false);
     // done.quota 更新徽章
     assert.ok($("quota-badge").textContent.startsWith("今日免费 2/10 题"), $("quota-badge").textContent);
   } finally { app.cleanup(); }
