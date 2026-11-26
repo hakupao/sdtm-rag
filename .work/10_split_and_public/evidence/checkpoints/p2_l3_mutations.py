@@ -24,10 +24,18 @@ MUTS = [
  ("M16 private-only endpoints", I, "    if ctx.endpoint in _PRIVATE_ONLY_ENDPOINTS:", "    if False:"),
  ("M17 info trim", I, "body = {k: body[k] for k in PUBLIC_INFO_KEYS if k in body} | {\"tier\": \"public\"}", "body = body | {\"tier\": \"public\"}"),
  ("M18 private pass-through", I, "if ctx is None or ctx.tier != \"public\":", "if ctx is None:"),
- ("M19 startup private no-op", I, "    if s.instance != \"public\":\n        return\n", "    if False:\n        return\n"),
+ ("M19 startup private no-op", I, "maybe_build_dossier). Private: no-op.\"\"\"\n    if s.instance != \"public\":", "maybe_build_dossier). Private: no-op.\"\"\"\n    if False:"),
+ ("M30 check_chroma private no-op", I, "the CDISC engine has opened chroma. Private: no-op.\"\"\"\n    if s.instance != \"public\":", "the CDISC engine has opened chroma. Private: no-op.\"\"\"\n    if False:"),
  ("M20 check_startup not called", M, "    instance.check_startup(app_settings)\n", "\n"),
  ("M22 drop dossier from PUBLIC_FORCED_OFF", C, '"study_docs_enabled",\n                     "dossier_enabled")', '"study_docs_enabled",\n                     )'),
  ("M21 BYOK model left to L1", I, "(ctx.provider is None and model not in allowed)", "(model not in allowed)"),
+ ("M23 auth refusal", I, "    if s.auth_enabled:", "    if False:"),
+ ("M24 collection_name refusal", I, "    if _is_study_collection(s, s.collection_name):", "    if False:"),
+ ("M25 study_ prefix", I, ' or name.startswith("study")', ''),
+ ("M26 check_chroma body", I, "    if found:\n        raise RuntimeError(f\"SDTM_RAG_INSTANCE=public refuses to start: study collections", "    if False:\n        raise RuntimeError(f\"SDTM_RAG_INSTANCE=public refuses to start: study collections"),
+ ("M27 lifespan check_chroma not called", M, "        instance.check_chroma(s, app.state.rag.client)", "        pass"),
+ ("M28 info model trim off", I, "        body[\"selectable_models\"] = [", "        body[\"_unused\"] = ["),
+ ("M29 data_dir derivation off", C, "                    object.__setattr__(self, name, self.data_dir / rel)", "                    pass"),
 ]
 env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
 sha = lambda b: hashlib.sha256(b).hexdigest()

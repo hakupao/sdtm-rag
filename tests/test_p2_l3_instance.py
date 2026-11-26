@@ -327,3 +327,84 @@ def test_check_request_refuses_private_only_endpoints_on_public(endpoint):
         instance.check_request(_ctx("public", endpoint), None)
     assert e.value.status_code == 403 and e.value.detail["feature"] == endpoint
     instance.check_request(_ctx("private", endpoint), None)
+
+
+# ── review fixes: auth gate, study collections, info model trim, data_dir derivation ──
+
+def test_public_refuses_auth_gate(tmp_path):
+    from server.auth import hash_password
+
+    # A complete, valid gate config (so install_security itself would accept it): the refusal must be L3's.
+    gate = dict(auth_enabled=True, shared_password_hash=hash_password("pw"), session_secret="s" * 64)
+    create_app(_priv(tmp_path, **gate))
+    with pytest.raises(RuntimeError, match="refuses to start: auth_enabled"):
+        create_app(_pub(tmp_path, **gate))
+
+
+@pytest.mark.parametrize("name", ["study_st01", "study_st01_docs", "study_other"])
+def test_public_refuses_study_collection_name(tmp_path, name):
+    with pytest.raises(RuntimeError, match="collection_name"):
+        create_app(_pub(tmp_path, collection_name=name))
+
+
+def _fake_chroma(*names):
+    return SimpleNamespace(list_collections=lambda: [SimpleNamespace(name=n) for n in names])
+
+
+def test_check_chroma_refuses_study_collections_on_public_only(tmp_path):
+    with pytest.raises(RuntimeError, match="study_x"):
+        instance.check_chroma(_pub(tmp_path), _fake_chroma("sdtm_kb_v1", "study_x"))
+    instance.check_chroma(_pub(tmp_path), _fake_chroma("sdtm_kb_v1"))
+    instance.check_chroma(_priv(tmp_path), _fake_chroma("sdtm_kb_v1", "study_st01"))
+
+
+def test_check_chroma_works_on_a_real_chroma_client(tmp_path):
+    import chromadb
+
+    client = chromadb.PersistentClient(path=str(tmp_path / "chroma"))
+    client.create_collection("sdtm_kb_v1")
+    client.create_collection("study_st01_docs")
+    with pytest.raises(RuntimeError, match="study_st01_docs"):
+        instance.check_chroma(_pub(tmp_path), client)
+
+
+def test_lifespan_runs_check_chroma_on_public(tmp_path, monkeypatch):
+    from server import main as main_mod
+
+    class FakeRAG:
+        def __init__(self, **kw):
+            self.client = _fake_chroma("sdtm_kb_v1", "study_leftover")
+
+    monkeypatch.setattr(main_mod, "RAGEngine", FakeRAG)
+    app = create_app(_pub(tmp_path, domain_expand_enabled=False))
+    with pytest.raises(RuntimeError, match="study_leftover"):
+        with TestClient(app):
+            pass
+
+
+def test_info_public_models_have_no_litellm_string(tmp_path):
+    models = _client(_pub(tmp_path)).get("/api/info").json()["selectable_models"]
+    assert [set(m) for m in models] == [{"id", "label", "verified", "max_output_tokens"}]
+    priv = _client(_priv(tmp_path)).get("/api/info").json()["selectable_models"]
+    assert all("model" in m for m in priv)
+
+
+def test_data_dir_override_moves_study_defaults(tmp_path):
+    s = Settings(data_dir_override=str(tmp_path))
+    assert s.study_kb_root == tmp_path / "study" / "st01" / "cards"
+    assert s.study_catalog_path == tmp_path / "study" / "st01" / "catalog.json"
+    assert s.study_aliases_path == tmp_path / "study" / "st01" / "lookup_aliases.yml"
+    assert s.dossier_docs_dir == tmp_path / "study" / "st01" / "docs"
+    assert s.pdf_page_index_path.is_relative_to(tmp_path / "study")
+    assert Settings(data_dir_override=str(tmp_path), study_kb_root=tmp_path / "x").study_kb_root == tmp_path / "x"
+
+
+def test_public_with_only_data_dir_override_sees_study_data_there(tmp_path):
+    (tmp_path / "study" / "st01" / "cards").mkdir(parents=True)
+    s = Settings(instance="public", selectable_models=PUBLIC_MODELS, data_dir_override=str(tmp_path))
+    with pytest.raises(RuntimeError, match="study data present"):
+        create_app(s)
+    (tmp_path / "study" / "st01" / "cards").rmdir()
+    (tmp_path / "study" / "st01").rmdir()
+    (tmp_path / "study").rmdir()
+    create_app(s)

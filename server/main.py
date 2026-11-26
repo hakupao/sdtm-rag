@@ -214,6 +214,8 @@ async def lifespan(app: FastAPI):
         web_search_enabled=s.web_search_enabled,
     )
     rag_init_s = round(time.perf_counter() - t_rag, 2)  # incl. BM25 index build when hybrid on
+    if s.instance == "public":  # no study_* collection may sit in a public chroma
+        instance.check_chroma(s, app.state.rag.client)
     if s.structured_lookup_enabled:
         # S1 的 VARIABLE_INDEX 字面 section 映射在启动期预热一次。
         # 这条不是性能优化, 是把失败点从请求期挪到部署动作: 映射依赖 chroma 元数据里的

@@ -408,6 +408,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _public_study_defaults_off(self):
+        # data_dir_override moves every study default with it (unset fields only), so the public
+        # "study data present" check looks where this instance would actually read study data.
+        if self.data_dir_override:
+            for name in ("study_kb_root", "study_catalog_path", "study_aliases_path"):
+                if name not in self.model_fields_set:
+                    rel = Path(getattr(self, name)).relative_to(_SDTM_RAG_ROOT / "data")
+                    object.__setattr__(self, name, self.data_dir / rel)
         # public: study 开关的**默认值**改为 OFF; 显式设 ON 的保留原值, 由 instance.check_startup
         # 拒启动 (不静默覆盖运维写下的值)。private 一个字节不动。
         if self.instance == "public":
@@ -440,12 +447,12 @@ class Settings(BaseSettings):
     def pdf_page_index_path(self) -> Path:
         if self.pdf_page_index_path_override:
             return Path(self.pdf_page_index_path_override)
-        return _SDTM_RAG_ROOT / "data" / "study" / self.pdf_context_study_id / "pdf_page_index.json"
+        return self.data_dir / "study" / self.pdf_context_study_id / "pdf_page_index.json"
 
     @property
     def pdf_context_cache_dir(self) -> Path:
         # 描画済み PNG の置き場。data/study/ は .gitignore 配下 ⇒ 版本库に入らない。
-        return _SDTM_RAG_ROOT / "data" / "study" / self.pdf_context_study_id / ".pdf_page_png"
+        return self.data_dir / "study" / self.pdf_context_study_id / ".pdf_page_png"
 
     @property
     def dossier_docs_dir(self) -> Path:

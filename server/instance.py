@@ -13,6 +13,8 @@ PUBLIC_API_PATHS = frozenset({"/api/health", "/api/info", "/api/ask", "/api/ask_
 
 # §2.6: /api/info keys kept on public; every other InfoResponse field is internal and dropped.
 PUBLIC_INFO_KEYS = ("top_k", "web_search", "selectable_models", "index_fresh")
+# Per selectable_models entry on public (drops the litellm `model` string; webchat reads id/label/verified).
+PUBLIC_MODEL_KEYS = ("id", "label", "verified", "max_output_tokens")
 
 # request_scope endpoints that public never registers; refused here too (defence in depth).
 _PRIVATE_ONLY_ENDPOINTS = frozenset({"ask_compare", "validate"})
@@ -34,6 +36,12 @@ def check_startup(s) -> None:
     problems = [f"{name}=true" for name in PUBLIC_FORCED_OFF if getattr(s, name)]
     if s.pdf_context_enabled:
         problems.append("pdf_context_enabled=true (study PDF channel)")
+    if s.auth_enabled:
+        # Public visitors are anonymous (L2 signed cookie); the login gate would add a /login brute-force
+        # surface and a second session cookie.
+        problems.append("auth_enabled=true (login gate is private-only)")
+    if _is_study_collection(s, s.collection_name):
+        problems.append(f"collection_name={s.collection_name!r} is a study collection")
     if s.rerank_enabled:
         # Cohere rerank does not go through the outbound seam (design §1 open item) ⇒ unmetered.
         problems.append("rerank_enabled=true (Cohere rerank bypasses the quota seam)")
@@ -50,6 +58,20 @@ def check_startup(s) -> None:
         raise RuntimeError("SDTM_RAG_INSTANCE=public refuses to start: " + "; ".join(problems))
 
 
+def _is_study_collection(s, name: str) -> bool:
+    return name in (s.study_collection_name, s.study_docs_collection_name) or name.startswith("study")
+
+
+def check_chroma(s, client) -> None:
+    """Public: refuse to serve from a chroma that holds any study collection (study data via the index,
+    not via data/study). Called from the lifespan once the CDISC engine has opened chroma. Private: no-op."""
+    if s.instance != "public":
+        return
+    found = sorted(c.name for c in client.list_collections() if _is_study_collection(s, c.name))
+    if found:
+        raise RuntimeError(f"SDTM_RAG_INSTANCE=public refuses to start: study collections in chroma: {found}")
+
+
 def _refuse(status: int, code: str, message: str, **fields):
     from server.request_context import ServiceRefusal
 
@@ -57,6 +79,8 @@ def _refuse(status: int, code: str, message: str, **fields):
 
 
 def public_model_ids(s) -> list[str]:
+    """The ONE source of the public server-key model whitelist (`allowed` in model_not_allowed). L1's
+    check_model must use this too so both refusals carry identical `allowed`."""
     return sorted(m.id for m in s.selectable_models if m.id not in INTERNAL_GROUPS)
 
 
@@ -97,4 +121,6 @@ def shape_info(request, payload, extra: dict):
     body = jsonable_encoder(payload)
     if public:
         body = {k: body[k] for k in PUBLIC_INFO_KEYS if k in body} | {"tier": "public"}
+        body["selectable_models"] = [{k: m[k] for k in PUBLIC_MODEL_KEYS if k in m}
+                                     for m in body.get("selectable_models", [])]
     return JSONResponse({**body, **extra})
