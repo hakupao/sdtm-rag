@@ -29,6 +29,7 @@ BYOK_BASE_HEADER = "X-LLM-Api-Base"
 # review / compare / judge / web) is a server-side call and stays on the server key (L2 meters it).
 BYOK_PURPOSES = ("answer", "continue", "regen")
 CUSTOM = "custom"
+_NON_BYOK_ENDPOINTS = frozenset({"ask_compare", "validate"})
 _MAX_KEY_LEN = 512
 _CUSTOM_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$")
 # Marker the dossier prompt-cache layout puts in the system prompt (router._DOSSIER_RULES).
@@ -173,9 +174,11 @@ def _check_server_model(ctx, s) -> None:
     from server.llm_config import known_model_groups
 
     if ctx.tier == "public":
-        allowed = public_server_models(s, ctx.request)
+        from server.instance import public_model_ids
+
+        allowed = public_model_ids(s)   # the ONE public whitelist (L3); same refusal as check_request
         if ctx.model not in allowed:
-            _refuse_model(allowed, f"模型 {ctx.model!r} 在本站不可用")
+            _refuse_model(allowed, "该模型在公开站不可用。")
         return
     known = known_model_groups(s)
     if ctx.model not in known:
@@ -184,24 +187,14 @@ def _check_server_model(ctx, s) -> None:
                             detail=f"unknown model {ctx.model!r}; known: {sorted(known)}")
 
 
-def public_server_models(s, request=None) -> list[str]:
-    """Server-key model ids a public-tier visitor may pick: settings `public_models` (L3) if set,
-    else the selectable ids whose model is the registry's free-tier model (PLAN Q3)."""
-    ids = {m.id for m in s.selectable_models}
-    explicit = getattr(s, "public_models", None)
-    if explicit:
-        return [i for i in explicit if i in ids]
-    from server.llm_config import _same_model
-
-    free = _registry(request).free_tier_model
-    return [m.id for m in s.selectable_models if _same_model(m.model, free)]
-
-
 def resolve(ctx, purpose: str, kind: str, llm_router, kw: dict):
     """-> (callable, kwargs). Server-key calls: unchanged (Router method, or the litellm function
     looked up at call time). BYOK answer calls: litellm directly — never the Router (fallbacks
     would carry the user's key to another provider) — with the user's key and the registry's
     model / base / max_tokens; upstream errors become typed refusals without the upstream text."""
+    if ctx is not None and ctx.credentials is not None and ctx.endpoint in _NON_BYOK_ENDPOINTS:
+        # compare / validate never use a user key: refuse rather than silently run on the server key
+        raise ServiceRefusal(403, "not_on_this_tier", "该功能不支持自带 key (BYOK)", feature="byok")
     if ctx is not None and ctx.credentials is not None and purpose in BYOK_PURPOSES \
             and kind != "embedding":
         target = ctx.flags.get("byok")
@@ -221,8 +214,7 @@ def _byok_call(ctx, purpose, kind, t, kw):
     out = {k: v for k, v in kw.items() if k not in ("model", "api_key", "api_base", "client")}
     out.update(model=t["model"], api_key=ctx.credentials.api_key, max_tokens=t["max_tokens"],
                timeout=t["timeout"], num_retries=t["num_retries"])
-    if t["api_base"]:
-        out["api_base"] = t["api_base"]
+    out["api_base"] = t["api_base"]   # always the preset's official base (env *_API_BASE must not win)
     if t["pin"] is not None:
         from server.provider_registry_net import openai_client
 
@@ -236,13 +228,16 @@ def _byok_call(ctx, purpose, kind, t, kw):
 
     if kind == "acompletion":
         async def acall(**k):
+            client = k.get("client")   # per-call pinned client (custom): closed when the call ends
             try:
                 resp = await litellm.acompletion(**k)
             except Exception as e:  # noqa: BLE001
+                await _aclose_client(client)
                 raise _translate(e, purpose, provider, k) from None
             if not k.get("stream"):
+                await _aclose_client(client)
                 return resp
-            return _translating_stream(resp, purpose, provider)
+            return _translating_stream(resp, purpose, provider, client)
         return acall, out
 
     def call(**k):
@@ -250,19 +245,30 @@ def _byok_call(ctx, purpose, kind, t, kw):
             return litellm.completion(**k)
         except Exception as e:  # noqa: BLE001
             raise _translate(e, purpose, provider, k) from None
+        finally:
+            if k.get("client") is not None:
+                k["client"].close()
     return call, out
 
 
-async def _translating_stream(stream, purpose, provider):
+async def _aclose_client(client) -> None:
+    if client is not None:
+        await client.close()
+
+
+async def _translating_stream(stream, purpose, provider, client=None):
     try:
         async for chunk in stream:
             yield chunk
     except Exception as e:  # noqa: BLE001
         raise _translate(e, purpose, provider, {}) from None
     finally:
-        close = getattr(stream, "aclose", None)
-        if close is not None:
-            await close()
+        try:
+            close = getattr(stream, "aclose", None)
+            if close is not None:
+                await close()
+        finally:
+            await _aclose_client(client)
 
 
 def _translate(e: Exception, purpose: str, provider: str, kw: dict) -> Exception:
@@ -318,11 +324,9 @@ def capability(ctx, name: str, default):
         return default
     if name == "dossier_auto":
         need = _registry(ctx.request).dossier_auto_min_context_tokens
-        if ctx.credentials is not None and caps is not None:
-            # BYOK models are never on the server allowlist (default is False): decide by context.
-            if caps.context_tokens >= need:
-                return True
-            _note(ctx, "dossier_auto", "context_too_small", str(caps.context_tokens))
+        if ctx.credentials is not None:
+            # Decision (main session, PLAN D5): BYOK never auto-attaches the dossier; explicit
+            # dossier="on" / corpus=study stay allowed (no provider whitelist for study data).
             return False
         if default and caps is not None and caps.context_tokens < need:
             _note(ctx, "dossier_auto", "context_too_small", str(caps.context_tokens))
@@ -348,9 +352,14 @@ def info_fields(request) -> dict:
 
 # ── log redaction (contract §3: grep the RENDERED line) ─────────────────
 
+# Left boundary: not glued to a word (so `risk-benefit-…` survives), but DO match after a URL-encoded
+# byte (`%3Dsk-…`), a repr/JSON escape (`\nsk-…`, `\u003dsk-…`). The sk- tail must contain a digit
+# (real keys do; ordinary hyphenated words do not).
+_LB = r"(?:(?<![A-Za-z0-9])|(?<=%[0-9A-Fa-f]{2})|(?<=\\[ntrbf])|(?<=\\u[0-9A-Fa-f]{4})|(?<=\\x[0-9A-Fa-f]{2}))"
 _SECRET_PATTERNS = [
-    re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_\-]{12,}"),      # OpenAI / Anthropic / DeepSeek / Kimi …
-    re.compile(r"(?<![A-Za-z0-9])AIza[0-9A-Za-z_\-]{20,}"),      # Google
+    re.compile(_LB + r"sk-(?=[A-Za-z_\-]*[0-9])[A-Za-z0-9_\-]{12,}"),   # OpenAI / Anthropic / DeepSeek / Kimi …
+    re.compile(_LB + r"AIza[0-9A-Za-z_\-]{20,}"),                       # Google
+    re.compile(_LB + r"[0-9a-fA-F]{32}\.[A-Za-z0-9]{16}(?![A-Za-z0-9])"),  # Zhipu GLM (id.secret)
     re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._\-~+/=]{12,}"),
     re.compile(r"(?i)((?:x-api-key|x-goog-api-key|api[_-]?key|authorization|x-llm-api-key)"
                r"[\"']?\s*[:=]\s*[\"']?)[^\s\"',}]{8,}"),
@@ -379,7 +388,7 @@ def _scrub(v, secrets):
     if isinstance(v, (int, float, bool)) or v is None:
         return v
     if isinstance(v, dict):
-        return {k: _scrub(x, secrets) for k, x in v.items()}
+        return {_scrub(k, secrets): _scrub(x, secrets) for k, x in v.items()}
     if isinstance(v, (list, tuple)):
         return type(v)(_scrub(x, secrets) for x in v)
     r = repr(v)
@@ -393,7 +402,7 @@ def _redact_processor(logger, method_name, event_dict):
     if event_dict.get("exc_info"):
         event_dict = structlog.processors.format_exc_info(logger, method_name, event_dict)
     secrets = _secrets()
-    return {k: _scrub(v, secrets) for k, v in event_dict.items()}
+    return {_scrub(k, secrets): _scrub(v, secrets) for k, v in event_dict.items()}
 
 
 def log_processors() -> list:

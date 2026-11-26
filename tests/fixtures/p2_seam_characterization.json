@@ -127,7 +127,7 @@
     },
     {
      "answer": "Answer from deepseek/deepseek-v4-pro.",
-     "cost_usd": 7e-06,
+     "cost_usd": 2.5e-05,
      "error": null,
      "latency_ms": 0,
      "model": "deepseek/deepseek-v4-pro",

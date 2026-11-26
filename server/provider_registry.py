@@ -57,7 +57,6 @@ class Provider:
 @dataclass(frozen=True)
 class Registry:
     providers: tuple[Provider, ...]
-    free_tier_model: str
     dossier_auto_min_context_tokens: int
     byok_timeout_s: float
     byok_num_retries: int
@@ -123,6 +122,11 @@ def parse(data: dict) -> Registry:
         clash = set(ids) & set(INTERNAL_GROUPS)
         if clash:
             raise ValueError(f"provider {p['id']!r}: model ids {sorted(clash)} collide with Router groups")
+        custom = bool(p.get("custom_base", False))
+        base = p.get("api_base")
+        if not custom and not (isinstance(base, str) and base.startswith("https://")):
+            # BYOK always passes the preset's own base: env *_API_BASE must not redirect a user key
+            raise ValueError(f"provider {p['id']!r}: preset needs an explicit https api_base")
         for m in models:
             by_model.setdefault(m.model, m)
         providers.append(Provider(
@@ -137,7 +141,6 @@ def parse(data: dict) -> Registry:
         raise ValueError("duplicate provider ids")
     return Registry(
         providers=tuple(providers),
-        free_tier_model=str(data["free_tier_model"]),
         dossier_auto_min_context_tokens=int(data["dossier_auto_min_context_tokens"]),
         byok_timeout_s=float(data.get("byok_timeout_s", 120)),
         byok_num_retries=int(data.get("byok_num_retries", 1)),
@@ -155,11 +158,22 @@ def for_settings(s) -> Registry:
     return load(getattr(s, "provider_registry_path", None) or None)
 
 
-def registry_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float | None:
-    """USD for one call of a registry model (default registry): the file's `price` override, else
+def _current_registry() -> Registry:
+    """Registry of the current request's settings (`provider_registry_path`); default outside one."""
+    from server.request_context import current
+
+    ctx = current()
+    s = getattr(getattr(getattr(getattr(ctx, "request", None), "app", None), "state", None),
+                "settings", None)
+    return for_settings(s)
+
+
+def registry_cost(model: str, prompt_tokens: int, completion_tokens: int,
+                  reg: Registry | None = None) -> float | None:
+    """USD for one call of a registry model (current request's registry): the file's `price` override, else
     litellm's pricing of `price_ref` (handles tiered rows; covers the OpenAI-compatible aliases
     such as openai/qwen3-max that litellm cannot price under their own name). None = unknown."""
-    e = load().entry_for_model(model)
+    e = (reg or _current_registry()).entry_for_model(model)
     if e is None:
         return None
     if e.price is not None:

@@ -251,27 +251,35 @@ def test_downgrade_vision_no_vision(harness, tier, wire, monkeypatch):  # noqa: 
     assert touched == [] and body["pdf_pages"] is None
 
 
-def test_downgrade_dossier_auto_context_too_small(harness, tier, wire, monkeypatch):  # noqa: F811
-    client, _rec, _router = harness
+def test_byok_never_auto_attaches_dossier_but_server_key_small_context_downgrades(  # noqa: PLR0913
+        harness, tier, wire, monkeypatch):  # noqa: F811
+    """Decision (PLAN D5): BYOK => dossier auto OFF (explicit dossier=on still allowed); server-key
+    allowlisted model below the context threshold => dossier_auto/context_too_small marker."""
+    client, _rec, router = harness
     tier(byok_enabled=True)
+    s = client.app.state.settings
+    small = SelectableModel(id="glm-small", label="GLM", model="zai/glm-5.1", verified=False)
+    monkeypatch.setattr(s, "selectable_models", [*s.selectable_models, small])
+    monkeypatch.setattr(s, "dossier_auto_attach_models", ["opus-5", "glm-small"])
     import server.dossier_trigger as dt
     seen = []
     monkeypatch.setattr(dt, "decide_dossier", lambda *a, **kw: seen.append(kw["auto_attach"])
                         or SimpleNamespace(attach=False, reason="r", domains=()))
     monkeypatch.setattr(client.app.state, "dossier",
                         SimpleNamespace(sha="x", sections=(), chars=0, text=""), raising=False)
-    wire.script["acompletion"] = [[_chunk("a"), _chunk(finish="stop"), _chunk(usage=True)],
-                                  [_chunk("b"), _chunk(finish="stop"), _chunk(usage=True)]]
+    wire.script["acompletion"] = [[_chunk("b"), _chunk(finish="stop"), _chunk(usage=True)]]
     ev = dict(_events(client.post("/api/ask_stream", json={
-        "question": "q", "corpus": "cdisc", "provider": "glm", "model": "glm-5.1"},
+        "question": "q", "corpus": "cdisc", "provider": "gemini", "model": "gemini-3.5-flash"},
         headers=HDR).text))
+    assert "downgrades" not in ev["done"]            # 1M-context BYOK model: still no auto, no marker
+    router.stream_script = [[_chunk("a"), _chunk(finish="stop"), _chunk(usage=True)],
+                            [_chunk("c"), _chunk(finish="stop"), _chunk(usage=True)]]
+    ev = dict(_events(client.post("/api/ask_stream", json={
+        "question": "q", "corpus": "cdisc", "model": "glm-small"}).text))
     assert ev["done"]["downgrades"] == [{"capability": "dossier_auto", "reason": "context_too_small",
                                          "detail": "200000"}]
-    # a 1M-context BYOK model is auto-eligible (decided by context, not the server allowlist)
-    client.post("/api/ask_stream", json={"question": "q", "corpus": "cdisc",
-                                         "provider": "gemini", "model": "gemini-3.5-flash"},
-                headers=HDR)
-    assert seen == [False, True]
+    client.post("/api/ask_stream", json={"question": "q", "corpus": "cdisc", "model": "opus-5"})
+    assert seen == [False, False, True]               # BYOK, small server model, 1M server model
 
 
 # ── Anthropic BYOK prompt cache (contract §3 L1 follow-up) ──────────────
@@ -366,3 +374,20 @@ def test_byok_midstream_failure_is_coded_error_event(harness, tier, wire):  # no
     assert [e for e, _ in ev] == ["sources", "token", "error"]
     assert ev[-1][1]["code"] == "byok_provider_error" and ev[-1][1]["upstream_status"] == 502
     assert KEY not in json.dumps(ev)
+
+
+def test_byok_headers_on_compare_and_validate_are_refused(harness, tier):  # noqa: F811
+    import io as _io
+
+    client, rec, _router = harness
+    tier(byok_enabled=True)
+    rec.calls.clear()
+    r = client.post("/api/ask_compare", headers=HDR, json={
+        "question": "What is AETERM?", "models": ["openai/gpt-4o"]})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "not_on_this_tier"
+    assert r.json()["detail"]["feature"] == "byok"
+    csv = b"STUDYID,DOMAIN,USUBJID,AETERM\nS1,AE,S1-1,HEADACHE\n"
+    r = client.post("/api/validate", headers=HDR, data={"semantic_review": "true"},
+                    files={"file": ("ae.csv", _io.BytesIO(csv), "text/csv")})
+    assert r.status_code == 403 and r.json()["detail"]["code"] == "not_on_this_tier"
+    assert not any(c["call"] in ("litellm.acompletion", "router.completion") for c in rec.calls)

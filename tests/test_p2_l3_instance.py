@@ -193,8 +193,9 @@ def test_flag_on_public_keeps_field_size_limit(tmp_path):
 
 def test_info_public_shape_has_no_internal_fields(tmp_path):
     body = _client(_pub(tmp_path)).get("/api/info").json()
-    assert set(body) == {"tier", "top_k", "web_search", "selectable_models", "index_fresh"}
-    assert body["tier"] == "public"
+    # L1 adds `providers` on public (contract §2.6: BYOK registry, no `custom`)
+    assert set(body) == {"tier", "top_k", "web_search", "selectable_models", "index_fresh", "providers"}
+    assert body["tier"] == "public" and "custom" not in [p["id"] for p in body["providers"]]
     assert [m["id"] for m in body["selectable_models"]] == ["ds-v4"]
 
 

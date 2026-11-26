@@ -55,7 +55,11 @@ def test_registry_has_required_providers_and_one_capability_table():
     rows = reg_mod.capability_matrix()
     assert {"provider", "model_id", "tools", "vision", "context_tokens", "prompt_cache"} <= set(rows[0])
     assert all(r["context_tokens"] > 0 for r in rows)
-    assert reg.free_tier_model == "deepseek/deepseek-v4-pro"   # PLAN Q3
+    for p in reg.providers:                                    # every preset: explicit official https base
+        assert p.custom_base or p.api_base.startswith("https://"), p.id
+    with pytest.raises(ValueError):
+        reg_mod.parse({"dossier_auto_min_context_tokens": 1, "providers": [
+            {"id": "p", "models": [{"id": "a", "model": "openai/x"}]}]})
 
 
 def test_registry_ids_do_not_collide_with_router_groups():
@@ -66,13 +70,13 @@ def test_registry_ids_do_not_collide_with_router_groups():
         for m in p.models:
             assert m.id not in set(INTERNAL_GROUPS) | selectable, (p.id, m.id)
     with pytest.raises(ValueError):
-        reg_mod.parse({"free_tier_model": "x", "dossier_auto_min_context_tokens": 1, "providers": [
-            {"id": "p", "models": [{"id": "hard", "model": "openai/x"}]}]})
+        reg_mod.parse({"dossier_auto_min_context_tokens": 1, "providers": [
+            {"id": "p", "api_base": "https://x.example", "models": [{"id": "hard", "model": "openai/x"}]}]})
 
 
 def test_capabilities_come_from_litellm_unless_overridden():
-    reg = reg_mod.parse({"free_tier_model": "x", "dossier_auto_min_context_tokens": 1, "providers": [
-        {"id": "p", "models": [
+    reg = reg_mod.parse({"dossier_auto_min_context_tokens": 1, "providers": [
+        {"id": "p", "api_base": "https://x.example", "models": [
             {"id": "a", "model": "deepseek/deepseek-v4-pro"},
             {"id": "b", "model": "deepseek/deepseek-v4-pro", "capabilities": {"vision": True}},
             {"id": "c", "model": "openai/unknown-zzz"}]}]})
@@ -88,8 +92,9 @@ def test_registry_price_feeds_cost_badge():
     u = {"prompt_tokens": 1000, "completion_tokens": 1000}
     assert estimate_cost("openai/qwen3-max", u) is not None        # alias priced via price_ref
     assert estimate_cost("qwen3-max", u) == estimate_cost("openai/qwen3-max", u)  # provider-reported bare
+    # 2026-11-26: litellm rate $1.32/$3.96 per 1M (verify vs official page before P3)
     assert estimate_cost("deepseek/deepseek-v4-pro", {"prompt_tokens": 10, "completion_tokens": 3}) \
-        == 7e-06                                                   # existing §9 row still wins
+        == 2.5e-05
     assert estimate_cost("openai/totally-unknown-zz", u) is None
 
 
@@ -147,16 +152,22 @@ def test_byok_unknown_model_or_provider():
     assert _code(e) == (401, "byok_key_invalid")
 
 
-def test_public_server_key_models_are_the_free_tier_model_only():
+def test_public_server_key_whitelist_is_l3s_and_both_refusals_agree():
+    from server import instance
+
     free = SelectableModel(id="ds-free", label="DS", model="deepseek/deepseek-v4-pro", verified=False)
     req = _req(instance="public")
-    object.__setattr__(req.app.state.settings, "selectable_models",
-                       [*Settings().selectable_models, free])
+    object.__setattr__(req.app.state.settings, "selectable_models", [free])
     _check(req, model="ds-free")
+    instance.check_request(_ctx(req, model="ds-free"), None)
     for bad in ("default", "hard", "light", "default-fallback", "opus-5", "nope"):
-        with pytest.raises(ServiceRefusal) as e:
+        with pytest.raises(ServiceRefusal) as l1:
             _check(req, model=bad)
-        assert _code(e) == (422, "model_not_allowed") and e.value.detail["allowed"] == ["ds-free"]
+        with pytest.raises(ServiceRefusal) as l3:
+            instance.check_request(_ctx(req, model=bad), None)
+        assert _code(l1) == _code(l3) == (422, "model_not_allowed")
+        assert l1.value.detail == l3.value.detail
+        assert l1.value.detail["allowed"] == instance.public_model_ids(req.app.state.settings) == ["ds-free"]
 
 
 def test_custom_provider_rules():
@@ -264,6 +275,29 @@ def test_pinned_transport_connects_to_validated_ip_even_if_dns_changes(monkeypat
     r = fn(**kw)
     assert r.choices[0].message.content == "hi"
     assert seen == [("93.184.216.34", "llm.example.com", "llm.example.com")]
+    assert kw["client"].is_closed()                       # per-call client released
+
+
+def test_async_pinned_transport_connects_to_validated_ip_even_if_dns_changes(monkeypatch):
+    import asyncio
+
+    answers = iter([["93.184.216.34"], ["127.0.0.1"], ["127.0.0.1"]])
+    monkeypatch.setattr(net, "_resolve", lambda h, p: next(answers))
+    seen = []
+
+    def handler(r):
+        seen.append((r.url.host, r.headers.get("host"), r.extensions.get("sni_hostname")))
+        return httpx.Response(200, json=_chat_json())
+
+    monkeypatch.setattr(net, "ASYNC_INNER", httpx.MockTransport(handler))
+    h = {providers.BYOK_KEY_HEADER: KEY, providers.BYOK_BASE_HEADER: "https://llm.example.com/v1"}
+    ctx = _check(_req(h, byok_enabled=True), model="m1", provider="custom")
+    fn, kw = providers.resolve(ctx, "answer", "acompletion", object(), {
+        "model": "m1", "messages": [{"role": "user", "content": "q"}]})
+    r = asyncio.run(fn(**kw))
+    assert r.choices[0].message.content == "hi"
+    assert seen == [("93.184.216.34", "llm.example.com", "llm.example.com")]
+    assert kw["client"].is_closed()
 
 
 def test_pinned_transport_refuses_redirects_and_foreign_hosts():
@@ -339,7 +373,7 @@ def test_rendered_log_line_redacts_shapeless_key_of_current_request():
 
 
 def test_rendered_log_line_redacts_key_shapes_without_request_ctx():
-    other = "sk-ant-" + "Z" * 24                       # a key that is not the current request's
+    other = "sk-ant-api03-" + "Z" * 24                       # a key that is not the current request's
     goog = "AIza" + "Q" * 30
     text = _render(lambda log: log.error("x", error=f"bad {other} / {goog} / Bearer {'t' * 20}"))
     assert other not in text and goog not in text and "t" * 20 not in text
@@ -363,3 +397,86 @@ def test_byok_answer_without_checked_target_fails_closed():
 def test_generic_patterns_do_not_eat_ordinary_words():
     text = _render(lambda log: log.info("ask", question="risk-benefit-assessment of task-specific AIzaWord"))
     assert "risk-benefit-assessment" in text and "task-specific" in text
+
+
+def test_redaction_boundaries_encoded_escaped_and_ordinary_words():
+    k1 = "sk-proj-" + "a1B2c3D4e5F6g7H8"
+    k2 = "AIza" + "Q1w2E3r4" * 4
+    glm = "0123456789abcdef" * 2 + "." + "AbCdEf1234567890"
+    samples = [f"url?key%3D{k1}&x=1", repr(f"\n{k1}"), f"={k2}", f"json \\u003d{k1}", f"zhipu {glm}"]
+    text = _render(lambda log: log.error("x", a=samples))
+    for k in (k1, k2, glm):
+        assert k not in text, k
+    words = ("risk-benefit-assessment of task-specific sk-benefit-assessment-plan desk-research-notes"
+             " task-force-2024-q3-report")
+    assert words in _render(lambda log: log.info("ask", question=words))
+
+
+def test_redaction_scrubs_dict_keys():
+    tok = _CURRENT.set(RequestContext(endpoint="ask", credentials=Credentials(api_key="odd" + "Q7" * 9)))
+    try:
+        text = _render(lambda log: log.error("x", headers={"odd" + "Q7" * 9: "v"}, **{"odd" + "Q7" * 9: 1}))
+    finally:
+        _CURRENT.reset(tok)
+    assert "odd" + "Q7" * 9 not in text
+
+
+def test_registry_cost_honours_provider_registry_path(tmp_path):
+    f = tmp_path / "reg.yaml"
+    f.write_text(
+        "dossier_auto_min_context_tokens: 1\nproviders:\n  - id: p\n    api_base: https://x.example\n"
+        "    models:\n      - {id: m, model: openai/zz-custom-priced, price: [1.0, 2.0]}\n", encoding="utf-8")
+    from server.cost import estimate_cost
+
+    u = {"prompt_tokens": 1_000_000, "completion_tokens": 1_000_000}
+    assert estimate_cost("openai/zz-custom-priced", u) is None          # default registry: unknown
+    req = _req(provider_registry_path=str(f))
+    tok = _CURRENT.set(RequestContext(endpoint="ask_compare", request=req))
+    try:
+        assert estimate_cost("openai/zz-custom-priced", u) == 3.0
+    finally:
+        _CURRENT.reset(tok)
+
+
+PRESET_CALLS = [("openai", "gpt-5.5", "api.openai.com"), ("anthropic", "claude-sonnet-5-5", "api.anthropic.com"),
+                ("gemini", "gemini-3.5-flash", "generativelanguage.googleapis.com"),
+                ("deepseek", "deepseek-v4-pro", "api.deepseek.com"),
+                ("qwen", "qwen3-max", "dashscope.aliyuncs.com"), ("kimi", "kimi-k3", "api.moonshot.cn"),
+                ("glm", "glm-5.1", "open.bigmodel.cn"), ("siliconflow", "deepseek-ai/DeepSeek-V3.2", "api.siliconflow.cn")]
+
+
+@pytest.mark.parametrize("provider,model,host", PRESET_CALLS)
+def test_operator_env_base_cannot_redirect_user_key(provider, model, host, monkeypatch):
+    """Real litellm with every *_API_BASE / *_BASE_URL env pointing at an operator proxy: the BYOK
+    request still goes to the preset's official host (HTTP intercepted at httpx send; no network)."""
+    import asyncio
+
+    import litellm
+
+    for v in ("OPENAI_API_BASE", "OPENAI_BASE_URL", "ANTHROPIC_API_BASE", "ANTHROPIC_BASE_URL",
+              "GEMINI_API_BASE", "DEEPSEEK_API_BASE", "DEEPSEEK_API_URL", "DASHSCOPE_API_BASE",
+              "MOONSHOT_API_BASE", "ZAI_API_BASE"):
+        monkeypatch.setenv(v, "https://operator-proxy.invalid/v1")
+    seen = []
+
+    def send(self, request, *a, **k):
+        seen.append((request.url.host, request.headers.get("authorization") or
+                     request.headers.get("x-api-key") or request.headers.get("x-goog-api-key")))
+        return httpx.Response(401, json={"error": {"message": "no"}}, request=request)
+
+    async def asend(self, request, *a, **k):
+        return send(self, request)
+
+    monkeypatch.setattr(httpx.Client, "send", send)
+    monkeypatch.setattr(httpx.AsyncClient, "send", asend)
+    ctx = _check(_req({providers.BYOK_KEY_HEADER: KEY}, byok_enabled=True), model=model, provider=provider)
+    msgs = [{"role": "user", "content": "q"}]
+    fn, kw = providers.resolve(ctx, "answer", "completion", object(), {"model": model, "messages": msgs})
+    with pytest.raises(ServiceRefusal):
+        fn(**kw)
+    afn, akw = providers.resolve(ctx, "answer", "acompletion", object(), {"model": model, "messages": msgs})
+    with pytest.raises(ServiceRefusal):
+        asyncio.run(afn(**akw))
+    assert seen and all(h == host for h, _ in seen), seen
+    assert all(KEY in (a or "") for _, a in seen)
+    assert litellm  # imported for the real call path

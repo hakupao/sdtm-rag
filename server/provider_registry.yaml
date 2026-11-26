@@ -10,19 +10,22 @@
 #   price  [input, output] USD per 1M tokens — overrides litellm's price table.
 #   max_output_tokens  per-call ceiling (Router deployments carry it for server models; BYOK
 #                      bypasses the Router so it must be explicit). Default: litellm's value, else 8192.
+# Every preset carries its OFFICIAL api_base and it is always passed for BYOK calls, so operator env
+# (OPENAI_API_BASE / ANTHROPIC_API_BASE / GEMINI_API_BASE / DEEPSEEK_API_BASE …) cannot redirect a user's key.
+# Public server-key models = settings.selectable_models on the public instance (instance.public_model_ids, L3).
 # Unset capability fields fall back to litellm model_cost; still unknown => conservative
 # (no tools / no vision / context 0 / no cache).
 # ⚠ Model ids are from litellm 1.88.1's table; none was exercised against a live endpoint in L1
 # (no paid calls allowed). P3.5 audit marks unverified providers.
 
-free_tier_model: deepseek/deepseek-v4-pro      # PLAN Q3: server-key model on the public tier
-dossier_auto_min_context_tokens: 400000        # dossier auto-attach needs >= this context window
+dossier_auto_min_context_tokens: 400000        # server-key dossier auto-attach also needs >= this context (BYOK: never auto)
 byok_timeout_s: 120                            # = Router(timeout=120) for server-key calls
 byok_num_retries: 1                            # = Router(num_retries=1)
 
 providers:
   - id: anthropic
     label: Anthropic
+    api_base: https://api.anthropic.com
     models:
       - {id: claude-opus-5-5, label: Claude Opus 5.5, model: anthropic/claude-opus-5-5, max_output_tokens: 128000}
       - {id: claude-sonnet-5-5, label: Claude Sonnet 5.5, model: anthropic/claude-sonnet-5-5, max_output_tokens: 128000}
@@ -32,16 +35,19 @@ providers:
       - {id: claude-sonnet-5, label: Claude Sonnet 5, model: anthropic/claude-sonnet-5, max_output_tokens: 128000}
   - id: openai
     label: OpenAI
+    api_base: https://api.openai.com/v1
     models:
       - {id: gpt-5.5, label: GPT-5.5, model: openai/gpt-5.5, price_ref: gpt-5.5}
       - {id: gpt-5.4-mini, label: GPT-5.4 mini, model: openai/gpt-5.4-mini, price_ref: gpt-5.4-mini}
   - id: gemini
     label: Google Gemini
+    api_base: https://generativelanguage.googleapis.com/v1beta
     models:
       - {id: gemini-3.1-pro-preview, label: Gemini 3.1 Pro (preview), model: gemini/gemini-3.1-pro-preview}
       - {id: gemini-3.5-flash, label: Gemini 3.5 Flash, model: gemini/gemini-3.5-flash}
   - id: deepseek
     label: DeepSeek
+    api_base: https://api.deepseek.com/beta
     models:
       - {id: deepseek-v4-pro, label: DeepSeek V4 Pro, model: deepseek/deepseek-v4-pro, max_output_tokens: 32000}
       - {id: deepseek-v4-flash, label: DeepSeek V4 Flash, model: deepseek/deepseek-v4-flash, max_output_tokens: 32000}

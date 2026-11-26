@@ -19,7 +19,9 @@ _PRICES: dict[str, tuple[float, float]] = {
     "claude-sonnet-4-6": (3.00, 15.00),
     "claude-opus-4-7": (5.00, 25.00),
     "claude-haiku-4-5": (1.00, 5.00),
-    "deepseek-v4-pro": (0.435, 0.87),
+    # 2026-11-26: litellm 1.88.1 rate (latest source, peak; pessimistic = safe for the L2 site cap).
+    # Was (0.435, 0.87) from DEPLOY_PLAN §9. ⚠ Verify against DeepSeek's official price page before P3.
+    "deepseek-v4-pro": (1.32, 3.96),
 }
 
 
