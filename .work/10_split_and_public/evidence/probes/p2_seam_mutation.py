@@ -82,6 +82,24 @@ M = [
         raise
 ''', '''        return corpus, False
 ''', HOOKS),
+    ("M14 /api/ask admit gets a copy (history clip lost)", "server/router.py",
+     """    providers.check_model(ctx, s)
+    quota.admit(ctx, body)
+
+    log.info("ask", question""",
+     """    providers.check_model(ctx, s)
+    quota.admit(ctx, body.model_copy(deep=True))
+
+    log.info("ask", question""", HOOKS),
+    ("M15 settle loses the reserve handle", "server/outbound.py",
+     "    quota.settle(ctx, purpose, handle, getattr(resp, \"usage\", None), getattr(resp, \"model\", None))\n",
+     "    quota.settle(ctx, purpose, None, getattr(resp, \"usage\", None), getattr(resp, \"model\", None))\n",
+     HOOKS),
+    ("M16 stream settle loses the reported model", "server/outbound.py",
+     "        quota.settle(ctx, purpose, handle, usage, model)\n",
+     "        quota.settle(ctx, purpose, handle, usage, None)\n", HOOKS),
+    ("M17 ctx does not carry the request", "server/request_context.py",
+     "        request=request,\n", "        request=None,\n", HOOKS),
 ]
 
 

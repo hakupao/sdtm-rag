@@ -35,7 +35,8 @@ class Credentials:
 
 @dataclass(repr=False)
 class RequestContext:
-    endpoint: str                      # "ask" | "ask_stream" | "ask_compare" | "validate" | "info"
+    endpoint: str                      # "ask" | "ask_stream" | "ask_compare" | "validate"
+    request: Any = None                # the Starlette Request (cookies, CF-Connecting-IP, app.state.settings)
     tier: str = "private"              # instance.tier(); L3
     model: str | None = None           # requested model id / group (body.model)
     provider: str | None = None        # requested provider id (body.provider); L1
@@ -79,6 +80,7 @@ def begin(request, body, endpoint: str) -> RequestContext:
 
     ctx = RequestContext(
         endpoint=endpoint,
+        request=request,
         tier=instance.tier(request),
         model=getattr(body, "model", None),
         provider=getattr(body, "provider", None),

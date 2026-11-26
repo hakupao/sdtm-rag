@@ -6,14 +6,14 @@
 接缝的形状:
 
 ```
-endpoint (@request_scope) ── begin(): RequestContext{endpoint, tier, model, provider, credentials, quota, flags, notes}
+endpoint (@request_scope) ── begin(): RequestContext{endpoint, request, tier, model, provider, credentials, quota, flags, notes}
    │                          (ContextVar 绑定; router.py 显式传 ctx, rag/federation/reviewer/compare 走 current())
    ├─ instance.check_request(ctx, body)    L3
    ├─ providers.check_model(ctx, s)        L1  (默认 = 原 known_model_groups 422)
-   ├─ quota.admit(ctx)                     L2
+   ├─ quota.admit(ctx, body)               L2  (检索与拼 prompt 之前; 可就地裁 body.history)
    ├─ 每次出站: outbound.{completion,acompletion,embedding,web_search}
    │     └─ providers.resolve(ctx, purpose, kind, router, kw) → (callable, kw)   L1
-   │     └─ quota.reserve(ctx, purpose, kw) … quota.settle(ctx, purpose, usage)  L2
+   │     └─ h = quota.reserve(ctx, purpose, kw) … quota.settle(ctx, purpose, h, usage, model)  L2
    └─ quota.finalize(ctx)  恰一次 (正常 / 异常 / 客户端断开)                       L2
 ```
 
@@ -51,6 +51,15 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, tier, model, 
 
 常量在 `server/providers.py` (`BYOK_KEY_HEADER` / `BYOK_BASE_HEADER`)。有 key 头 ⇒ 本请求**不回退到服务器 key** (2.6)。
 
+头与 `provider` 字段的组合 (L1 实现, L4 照此发):
+
+| key 头 | `provider` | 结果 |
+|---|---|---|
+| 无 | `null` | 服务器 key (免费题 / 私有站), `model` 取 `selectable_models` id |
+| 有 | 注册表 id | BYOK, `model` 取该 provider 的模型 id; 不占免费题 |
+| 有 | `null` | 400 `provider_required` (不猜 provider: 猜错 = 把 key 发给别家) |
+| 无 | 非 `null` | 400 `byok_key_missing` (不静默改用服务器 key) |
+
 ### 2.2 请求体字段 (`/api/ask`, `/api/ask_stream`)
 | 字段 | 取值 | 说明 |
 |---|---|---|
@@ -73,7 +82,9 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, tier, model, 
 | `model_not_allowed` | 422 | `allowed` (id 列表) | L1/L3 (公开档拒内部组 `default`/`hard`/`light`/`default-fallback`) |
 | `custom_base_not_allowed` | 400 | — | L3 公开档 |
 | `not_on_this_tier` | 403 | `feature` (`dossier` / `study_corpus` …) | L3 (公开档 `dossier="on"`、`corpus=study` 等) |
-| `request_too_large` | 413 | `limit` | L2 2.2 请求体 / history 上限 |
+| `request_too_large` | 413 | `limit` | L2 2.2 请求体上限 (history 超限是**裁剪**不是拒: 服务端保留最近的轮次) |
+| `provider_required` | 400 | — | L1, 见 2.1 组合表 |
+| `byok_key_missing` | 400 | `provider` | L1, 见 2.1 组合表 |
 
 既有错误不变: 空问题 422 `{"detail": "question must not be empty"}`; 未知模型 422 `{"detail": "unknown model …"}` (字符串 detail); 检索失败 502; LLM 失败 502。前端判别: `typeof detail === "object" && detail.code`。
 
@@ -89,6 +100,9 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, tier, model, 
 
 `capability` 取值: `web_tools` (不支持工具 ⇒ 不联网), `vision` (不支持看图 ⇒ 不附 PDF 画面), `dossier_auto` (上下文太短 ⇒ 不自动挂研读包); `reason` 为短标识 (`no_tool_calling` / `no_vision` / `context_too_small` …), 前端按表出文案, 未知 reason 显示原值。
 联网额度用尽沿用既有 `tool_result.status = "quota_exceeded"` (不杀流)。
+免费题 (服务器 key, 公开档) **不联网** (PLAN Q2): 请求带 `web=true` 不报错, 服务端按 `web_tools` 降级 ——
+`sources.downgrades` 含 `{capability: "web_tools", reason: "free_tier_no_web"}`, `done.web_status` 照旧。L4 发送前据
+`/api/info.web_search` 与 `/api/info.quota.byok` 决定联网勾选框是否可用 (免费题下置灰 + 说明)。
 
 `/api/ask` (非流式) 同义: 响应体可选键 `quota`、`downgrades` (只在有值时出现)。
 
@@ -120,7 +134,7 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, tier, model, 
 |---|---|---|
 | L3 实例档位 + 接口收口 (2.1/2.3) | `server/instance.py`, `server/main.py`, `server/config.py` (加 `instance` 等字段), `tests/test_p2_l3_*.py` | |
 | L1 provider + BYOK (2.4/2.5/2.6) | `server/providers.py`, `server/llm_config.py`, `server/cost.py`, 新 `server/provider_registry*`, 日志脱敏配置 (structlog 处理器, 放 `server/providers.py` 或新模块, 由 `main.py` 装 —— 这一行与 L3 协调), `tests/test_p2_l1_*.py` | |
-| L2 限额 (2.2/2.7) | `server/quota.py`, `server/auth.py`, 新 `server/quota_store*` (SQLite 在 `data/`), `tests/test_p2_l2_*.py` | |
+| L2 限额 (2.2/2.7 + 2.3 的 `/api/flag` 频率限制) | `server/quota.py`, `server/auth.py` (`/api/flag` 限频放在这里的 ASGI 中间件, 按路径), 新 `server/quota_store*` (SQLite 在 `data/`), `tests/test_p2_l2_*.py` | `/api/flag` 的字段长度上限已在 `FlagRequest`; 写到 `data/` 挂载 = `dogfood_log_path` 配置 (L3) |
 | L4 UI (2.8) | `webchat/**` only | 只按 §2 写, 不碰 `server/` |
 | 全部 | | **`server/router.py`, `server/rag.py`, `server/federation.py`, `server/reviewer.py`, `server/compare.py`, `server/request_context.py`, `server/outbound.py`, 特征测试与其 golden** |
 
@@ -130,8 +144,10 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, tier, model, 
 
 各线必须守的接缝规则:
 - 钩子收到 `ctx is None` (eval / scripts) 必须原样放行。
+- 访客身份 / 设置从 `ctx.request` 取 (cookie、`CF-Connecting-IP`、`ctx.request.app.state.settings`); ⛔ 不读模块级 `server.config.settings` (与 app.state 可能不是同一份)。
+- `quota.reserve` 返回的句柄原样回到同一次调用的 `settle`; `settle` 的 `model` = provider 报的模型 (Router 回退会改变它, 计价按它)。`route` / `review` / `embedding` / `hyde` 用的不是 `ctx.model`, 以 `reserve` 的 `kw["model"]` 与 `settle` 的 `model` 为准。
 - 拒绝只用 `ServiceRefusal` (状态码 + §2.3 code); 其它异常类型会被各处兜底吞掉。
-- `quota.settle` 的 `usage` 可能为 None (失败/中断), 也可能是 litellm **估算**值 (上游断流, 见 BYOK 探针 §3); `finalize` 结算未结清的预留。流在客户端断开时 `settle` 可能晚到或不到, `finalize` 必到。
+- `quota.settle` 的 `usage` 可能为 None (调用失败 / 客户端提前停读), 也可能是 litellm **估算**值: 流结束时没收到 usage 片, litellm 就自己数 token 补一个 —— 上游中途断流 (分块传输缺结束块) litellm **不抛异常**, 也走这条 (BYOK 探针第 5 条)。`finalize` 结算未结清的预留。流在客户端断开时 `settle` 可能晚到或不到, `finalize` 必到。
 - BYOK 调用**不得**走带 `fallbacks` 的 Router 组 (探针: 逐次 `api_key` 会被带进回退目标 = 用户的 A 家 key 发给 B 家)。
 - key 不得出现在日志里: `_open_stream` 等处 `exc_info=True` + rich traceback 会打印帧局部变量, `outbound.*` 帧里的 `kw` 含 `api_key` —— L1 须在日志层脱敏 (或关 show_locals) 并用故意报错的测试证明。
 

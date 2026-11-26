@@ -48,17 +48,23 @@ class H(BaseHTTPRequestHandler):
                      "max_tokens": body.get("max_tokens") or body.get("max_output_tokens")})
 
     def _sse(self, events, abort_after=None):
+        # Chunked framing: a real mid-stream cut = connection closed WITHOUT the terminating
+        # 0-length chunk, which an HTTP/1.1 client can tell apart from a complete body.
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Connection", "close")
+        self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
         for i, ev in enumerate(events):
             if abort_after is not None and i >= abort_after:
                 self.wfile.flush()
-                self.connection.shutdown(2)  # hard cut mid-stream
+                self.connection.shutdown(2)  # hard cut mid-stream, no terminating chunk
+                self.close_connection = True
                 return
-            self.wfile.write(ev.encode())
+            raw = ev.encode()
+            self.wfile.write(f"{len(raw):x}\r\n".encode() + raw + b"\r\n")
             self.wfile.flush()
+        self.wfile.write(b"0\r\n\r\n")
+        self.wfile.flush()
 
     def _json(self, code, obj):
         raw = json.dumps(obj).encode()
@@ -218,6 +224,19 @@ async def main():
                                                           base + "/abort"))
     await case("abort_client_stops_early_openai",
                lambda: _d("openai/gpt-4o-mini", "byok-openai", base + "/v1", stop_after=1))
+    # control: is the /abort framing a real protocol-level cut? (raw httpx must raise)
+    async def _raw():
+        import httpx
+        async with httpx.AsyncClient() as c:
+            try:
+                async with c.stream("POST", base + "/abort/v1/chat/completions",
+                                    json={"stream": True, "model": "x"}) as r:
+                    async for _ in r.aiter_bytes():
+                        pass
+                return {"raised": None}
+            except Exception as exc:  # noqa: BLE001
+                return {"raised": type(exc).__name__, "msg": str(exc)[:120]}
+    await case("control_raw_httpx_abort_is_a_real_cut", _raw)
     # embedding with per-call key/base (rag._embed_query shape)
     async def _emb():
         return {"n": len((await litellm.aembedding(model="text-embedding-3-small", input=["x"],

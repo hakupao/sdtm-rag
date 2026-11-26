@@ -20,57 +20,60 @@ def _ctx(ctx: RequestContext | None) -> RequestContext | None:
     return ctx if ctx is not None else current()
 
 
+def _settle(ctx, purpose, handle, resp):
+    quota.settle(ctx, purpose, handle, getattr(resp, "usage", None), getattr(resp, "model", None))
+
+
 def completion(ctx, purpose: str, llm_router, **kw):
     ctx = _ctx(ctx)
     fn, kw = providers.resolve(ctx, purpose, "completion", llm_router, kw)
-    quota.reserve(ctx, purpose, kw)
+    handle = quota.reserve(ctx, purpose, kw)
     resp = None
     try:
         resp = fn(**kw)
         return resp  # noqa: RET504 — finally reads resp
     finally:
-        quota.settle(ctx, purpose, getattr(resp, "usage", None))
+        _settle(ctx, purpose, handle, resp)
 
 
 async def acompletion(ctx, purpose: str, llm_router, **kw):
     """Non-streamed: settle on return. Streamed: the returned iterator settles with the last usage
-    chunk it saw when it is exhausted / closed (usage None if it never arrived)."""
+    chunk and the last reported model it saw when it is exhausted / closed (None if never seen)."""
     ctx = _ctx(ctx)
     fn, kw = providers.resolve(ctx, purpose, "acompletion", llm_router, kw)
-    quota.reserve(ctx, purpose, kw)
+    handle = quota.reserve(ctx, purpose, kw)
     try:
         resp = await fn(**kw)
     except BaseException:
-        quota.settle(ctx, purpose, None)
+        _settle(ctx, purpose, handle, None)
         raise
     if not kw.get("stream"):
-        quota.settle(ctx, purpose, getattr(resp, "usage", None))
+        _settle(ctx, purpose, handle, resp)
         return resp
-    return _metered(ctx, purpose, resp)
+    return _metered(ctx, purpose, handle, resp)
 
 
-async def _metered(ctx, purpose, stream):
-    usage = None
+async def _metered(ctx, purpose, handle, stream):
+    usage = model = None
     try:
         async for chunk in stream:
-            u = getattr(chunk, "usage", None)
-            if u:
-                usage = u
+            usage = getattr(chunk, "usage", None) or usage
+            model = getattr(chunk, "model", None) or model
             yield chunk
     finally:
-        quota.settle(ctx, purpose, usage)
+        quota.settle(ctx, purpose, handle, usage, model)
 
 
 def embedding(ctx, purpose: str, **kw):
     ctx = _ctx(ctx)
     fn, kw = providers.resolve(ctx, purpose, "embedding", None, kw)
-    quota.reserve(ctx, purpose, kw)
+    handle = quota.reserve(ctx, purpose, kw)
     resp = None
     try:
         resp = fn(**kw)
         return resp  # noqa: RET504 — finally reads resp
     finally:
-        quota.settle(ctx, purpose, getattr(resp, "usage", None))
+        _settle(ctx, purpose, handle, resp)
 
 
 def web_search(ctx, searcher, query: str):
@@ -78,7 +81,7 @@ def web_search(ctx, searcher, query: str):
     status (the model is told and answers without it) instead of killing the stream."""
     ctx = _ctx(ctx)
     try:
-        quota.reserve(ctx, "web", {"query": query})
+        handle = quota.reserve(ctx, "web", {"query": query})
     except ServiceRefusal:
         return [], "quota_exceeded"
     st = "failed"
@@ -86,4 +89,4 @@ def web_search(ctx, searcher, query: str):
         refs, st = searcher.search(query)
         return refs, st
     finally:
-        quota.settle(ctx, "web", {"status": st})
+        quota.settle(ctx, "web", handle, {"status": st}, "tavily")

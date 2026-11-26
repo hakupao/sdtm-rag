@@ -537,7 +537,7 @@ def ask(body: AskRequest, request: Request):
     ctx = current_ctx()
     instance.check_request(ctx, body)
     providers.check_model(ctx, s)
-    quota.admit(ctx)
+    quota.admit(ctx, body)
 
     log.info("ask", question=body.question[:100], model=body.model, domain=body.domain)
 
@@ -818,7 +818,7 @@ async def ask_stream(body: AskStreamRequest, request: Request):
     ctx = current_ctx()
     instance.check_request(ctx, body)
     providers.check_model(ctx, s)
-    quota.admit(ctx)
+    quota.admit(ctx, body)
 
     verified_by_id = {m.id: m.verified for m in s.selectable_models}
     # default/hard/light 不在表里 ⇒ None = "未知", 不是 False。发 False 会把"没这个概念"
@@ -1375,7 +1375,7 @@ async def ask_compare(body: AskCompareRequest, request: Request):
         raise HTTPException(status_code=422, detail="question must not be empty")
     ctx = current_ctx()
     instance.check_request(ctx, body)
-    quota.admit(ctx)
+    quota.admit(ctx, body)
 
     models = [m.strip() for m in (body.models or s.compare_models) if m and m.strip()]
     # De-dup, preserving order: identical slots would render indistinguishable columns
@@ -1508,7 +1508,7 @@ async def validate_dataset(
 
     ctx = current_ctx()
     instance.check_request(ctx, None)
-    quota.admit(ctx)
+    quota.admit(ctx, None)
     spec_loader = request.app.state.spec_loader
     t0 = time.perf_counter()
 

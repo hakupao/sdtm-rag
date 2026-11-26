@@ -23,12 +23,17 @@ def spy(monkeypatch):
         seen["resolve"].append((ctx and ctx.endpoint, purpose, kind))
         return real_resolve(ctx, purpose, kind, llm_router, kw)
 
+    def reserve(ctx, p, kw):
+        seen["reserve"].append((ctx and ctx.endpoint, p))
+        return ("H", len(seen["reserve"]))       # handle must come back to settle
+
+    def settle(ctx, p, handle, usage, model):
+        seen["settle"].append((ctx and ctx.endpoint, p, usage is not None, handle, model))
+
     monkeypatch.setattr(providers, "resolve", resolve)
-    monkeypatch.setattr(quota, "reserve", lambda ctx, p, kw: seen["reserve"].append(
-        (ctx and ctx.endpoint, p)))
-    monkeypatch.setattr(quota, "settle", lambda ctx, p, u: seen["settle"].append(
-        (ctx and ctx.endpoint, p, u is not None)))
-    monkeypatch.setattr(quota, "admit", lambda ctx: seen["admit"].append(ctx.endpoint))
+    monkeypatch.setattr(quota, "reserve", reserve)
+    monkeypatch.setattr(quota, "settle", settle)
+    monkeypatch.setattr(quota, "admit", lambda ctx, body: seen["admit"].append(ctx.endpoint))
     monkeypatch.setattr(quota, "finalize", lambda ctx: seen["finalize"].append(ctx.endpoint))
     return seen
 
@@ -47,9 +52,15 @@ def test_every_inventory_purpose_goes_through_the_hooks_with_request_ctx(harness
     assert by_ep["validate"] == {"embedding", "review"}
     # web goes through reserve/settle (not resolve: Tavily is not an LLM call)
     assert ("ask_stream", "web") in spy["reserve"]
-    # every reserve is settled exactly once (stream rounds settle when the stream ends)
-    assert sorted(spy["reserve"]) == sorted((e, p) for e, p, _ in spy["settle"])
-    assert all(has for e, p, has in spy["settle"] if p in ("answer", "continue"))
+    # every reserve is settled exactly once, with its own handle (stream rounds settle at stream end)
+    handles = [h for *_, h, _m in spy["settle"]]
+    assert sorted(handles) == [("H", i) for i in range(1, len(spy["reserve"]) + 1)]
+    assert sorted(spy["reserve"]) == sorted((e, p) for e, p, *_ in spy["settle"])
+    assert all(has for e, p, has, *_ in spy["settle"] if p in ("answer", "continue"))
+    # the answering model as the provider reported it reaches settle (stream: last chunk's model)
+    models = {(e, p): m for e, p, _u, _h, m in spy["settle"]}
+    assert models[("ask", "answer")] == "m-x" and models[("ask_stream", "answer")] == "m-stream"
+    assert models[("ask_stream", "web")] == "tavily"
     # one admit + exactly one finalize per metered request (info is not metered)
     assert sorted(spy["admit"]) == sorted(spy["finalize"]) == sorted(
         ["ask", "ask_stream", "ask_stream", "ask_stream", "ask_compare", "validate"])
@@ -58,7 +69,7 @@ def test_every_inventory_purpose_goes_through_the_hooks_with_request_ctx(harness
 def test_admit_refusal_is_a_json_429_before_any_outbound_call(harness, spy, monkeypatch):  # noqa: F811
     client, rec, router = harness
 
-    def refuse(ctx):
+    def refuse(ctx, body):
         raise ServiceRefusal(429, "free_quota_exhausted", "no free questions left",
                              headers={"Retry-After": "60"}, remaining=0)
 
@@ -193,3 +204,78 @@ def test_credentials_and_ctx_repr_never_show_the_key():
     for s in (repr(c), str(c), repr(ctx), str(ctx), f"{ctx}", f"{c!r}"):
         assert "sk-secret-123" not in s
     assert "byok=True" in repr(ctx)
+
+
+def test_admit_can_clip_history_before_the_prompt_is_built(harness, monkeypatch):  # noqa: F811
+    client, rec, router = harness
+
+    def clip(ctx, body):
+        body.history = body.history[-1:]
+
+    monkeypatch.setattr(quota, "admit", clip)
+    hist = [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"},
+            {"role": "user", "content": "c"}, {"role": "assistant", "content": "d"}]
+    router.ask_script = [_resp("x")]
+    rec.calls.clear()
+    assert client.post("/api/ask", json={"question": "q", "corpus": "cdisc",
+                                         "history": hist}).status_code == 200
+    answer = [c for c in rec.calls if c["call"] == "router.completion"][-1]
+    assert answer["roles"] == ["system", "assistant", "user"]   # 4 history turns -> 1
+
+
+def test_ctx_carries_the_request_for_identity_and_settings(harness, monkeypatch):  # noqa: F811
+    client, _rec, router = harness
+    got = {}
+
+    def admit(ctx, body):
+        got["ip"] = ctx.request.headers.get("cf-connecting-ip")
+        got["settings"] = ctx.request.app.state.settings is not None
+
+    monkeypatch.setattr(quota, "admit", admit)
+    router.ask_script = [_resp("x")]
+    client.post("/api/ask", json={"question": "q", "corpus": "cdisc"},
+                headers={"CF-Connecting-IP": "203.0.113.7"})
+    assert got == {"ip": "203.0.113.7", "settings": True}
+
+
+def _fake_request(**state):
+    from types import SimpleNamespace
+
+    from server.config import Settings
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(settings=Settings(), **state)))
+
+
+def test_vision_gate_false_skips_pdf_channel_without_touching_builder(monkeypatch):
+    from types import SimpleNamespace
+
+    import server.router as router_mod
+    touched = []
+    builder = SimpleNamespace(index=SimpleNamespace(form_named_in=lambda q: touched.append(q)))
+    req = _fake_request(pdf_context=builder, study_lookup=None)
+    msgs = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]
+    assert router_mod.maybe_attach_pdf_pages(req, "q", [], msgs) == (None, None)
+    assert touched == ["q"]                                     # default: channel consulted
+    monkeypatch.setattr(providers, "capability",
+                        lambda ctx, name, d: False if name == "vision" else d)
+    touched.clear()
+    assert router_mod.maybe_attach_pdf_pages(req, "q", [], msgs) == (None, None)
+    assert touched == [] and msgs[-1]["content"] == "u"
+
+
+def test_dossier_auto_gate_value_reaches_decide_dossier(monkeypatch):
+    from types import SimpleNamespace
+
+    import server.dossier_trigger as dt
+    import server.router as router_mod
+    seen = []
+    monkeypatch.setattr(dt, "decide_dossier", lambda *a, **kw: seen.append(kw["auto_attach"])
+                        or SimpleNamespace(attach=False, reason="r", domains=()))
+    dossier = SimpleNamespace(sha="x", sections=(), chars=0, text="")
+    req = _fake_request(dossier=dossier, rag=None, federation=None)
+    router_mod.maybe_attach_dossier(req, "q", [], None, "auto")
+    sentinel = object()
+    monkeypatch.setattr(providers, "capability",
+                        lambda ctx, name, d: sentinel if name == "dossier_auto" else d)
+    router_mod.maybe_attach_dossier(req, "q", [], None, "auto")
+    assert seen[0] is router_mod._auto_attach_allowed(req.app.state.settings, "default")
+    assert seen[1] is sentinel
