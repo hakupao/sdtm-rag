@@ -53,6 +53,7 @@ def estimate_cost(model: str, usage: dict | None) -> float | None:
     Returns a float, or None when it cannot be priced honestly:
       - no usage / no token counts          -> None  (nothing to price)
       - model in the §9 table               -> exact arithmetic from token counts
+      - model in the provider registry      -> its override / price_ref price
       - otherwise litellm.completion_cost   -> its number if > 0
       - all of the above fail               -> None  ("—" in the UI, never a guess)
     """
@@ -69,6 +70,14 @@ def estimate_cost(model: str, usage: dict | None) -> float | None:
     if table is not None:
         in_rate, out_rate = table
         return round(pt / 1_000_000 * in_rate + ct / 1_000_000 * out_rate, 6)
+
+    # provider registry (P2 L1): the file's price override, or litellm's price for the
+    # registry's `price_ref` (OpenAI-compatible aliases like openai/qwen3-max).
+    from server.provider_registry import registry_cost
+
+    reg = registry_cost(model, pt, ct)
+    if reg is not None:
+        return reg
 
     # Not in §9's table — ask litellm's own (frequently-updated) price map via
     # cost_per_token (model, prompt_tokens, completion_tokens) -> (in_cost, out_cost).

@@ -1,0 +1,82 @@
+# Provider registry (P2 L1, PLAN 2.4 / §5): adding a model = edit this file, not code.
+#
+# Per model:
+#   id     BYOK model id sent by the UI (`model` with `provider=<id>`); unique within its provider,
+#          must not collide with Router group names (internal groups / selectable_models ids).
+#   model  litellm model string actually called.
+#   price_ref   litellm model_cost key used for capabilities + price when `model` is an
+#               OpenAI-compatible alias (openai/<x> + fixed api_base) litellm cannot price.
+#   capabilities  {tools, vision, context_tokens, prompt_cache} — overrides litellm model_cost.
+#   price  [input, output] USD per 1M tokens — overrides litellm's price table.
+#   max_output_tokens  per-call ceiling (Router deployments carry it for server models; BYOK
+#                      bypasses the Router so it must be explicit). Default: litellm's value, else 8192.
+# Unset capability fields fall back to litellm model_cost; still unknown => conservative
+# (no tools / no vision / context 0 / no cache).
+# ⚠ Model ids are from litellm 1.88.1's table; none was exercised against a live endpoint in L1
+# (no paid calls allowed). P3.5 audit marks unverified providers.
+
+free_tier_model: deepseek/deepseek-v4-pro      # PLAN Q3: server-key model on the public tier
+dossier_auto_min_context_tokens: 400000        # dossier auto-attach needs >= this context window
+byok_timeout_s: 120                            # = Router(timeout=120) for server-key calls
+byok_num_retries: 1                            # = Router(num_retries=1)
+
+providers:
+  - id: anthropic
+    label: Anthropic
+    models:
+      - {id: claude-opus-5-5, label: Claude Opus 5.5, model: anthropic/claude-opus-5-5, max_output_tokens: 128000}
+      - {id: claude-sonnet-5-5, label: Claude Sonnet 5.5, model: anthropic/claude-sonnet-5-5, max_output_tokens: 128000}
+      - {id: claude-haiku-5-5, label: Claude Haiku 5.5, model: anthropic/claude-haiku-5-5}
+      # server-key selectable models (capability rows only; also offered for BYOK)
+      - {id: claude-opus-5, label: Claude Opus 5, model: anthropic/claude-opus-5, max_output_tokens: 128000}
+      - {id: claude-sonnet-5, label: Claude Sonnet 5, model: anthropic/claude-sonnet-5, max_output_tokens: 128000}
+  - id: openai
+    label: OpenAI
+    models:
+      - {id: gpt-5.5, label: GPT-5.5, model: openai/gpt-5.5, price_ref: gpt-5.5}
+      - {id: gpt-5.4-mini, label: GPT-5.4 mini, model: openai/gpt-5.4-mini, price_ref: gpt-5.4-mini}
+  - id: gemini
+    label: Google Gemini
+    models:
+      - {id: gemini-3.1-pro-preview, label: Gemini 3.1 Pro (preview), model: gemini/gemini-3.1-pro-preview}
+      - {id: gemini-3.5-flash, label: Gemini 3.5 Flash, model: gemini/gemini-3.5-flash}
+  - id: deepseek
+    label: DeepSeek
+    models:
+      - {id: deepseek-v4-pro, label: DeepSeek V4 Pro, model: deepseek/deepseek-v4-pro, max_output_tokens: 32000}
+      - {id: deepseek-v4-flash, label: DeepSeek V4 Flash, model: deepseek/deepseek-v4-flash, max_output_tokens: 32000}
+  # Domestic presets: OpenAI-compatible, FIXED official base URL (no user-supplied address).
+  - id: qwen
+    label: 通义千问 (阿里云百炼)
+    api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+    models:
+      - {id: qwen3-max, label: Qwen3 Max, model: openai/qwen3-max, price_ref: dashscope/qwen3-max, max_output_tokens: 32768}
+      - {id: qwen3.5-plus, label: Qwen3.5 Plus, model: openai/qwen3.5-plus, price_ref: dashscope/qwen3.5-plus, max_output_tokens: 32768}
+  - id: kimi
+    label: Kimi (月之暗面)
+    api_base: https://api.moonshot.cn/v1
+    models:
+      - {id: kimi-k3, label: Kimi K3, model: openai/kimi-k3, price_ref: moonshot/kimi-k3}
+  - id: glm
+    label: 智谱 GLM
+    api_base: https://open.bigmodel.cn/api/paas/v4
+    models:
+      - {id: glm-5.1, label: GLM-5.1, model: openai/glm-5.1, price_ref: zai/glm-5.1}
+  - id: siliconflow
+    label: 硅基流动 SiliconFlow
+    api_base: https://api.siliconflow.cn/v1
+    models:
+      - id: deepseek-ai/DeepSeek-V3.2
+        label: DeepSeek V3.2 (SiliconFlow)
+        model: openai/deepseek-ai/DeepSeek-V3.2
+        price_ref: deepseek/deepseek-v3.2
+        max_output_tokens: 8192
+  # Private tier only: user-supplied OpenAI-compatible base (X-LLM-Api-Base), SSRF-checked + IP-pinned.
+  - id: custom
+    label: 自定义 OpenAI 兼容地址
+    private_only: true
+    custom_base: true
+    # model id is free-form for custom; capabilities are unknown => conservative defaults
+    capabilities: {tools: false, vision: false, context_tokens: 32000, prompt_cache: false}
+    max_output_tokens: 8192
+    models: []
