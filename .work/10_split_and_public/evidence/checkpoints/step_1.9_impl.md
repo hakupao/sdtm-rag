@@ -25,7 +25,7 @@
 ## 规则 5 变异 (`3c5a10b` 上重跑; 脚本按原文 sha 前置闸, `finally` 还原, 还原后 `git diff --quiet` rc 0 + 测试 rc 0)
 | 变异 | 打法 | 目标测试 | 结果 |
 |---|---|---|---|
-| (a) 闸阈值 | `len(reg) > max_regressions` → `> max_regressions + 1` | `test_gate_two_regressions_fail_and_archive` | 1 failed, `assert 'PASS' == 'FAIL'` |
+| (a) 闸阈值 | `len(reg) > max_regressions` → `> max_regressions + 1` | `test_gate_two_regressions_fail_and_archive` | 1 failed, `assert 'PASS' == 'FAIL'` (**更正**: 该轮仅跑了这 1 个目标测试; 审阅方全量跑为 2 failed。v3 起变异一律跑整个 `tests/test_kbsync.py`, 见下) |
 | (b) 候选指纹断言 | `if got != fp:` → `if False:` | `test_gate_fingerprint_mismatch_…`, `test_candidate_pipeline_old_kb_image_fails` | 2 failed, `assert 'PASS' == 'FAIL'` |
 | (c) 非 KB 集合守卫 | `if prod_cols != src_cols:` → `if False:` | `test_deploy_swap_refuses_on_non_kb_collection_mismatch`, `…_missing_non_kb_collection` | 2 failed, `assert 0 == 1` |
 
@@ -53,3 +53,47 @@ A 的真实产物喂 `kbsync.py gate` (临时数据根): `verdict=FAIL, reason="
 - job 被取消/超时 (非 failure) 时 journal 残留: 下次部署 swap 会拒绝 (fail closed), 需人工 `restore` 或 `finish`。
 - 候选 eval 与生产 api/ui 同时占内存 (1536m + 1536m + 512m), VM 总内存未核。
 - 正例演练 (A 仓真改一行 → kb-sync → 部署换上) 与生产 dispatch 留给主会话。
+
+## 审阅修复轮 (review: code-reviewer opus, dd903a3..26c18b6 → PASS-with-fixes)
+
+派单 `../subagent_prompts/step_1.9_fix_executor.md`。提交 `c2cdc2c` (修复) + `f9dd61c` (补测试)。
+
+| # | 发现 | 处置 |
+|---|---|---|
+| 1 | deploy-swap 失败后盲目 `compose start` | 先 `swap-status`; journal 在 → `restore` (失败则保持停止交人工) → 再 start。仅 yaml, 未真跑 |
+| 2 | job 取消/超时残留 journal | `predeploy_check` 首判 `journal_pending`; kbcheck 对它一律失败 (same/force 也拦) |
+| 3 | 旧测试因错误原因得 SystemExit, journal 闸变异存活 | swap 内重复的 journal 闸删掉, 统一由 predeploy_check 判; 新测试 leftover journal + 合格 chroma_prev → 拒换且 `match="journal_pending"`; 变异 d 已杀 |
+| 4 | 非 KB 守卫只比 名+条数 | 加内容摘要 sha256(按 id 排序 [id, document, metadata]); 只输出摘要。本机两份 chroma 副本实测摘要一致 (非 KB 2 个集合) |
+| 5 | 闸只有相对判据 | + 题号集合相同, ≥140 题, 候选满分 ≥ 基线−1, 候选 `summary.source_recall_avg` ≥ 0.95 (缺键 = FAIL) |
+| 6 | restore 不校验终态 | 终态 (stamp == old_fp, prev 已无, source/live 在) 不符 → 保留 journal, 非零 |
+| 7 | image-fp 失败静默 | stderr 打末 5 行 |
+| 8 | README 口径 | 改: 失败步打 stderr 末 20 行; force 救不了 swap 决定下的集合核对失败 |
+| 9 | kbcheck 失败也会退镜像 | 部署步首行写 `started=true`, 退镜像步加该条件 |
+| 10 | 目标镜像 chromadb 读写生产原件 | 集合核对改在 `kbsync_guard_<ts>/` 副本上 (always-copy, 比"版本不同才拷"少一条分支), 原件换入前不被任何 chromadb 打开; marker 记候选镜像 chromadb 版本, predeploy 与目标镜像版本不等则不选该候选 (旧 `chroma_prev` 不做此钉, 见风险) |
+| 11 | 本文件变异 (a) 计数 | 已更正 (上表) |
+
+### 重跑 (HEAD `f9dd61c`)
+| 命令 | 结果 |
+|---|---|
+| `.venv/bin/python -m pytest tests/test_kbsync.py -q -o addopts=""` | 39 passed |
+| `.venv/bin/python -m pytest -m "not slow" -q -o addopts="" -rs` | 2649 passed, 2 skipped, 0 failed |
+| `actionlint -ignore 'undefined variable "gitea"' -ignore SC2034 .gitea/workflows/*.yml` | rc 0 |
+| `.venv/bin/python scripts/oidscan_evidence.py` (无参) | CLEAN |
+| 真实产物过新闸: 基线1 vs 基线2 / 基线1 vs 损坏 A | PASS (140 题, 满分 138/138, avg 0.9917) / FAIL (回退 9; 满分 129 < 137; avg 0.9381 < 0.95) |
+
+### 规则 5 变异 (每个跑整个 `tests/test_kbsync.py`; sha 前置闸 + `finally` 还原 + 还原后 `git diff --quiet` rc 0 且测试全绿)
+| 变异 | 结果 |
+|---|---|
+| a 阈值 `> max+1` | 首轮**存活** (满分地板掩护了 2 题回退的旧测试) → 补 `test_gate_two_partial_regressions_fail_on_threshold_alone` (回退在非满分题) → 1 failed, 已杀 |
+| b 候选指纹断言 `if False` | 2 failed |
+| c 非 KB 守卫 `if False` | 3 failed |
+| d journal 闸 (predeploy_check) `if False` | 2 failed |
+| e1 题号集合 / e2 ≥140 / e3 满分地板 / e4 avg 地板 | 2 / 1 / 1 / 1 failed |
+| f chromadb 钉 `if True` | 1 failed |
+| g restore 终态 `if False` | 1 failed |
+| h 守卫读原件而非副本 | 4 failed |
+
+### 新增开放风险
+- 守卫副本 = 生产 + 候选各一份 (~600M) 临时占盘, 停服务期间拷贝 (停机时间变长)。
+- 回滚到 `chroma_prev_*` 不做 chromadb 版本钉 (prev 可能已被更新版 chromadb 迁移过); 依赖健康检查 + freshness 兜底。
+- 第 1 / 9 项 yaml 路径与以前一样未真跑。
