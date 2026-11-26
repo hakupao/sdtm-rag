@@ -11,6 +11,9 @@ import { renderDossierBadge } from "./js/dossier.js";
 import { renderGroundingBadge, settleAnswer, historyFromMessages } from "./js/grounding.js";
 import { $, initScrollFollow, initSettings, initSidebar, selectedCorpus, webEnabled,
          dossierMode, autoGrow } from "./js/ui.js";
+import { normalizeInfo, validQuota, byokRequest, webState, loadKey, saveKey, clearKey,
+         loadSelection, saveSelection, requestModel } from "./js/byok.js";
+import { quotaText, renderDowngrades, isQuotaRefusal } from "./js/notices.js";
 
 // ── 渲染回调 (侧栏/消息需要的动作) ──
 const sidebarHandlers = {
@@ -97,6 +100,7 @@ async function runGeneration(c) {
   let gotPdfTrigger = null;
   let gotDossier = null;
   let gotGrounding = null;
+  let gotDowngrades = null;  // P2 §2.4: sources 先给一份, done 汇总后覆盖
   let firstAnswer = null;    // 答案闸 regenerate 时的首轮原文 (acc 随后从空开始装最终轮)
   let regenReasons = null;
   let lastVerdict = null;    // 最后一份 grounding 事件 (中断时合成「重答中断」判定用)
@@ -145,7 +149,9 @@ async function runGeneration(c) {
                  // 第六次: 研读包答案过没过确定性核验、重答过没有 (DM2 答案闸)。
                  grounding: gotGrounding,
                  // content 是最终轮; 没过核验的首轮单独存, 折叠展示且不进 history。
-                 firstAnswer };
+                 firstAnswer,
+                 // P2 §2.4 降级 (没联网 / 没看图 …) 也得活过刷新; 没降级时键都不加 ⇒ 存档形状与改前一致。
+                 ...(gotDowngrades ? { downgrades: gotDowngrades } : {}) };
     c.messages.push(savedMsg);
     save(); renderSidebar(sidebarHandlers);
   };
@@ -161,18 +167,26 @@ async function runGeneration(c) {
     renderFirstAnswer(turn, firstAnswer, regenReasons);
     return r.content;
   };
-  const fail = (msg) => { appendErr(bubble, msg); appendRetry(turn, () => retry(c)); };
+  const fail = (msg, detail) => {
+    appendErr(bubble, msg);
+    // 额度类拒绝: 不给"重试" (照样被拒), 给"去设置填 key"。
+    if (!isQuotaRefusal(detail)) appendRetry(turn, () => retry(c));
+    else if (tierView.providers.length) appendOpenSettings(turn);
+  };
 
   const ctrl = new AbortController();
   currentAbort = ctrl;
   try {
     await streamAsk({ question: text, history, corpus: selectedCorpus(), web: webEnabled(),
-                      model: $("model-select").value, dossier: dossierMode() }, {
+                      model: requestModel(tierView, $("model-select").value), dossier: dossierMode(),
+                      byok: currentByok() }, {
       // sources 事件先到 (done 之前), 研读包信息两处都发 —— 先收下这份, done 再覆盖:
       // 流被中断 (停止 / 连接断) 时 done 永远不来, 但答案已经吃过研读包了, 存档得说得出来。
       onSources: (s, routed, ev) => { gotSources = s; gotRouted = routed;
                                       gotDossier = (ev || {}).dossier ?? null;
-                                      setSources(turn, s, routed); },
+                                      gotDowngrades = (ev || {}).downgrades ?? null;
+                                      setSources(turn, s, routed);
+                                      renderDowngrades(turn, gotDowngrades); },
       onToken: (t) => { acc += t; dirty = true; if (!rafId) rafId = requestAnimationFrame(paint); },
       onToolCall: (d) => onToolCallUI(turn, d),
       onToolResult: (d) => onToolResultUI(turn, d),
@@ -209,6 +223,10 @@ async function runGeneration(c) {
         // 研读包没挂时 done 里没有这个键 ⇒ null ⇒ 徽章不画。
         gotGrounding = (data || {}).grounding ?? null;
         countFix = (data || {}).counting_correction ?? "";
+        // `?? gotDowngrades`: 同 dossier 的理由 —— 老后端 done 没这个键时不抹掉 sources 那份。
+        gotDowngrades = (data || {}).downgrades ?? gotDowngrades;
+        renderDowngrades(turn, gotDowngrades);
+        if (validQuota((data || {}).quota)) setQuota(data.quota);
         renderModelBadge(turn, gotModelId, gotVerified, gotModelsUsed, gotFellBack);
         renderContinuation(turn, gotContinueRounds, gotTruncated);
         renderPdfPages(turn, gotPdfPages, gotPdfTrigger);
@@ -217,7 +235,13 @@ async function runGeneration(c) {
         const settled = settle(false);
         const content = settled.trim() ? settled : "(无内容)"; renderFinal(content); persist(content);
       },
-      onError: (msg) => { const t = settle(true); if (t) { renderFinal(t); persist(t); } fail(msg); },
+      onError: (msg, detail) => {
+        // 免费题用完 (§2.3): 额度徽章跟着归零, 不必等下一次 /api/info。
+        if (detail && detail.code === "free_quota_exhausted" && quotaState) {
+          setQuota({ ...quotaState, free_remaining: 0, reset_at: detail.reset_at ?? quotaState.reset_at });
+        }
+        const t = settle(true); if (t) { renderFinal(t); persist(t); } fail(msg, detail);
+      },
       // 干净 EOF 但无 done/error: 内容已在屏上, 落盘防刷新丢失 (规则 D HIGH 修复)。
       onClose: () => { const t = settle(true); if (t) { renderFinal(t); persist(t); fail("连接中断（已保留已生成内容）"); } else fail("连接中断"); },
       // 用户点「停止」: 保留已生成部分, 不报错样式, 给重试入口。
@@ -266,11 +290,107 @@ async function loadModelName() {
       syncWarning();
     });
     syncWarning();
+    syncServerModelUI = syncWarning;   // BYOK 关掉时还原顶栏 / 警告 (refreshTierUI)
     refreshModelBadgeLabels(); // 原地补字, 不重建 #messages (理由见函数注释)
     // 空状态的示例卡依赖 federation 才知道要不要显示 ST01 那张; 只在空会话时重画
     const c = store.conversations.find((x) => x.id === store.currentId);
     if (c && !c.messages.length && !busy) renderMessages(messageHandlers);
+    // P2 新增的一切放在既有逻辑**之后**、单独兜底: 这里抛了也不能拖垮上面的模型表 / 徽章补字。
+    try { applyTierInfo(info); } catch (e) { console.debug("tier info", e); }
   } catch (_) {}
+}
+
+// ── P2: 实例档位 / BYOK / 剩余额度 (契约 docs/design/P2_request_context.md §2) ──
+// /api/info 缺 tier/providers/quota/web_search 时 (私有档 / 旧服务端) 界面与 P2 前一致。
+let tierView = normalizeInfo(null);
+let quotaState = null;
+let syncServerModelUI = () => {};
+
+function currentByok() {
+  const sel = loadSelection();
+  return byokRequest(tierView, sel, loadKey(sel.provider));
+}
+function appendOpenSettings(turn) {
+  const btn = document.createElement("button");
+  btn.type = "button"; btn.className = "retry open-settings"; btn.textContent = "在设置里填自己的 API key";
+  btn.onclick = (e) => {
+    if (e && e.stopPropagation) e.stopPropagation();   // 否则冒泡到 document 的"点外面关面板"
+    $("settings-panel").hidden = false; $("settings-btn").setAttribute("aria-expanded", "true");
+  };
+  turn.appendChild(btn);
+}
+function setQuota(q) {
+  quotaState = validQuota(q) ? q : null;
+  const el = $("quota-badge"), t = quotaText(quotaState, !!currentByok());
+  el.hidden = !t; el.textContent = t || "";
+}
+function refreshTierUI() {
+  const byok = currentByok();
+  const w = webState(tierView, !!byok);
+  const web = $("scope-web"), opt = $("web-opt");
+  opt.hidden = !w.visible;
+  web.disabled = w.disabled;
+  if (w.disabled) web.checked = false;
+  opt.classList.toggle("disabled", w.disabled);
+  opt.title = w.disabled ? "免费额度不联网; 在设置里填入自己的 API key 后可用"
+                         : "让模型自行决定是否搜索公开网络 (业界实践参考, 非标准依据)";
+  // BYOK 时答题模型由设置面板决定, 输入框旁的本站模型下拉不生效 ⇒ 置灰, 顶栏写实际用的。
+  const sel = $("model-select");
+  sel.disabled = !!byok;
+  if (byok) {
+    $("topbar-model").textContent = `${byok.providerLabel} · ${byok.modelLabel}`;
+    $("model-warning").hidden = false;   // BYOK 模型的反捏造边界未在本站验证
+  } else syncServerModelUI();
+  setQuota(quotaState);
+  const st = $("byok-status"), p = loadSelection().provider;
+  st.textContent = byok ? "已启用自己的 key" : (p ? "未填 key · 仍使用本站额度" : "");
+}
+function fillModels(providerId) {
+  const msel = $("byok-model");
+  msel.innerHTML = "";
+  const p = tierView.providers.find((x) => x.id === providerId);
+  (p ? p.models : []).forEach((m) => {
+    const o = document.createElement("option"); o.value = m.id; o.textContent = m.label; msel.appendChild(o);
+  });
+  msel.disabled = !p;
+  const saved = loadSelection().model;
+  if (p) msel.value = p.models.some((m) => m.id === saved) ? saved : p.models[0].id;
+}
+function applyTierInfo(info) {
+  tierView = normalizeInfo(info);
+  quotaState = tierView.quota;
+  const section = $("byok-section");
+  section.hidden = !tierView.providers.length;
+  if (tierView.providers.length && !section.dataset.wired) {
+    section.dataset.wired = "1";
+    const psel = $("byok-provider"), msel = $("byok-model"), key = $("byok-key");
+    tierView.providers.forEach((p) => {
+      const o = document.createElement("option"); o.value = p.id; o.textContent = p.label; psel.appendChild(o);
+    });
+    const saved = loadSelection().provider;
+    psel.value = tierView.providers.some((p) => p.id === saved) ? saved : "";
+    fillModels(psel.value);
+    key.value = loadKey(psel.value);
+    key.disabled = !psel.value;
+    psel.addEventListener("change", () => {
+      fillModels(psel.value);
+      saveSelection({ provider: psel.value, model: msel.value });
+      key.value = loadKey(psel.value);   // key 绑 provider: 换家后旧 key 不显示也不发
+      key.disabled = !psel.value;
+      refreshTierUI();
+    });
+    msel.addEventListener("change", () => { saveSelection({ provider: psel.value, model: msel.value }); refreshTierUI(); });
+    key.addEventListener("input", () => {
+      const ok = saveKey(psel.value, key.value);
+      refreshTierUI();
+      if (!ok) $("byok-status").textContent = "key 含空格或非 ASCII 字符, 未保存";
+    });
+    $("byok-clear").addEventListener("click", () => {
+      clearKey(); key.value = ""; refreshTierUI();
+      $("byok-status").textContent = "已清除 key";
+    });
+  }
+  refreshTierUI();
 }
 
 // ── 事件绑定 ──

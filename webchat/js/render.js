@@ -6,6 +6,7 @@ import { flagButton } from "./flag.js";
 import { pdfAttachView } from "./pdfpages.js";
 import { renderDossierBadge } from "./dossier.js";
 import { renderGroundingBadge, regenerateDividerLabel } from "./grounding.js";
+import { renderDowngrades } from "./notices.js";
 
 // Plan B 联邦: 库标签 (日文 UI)。map 里没有的值 (null / 未知) 一律不渲染徽章 —— 联邦关时零变化。
 const CORPUS_LABEL = { cdisc: "標準", study: "本研究", both: "両方" };
@@ -107,6 +108,8 @@ export function messageEl(m) {
     renderDossierBadge(turn, m.dossier);
     // 第六次: 研读包答案过没过确定性核验 (重答过没有) 也必须活过刷新。
     renderGroundingBadge(turn, m.grounding, m.dossier);
+    // 第七次 (P2 §2.4): "因模型能力不足而没联网 / 没看图"的答案也必须活过刷新。
+    renderDowngrades(turn, m.downgrades);
   }
   return turn;
 }
