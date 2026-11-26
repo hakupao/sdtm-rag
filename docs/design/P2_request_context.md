@@ -1,0 +1,155 @@
+# P2 请求上下文接缝 (P2.0) — 出站清单 / 前后端契约 v1 / 分线归属
+
+> 状态: **§2 契约 v1 已冻结** (2026-11-26, 分支 `p2`)。改契约 = 发 v2 并通知 L1-L4, 不在某条线里顺手改。
+> 计划: `.work/10_split_and_public/PLAN.md` §2 P2、§6。证据: `.work/10_split_and_public/evidence/checkpoints/p2.0_seam.md`。
+
+接缝的形状:
+
+```
+endpoint (@request_scope) ── begin(): RequestContext{endpoint, tier, model, provider, credentials, quota, flags, notes}
+   │                          (ContextVar 绑定; router.py 显式传 ctx, rag/federation/reviewer/compare 走 current())
+   ├─ instance.check_request(ctx, body)    L3
+   ├─ providers.check_model(ctx, s)        L1  (默认 = 原 known_model_groups 422)
+   ├─ quota.admit(ctx)                     L2
+   ├─ 每次出站: outbound.{completion,acompletion,embedding,web_search}
+   │     └─ providers.resolve(ctx, purpose, kind, router, kw) → (callable, kw)   L1
+   │     └─ quota.reserve(ctx, purpose, kw) … quota.settle(ctx, purpose, usage)  L2
+   └─ quota.finalize(ctx)  恰一次 (正常 / 异常 / 客户端断开)                       L2
+```
+
+默认实现与引入前逐字节一致 (特征测试 `tests/test_p2_seam_characterization.py` 的 golden 录于 main `36499a7`)。
+
+## §1 服务器 key 出站调用清单
+
+行号为 `p2` 分支 seam 提交后。「触发路径」= 哪个请求会走到。全部经 `server/outbound.py`, 除表末两行。
+
+| # | file:line | 调用 | purpose | 触发路径 | 流式 |
+|---|---|---|---|---|---|
+| 1 | `server/router.py:646` | `Router.completion(model=body.model)` | `answer` / `continue` (触顶续写) / `regen` (研读包闸重答) | `/api/ask` | 否 |
+| 2 | `server/router.py:926,932` | `Router.acompletion(stream=True, [tools])` (第二次 = 去掉 `stream_options` 的窄重试) | `answer` / `continue` / `regen`; 联网时同一 purpose 跑多轮工具 | `/api/ask_stream` | 是 |
+| 3 | `server/router.py:1142` → `server/web_search.py:101` | Tavily `requests.post` | `web` | `/api/ask_stream` 且 `web=true` 且 `web_search_enabled` | 否 |
+| 4 | `server/federation.py:100` | `Router.completion(model="light")` 判库 | `route` | `/api/ask`, `/api/ask_stream` 在 federation 开 + `corpus=auto` | 否 |
+| 5 | `server/rag.py:761` | `litellm.embedding(text-embedding-3-small)` | `embedding` | 每次 `retrieve` (CDISC / study cards / study docs 各一次; 研读包 CDISC 补取; validate 2-3 次; compare 1 次) | 否 |
+| 6 | `server/rag.py:1009` | `litellm.completion(expansion_model, temperature=0)` | `hyde` / `multiquery` | 仅 `query_expansion != none` (**生产 OFF**) | 否 |
+| 7 | `server/reviewer.py:208` | `Router.completion(model="hard")` | `review` | `/api/validate` 且 `semantic_review=true` | 否 |
+| 8 | `server/compare.py:58` | `litellm.acompletion(model=任意串)` ×N 并发 | `compare` | `/api/ask_compare` | 否 |
+| 9 | `server/compare.py:229` | `litellm.acompletion(judge_model, temperature=0)` | `judge` | `/api/ask_compare` 且 `judge.enabled` | 否 |
+| — | `server/rag.py:963` | Cohere `rerank` (SDK, 非 litellm) | — | 仅 `rerank_enabled` (**生产 OFF**), **不经接缝** | 否 |
+| — | 启动期 | 无出站 (lifespan 只建索引 / 读文件) | — | — | — |
+
+不在请求路径上的 (不经接缝, 不受影响): `scripts/ingest.py` (embedding), `eval/*` (直调 litellm / RAGEngine), `scripts/mine_implicit_relations.py`, `ui/streamlit_app.py` (只调本服务 HTTP)。这些地方 `current()` 为 None, 钩子必须原样放行。
+
+开放项: Cohere rerank 不经接缝 —— 公开档 L3 须在启动期拒绝 `rerank_enabled=true` (或 L1 把它接进 outbound)。
+
+## §2 前后端契约 v1 (冻结)
+
+### 2.1 BYOK 请求头
+| 头 | 含义 | 档位 |
+|---|---|---|
+| `X-LLM-Api-Key` | 用户自己的 provider key。只存浏览器 (独立 localStorage 键), 服务端不落盘、不写日志 | 两档 |
+| `X-LLM-Api-Base` | 自定义 OpenAI 兼容地址 | **仅私有档**; 公开档带了 → 400 `custom_base_not_allowed` |
+
+常量在 `server/providers.py` (`BYOK_KEY_HEADER` / `BYOK_BASE_HEADER`)。有 key 头 ⇒ 本请求**不回退到服务器 key** (2.6)。
+
+### 2.2 请求体字段 (`/api/ask`, `/api/ask_stream`)
+| 字段 | 取值 | 说明 |
+|---|---|---|
+| `provider` | `null` (默认, 服务器 key) 或 provider 注册表 id (`anthropic` `openai` `gemini` `deepseek` `qwen` `kimi` `glm` `siliconflow` …, 列表以 `/api/info.providers` 为准; 私有档另有 `custom`) | 已加进两个请求模型, 默认无作用 |
+| `model` | 服务器 key: `/api/info.selectable_models[].id`; BYOK: `/api/info.providers[].models[].id` | 既有字段, 语义扩展 |
+
+其余字段不变。`/api/ask` 仍是 `extra="forbid"` (未知字段 422)。
+
+### 2.3 拒绝 (4xx/429) JSON 体
+开流前: HTTP 状态码 + `{"detail": {"code": <str>, "message": <人读文案, 中文>, ...附加字段}}` (`ServiceRefusal`)。429 带 `Retry-After` 头 (秒)。
+
+| code | 状态 | 附加字段 | 来源 |
+|---|---|---|---|
+| `free_quota_exhausted` | 429 | `remaining: 0`, `reset_at` (ISO8601) | L2 每访客每日免费题 |
+| `site_cap_reached` | 429 | `reset_at` | L2 全站 $ 封顶 (免费题关, BYOK 照常) |
+| `free_tier_disabled` | 503 | — | L2 紧急开关 |
+| `rate_limited` | 429 | `retry_after_s` | L2 每分钟限流 (BYOK 也受) |
+| `byok_key_invalid` | 401 | `provider` | L1 上游 401/403 |
+| `byok_provider_error` | 502 | `provider`, `upstream_status` | L1 上游其它错误 (不含 key) |
+| `model_not_allowed` | 422 | `allowed` (id 列表) | L1/L3 (公开档拒内部组 `default`/`hard`/`light`/`default-fallback`) |
+| `custom_base_not_allowed` | 400 | — | L3 公开档 |
+| `not_on_this_tier` | 403 | `feature` (`dossier` / `study_corpus` …) | L3 (公开档 `dossier="on"`、`corpus=study` 等) |
+| `request_too_large` | 413 | `limit` | L2 2.2 请求体 / history 上限 |
+
+既有错误不变: 空问题 422 `{"detail": "question must not be empty"}`; 未知模型 422 `{"detail": "unknown model …"}` (字符串 detail); 检索失败 502; LLM 失败 502。前端判别: `typeof detail === "object" && detail.code`。
+
+### 2.4 SSE (`/api/ask_stream`)
+**v1 不新增事件名** (`tests/test_sse_contract.py` 要求后端每个事件名前端都认得)。新信息挂在既有事件上:
+
+| 事件 | 新键 | 何时出现 |
+|---|---|---|
+| `sources` | `downgrades: [{capability, reason, detail?}]` | 只在开流前已有降级时 (例: 所选模型不支持工具 ⇒ 联网关闭) |
+| `done` | `downgrades: [...]` | 本次请求累计降级, 非空才有 |
+| `done` | `quota: {free_remaining, free_per_day, reset_at, byok}` | L2 提供时才有 (`quota.response_fields`) |
+| `error` | `code` + `message` (+ 2.3 的附加字段) | 流已开后 hook 拒绝 (例: 续写轮撞全站封顶)。旧的无 code 形态 `{"message": "LLM stream failed"}` 保留 |
+
+`capability` 取值: `web_tools` (不支持工具 ⇒ 不联网), `vision` (不支持看图 ⇒ 不附 PDF 画面), `dossier_auto` (上下文太短 ⇒ 不自动挂研读包); `reason` 为短标识 (`no_tool_calling` / `no_vision` / `context_too_small` …), 前端按表出文案, 未知 reason 显示原值。
+联网额度用尽沿用既有 `tool_result.status = "quota_exceeded"` (不杀流)。
+
+`/api/ask` (非流式) 同义: 响应体可选键 `quota`、`downgrades` (只在有值时出现)。
+
+### 2.5 剩余额度字段
+`quota = {"free_remaining": int, "free_per_day": int, "reset_at": ISO8601, "byok": bool}` —— `done.quota`、`/api/ask` 的 `quota`、`/api/info.quota` 同一形状 (`/api/info` 里是该访客当前值)。私有档可不提供 (键缺失 = 无限额, 前端不显示)。
+
+### 2.6 `/api/info` 按档位
+| 键 | 私有档 | 公开档 |
+|---|---|---|
+| 既有全部键 (见 `InfoResponse`) | 原样 | 去内部字段: 不出现 `collection_name` `chunk_count` `fallback_model` `compare_models` `judge_model` `index_freshness_reason` `dossier_*` `federation` (L3 决定最终清单) |
+| `tier` | `"private"` | `"public"` |
+| `providers` | `[{id, label, byok: true, base_fixed: bool, models: [{id, label, capabilities: {tools, vision, context_tokens}}]}]` | 同左, 无 `custom` |
+| `quota` | 可缺 | 2.5 形状 |
+
+`selectable_models` 两档都在 (服务器 key 可选模型; 公开档只列公开模型 id)。新增键由 `providers.info_fields` / `quota.info_fields` 提供, `instance.shape_info` 合成 (L3 可改形状)。
+
+### 2.7 各档端点
+| 端点 | 私有 | 公开 |
+|---|---|---|
+| `GET /api/health`, `GET /api/info`, `POST /api/ask`, `POST /api/ask_stream`, `POST /api/flag` (限大小/频率) | ✓ | ✓ |
+| `POST /api/ask_compare`, `POST /api/validate`, `POST /api/validate-study` | ✓ | **不注册** (404) |
+| `/docs`, `/openapi.json`, `/redoc` | ✓ | **关** |
+| `/login` `/logout` (登录门) | 按配置 | 不用 (访客 = 签名 cookie) |
+| Streamlit `ui` | ✓ | 不部署 |
+
+## §3 分线归属与合并序
+
+| 线 | 可改的文件 (独占) | 只读 / 不许改 |
+|---|---|---|
+| L3 实例档位 + 接口收口 (2.1/2.3) | `server/instance.py`, `server/main.py`, `server/config.py` (加 `instance` 等字段), `tests/test_p2_l3_*.py` | |
+| L1 provider + BYOK (2.4/2.5/2.6) | `server/providers.py`, `server/llm_config.py`, `server/cost.py`, 新 `server/provider_registry*`, 日志脱敏配置 (structlog 处理器, 放 `server/providers.py` 或新模块, 由 `main.py` 装 —— 这一行与 L3 协调), `tests/test_p2_l1_*.py` | |
+| L2 限额 (2.2/2.7) | `server/quota.py`, `server/auth.py`, 新 `server/quota_store*` (SQLite 在 `data/`), `tests/test_p2_l2_*.py` | |
+| L4 UI (2.8) | `webchat/**` only | 只按 §2 写, 不碰 `server/` |
+| 全部 | | **`server/router.py`, `server/rag.py`, `server/federation.py`, `server/reviewer.py`, `server/compare.py`, `server/request_context.py`, `server/outbound.py`, 特征测试与其 golden** |
+
+`config.py` 只有 L3 改; L1/L2 需要的新配置项写进各自 PR 说明, 由 L3 合入后补 (或在自己模块里用 `getattr(settings, "x", 默认)` 读)。真发现必须改 router.py 的地方 = 接缝缺口, 退回 P2.0 补 v1.1, 不在线里改。
+
+合并序 **L3 → L1 → L2 → L4**; 每合一条跑全部零 LLM 闸 (pytest / node / 140q 逐题 / 特征测试)。特征测试 golden 只能因"默认档位行为有意变化"重录 (`P2_SEAM_REGEN=1`), 并在 PR 里写明哪一步变了。
+
+各线必须守的接缝规则:
+- 钩子收到 `ctx is None` (eval / scripts) 必须原样放行。
+- 拒绝只用 `ServiceRefusal` (状态码 + §2.3 code); 其它异常类型会被各处兜底吞掉。
+- `quota.settle` 的 `usage` 可能为 None (失败/中断), 也可能是 litellm **估算**值 (上游断流, 见 BYOK 探针 §3); `finalize` 结算未结清的预留。流在客户端断开时 `settle` 可能晚到或不到, `finalize` 必到。
+- BYOK 调用**不得**走带 `fallbacks` 的 Router 组 (探针: 逐次 `api_key` 会被带进回退目标 = 用户的 A 家 key 发给 B 家)。
+- key 不得出现在日志里: `_open_stream` 等处 `exc_info=True` + rich traceback 会打印帧局部变量, `outbound.*` 帧里的 `kw` 含 `api_key` —— L1 须在日志层脱敏 (或关 show_locals) 并用故意报错的测试证明。
+
+## §4 并行工作树配置 (实测可用)
+
+```bash
+git worktree add -b p2-l3 ../sdtm-rag-l3 p2        # 每线一个; 路径任意
+cd ../sdtm-rag-l3
+git submodule update --init --depth 1              # KB (CDISC)
+uv sync --extra dev                                # 各自 venv
+git config core.hooksPath                          # 已是 .githooks (worktree 共享主仓 config, 无需再设)
+cp -R /Volumes/DevSSD/Project/sdtm-rag/data/study data/study   # 复制 (32M), 进 gitignored 的 data/study; pre-commit 闸要 catalog
+export SDTM_RAG_CHROMA_DIR_OVERRIDE=/Volumes/DevSSD/Project/sdtm-rag/data/chroma   # 只读共享, 跑 140q 闸用
+```
+
+实测 (2026-11-26, 一次性工作树): 不放 `data/study` ⇒ hook 以 `catalog 不在本机` 拦下 (fail-closed, 正确)。
+**符号链接不行**: hook 能过、`git status` 干净, 但 pytest 3 failed + 16 errors (`scripts/study/paths.py` 的
+`out_dir 必须在 STUDY_DATA_ROOT 内` 安全检查对 resolve 后的路径报错; git 报 `pathspec … is beyond a symbolic link`)。
+**复制可以**: hook 过、`git status` 干净、`pytest -m "not slow"` 2656 passed 0 failed。
+⛔ 不许 `--no-verify`, 也不要用 `OIDSCAN_NO_CATALOG=1` 绕过。工作树里没有 `.env`: 测试不需要 (特征测试自己清掉
+`SDTM_RAG_*` 环境变量); 要真起服务再单独处理。收尾 `git worktree remove` 会连同复制的研究数据一起删掉。
