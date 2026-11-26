@@ -9,13 +9,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from server import instance, providers, quota
-from server.config import PUBLIC_FORCED_OFF, SelectableModel, Settings
+from server.config import SelectableModel, Settings
 from server.llm_config import INTERNAL_GROUPS
 from server.main import create_app
 from server.request_context import ServiceRefusal
 
 PUBLIC_MODELS = [SelectableModel(id="ds-v4", label="DeepSeek V4 Pro", model="deepseek/deepseek-v4-pro",
                                  verified=False)]
+# Literal on purpose: deriving from config.PUBLIC_FORCED_OFF would shrink with it (Rule 5).
+STUDY_SWITCHES = ("federation_enabled", "study_lookup_enabled", "study_docs_enabled", "dossier_enabled")
 BLOCKED = ["/api/ask_compare", "/api/validate", "/api/validate-study"]
 
 
@@ -72,14 +74,14 @@ def past_check_request(monkeypatch):
 def test_default_tier_is_private_and_study_switches_unchanged():
     s = Settings()
     assert s.instance == "private"
-    assert all(getattr(s, n) is True for n in PUBLIC_FORCED_OFF)
+    assert all(getattr(s, n) is True for n in STUDY_SWITCHES)
 
 
 def test_env_selects_public_and_study_switches_default_off(monkeypatch):
     monkeypatch.setenv("SDTM_RAG_INSTANCE", "public")
     s = Settings()
     assert s.instance == "public"
-    assert all(getattr(s, n) is False for n in PUBLIC_FORCED_OFF)
+    assert all(getattr(s, n) is False for n in STUDY_SWITCHES)
 
 
 def test_unknown_tier_value_is_rejected():
@@ -100,13 +102,13 @@ def test_clean_public_settings_start(tmp_path):
     assert create_app(_pub(tmp_path)).state.settings.instance == "public"
 
 
-@pytest.mark.parametrize("switch", PUBLIC_FORCED_OFF)
+@pytest.mark.parametrize("switch", STUDY_SWITCHES)
 def test_public_refuses_explicit_study_switch(tmp_path, switch):
     with pytest.raises(RuntimeError, match=switch):
         create_app(_pub(tmp_path, **{switch: True}))
 
 
-@pytest.mark.parametrize("switch", PUBLIC_FORCED_OFF)
+@pytest.mark.parametrize("switch", STUDY_SWITCHES)
 def test_public_refuses_study_switch_from_env(tmp_path, monkeypatch, switch):
     monkeypatch.setenv("SDTM_RAG_" + switch.upper(), "true")
     with pytest.raises(RuntimeError, match=switch):
