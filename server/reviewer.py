@@ -16,10 +16,11 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import litellm
 import structlog
 
+from server import outbound
 from server.rag import RAGEngine
+from server.request_context import ServiceRefusal
 
 log = structlog.get_logger()
 
@@ -203,10 +204,9 @@ def review(
 
     raw = "[]"
     try:
-        if llm_router:
-            response = llm_router.completion(model=model, messages=messages)
-        else:
-            response = litellm.completion(model=model, messages=messages)
+        # router=None ⇒ outbound falls back to litellm.completion (same as before P2.0)
+        response = outbound.completion(None, "review", llm_router or None,
+                                       model=model, messages=messages)
 
         result.model_used = getattr(response, "model", model)
         if response.usage:
@@ -248,6 +248,8 @@ def review(
                 f"Could not parse reviewer LLM output as JSON: {e}",
             )
         )
+    except ServiceRefusal:
+        raise
     except Exception as e:
         log.error("reviewer_llm_fail", error=str(e))
         result.findings.append(

@@ -1,0 +1,3 @@
+short prompt 2k tok: abort charge $0.0189 -> 159 aborts drain $3; per IP (30 free q) $0.57
+max prompt 60k tok: abort charge $0.0955 -> 31 aborts drain $3; per IP (30 free q) $2.86
+full reservation (ambiguous failure / pre-fix abort) $0.2059 -> 15 to drain

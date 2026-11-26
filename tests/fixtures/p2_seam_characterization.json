@@ -1,0 +1,765 @@
+{
+ "ask_auto_continue": {
+  "body": {
+   "answer": "Part one. Part two [Source: x].",
+   "continue_error": null,
+   "continue_rounds": 1,
+   "dossier": null,
+   "model_used": "m-x",
+   "pdf_pages": null,
+   "pdf_trigger": null,
+   "routed_corpus": "cdisc",
+   "sources": [
+    {
+     "chunk_id": "c1",
+     "corpus": "cdisc",
+     "domain": "AE",
+     "file_type": "spec",
+     "section": "AE variables",
+     "similarity": 0.7211,
+     "source": "domains/AE/spec.md",
+     "text_preview": "AETERM is the reported term for the adverse event. AE domain Events class."
+    },
+    {
+     "chunk_id": "c2",
+     "corpus": "cdisc",
+     "domain": "AE",
+     "file_type": "assumptions",
+     "section": "AE assumptions",
+     "similarity": 0.7931,
+     "source": "domains/AE/assumptions.md",
+     "text_preview": "AE domain assumptions: one record per adverse event per subject."
+    },
+    {
+     "chunk_id": "c3",
+     "corpus": "cdisc",
+     "domain": "DM",
+     "file_type": "spec",
+     "section": "DM variables",
+     "similarity": 0.8276,
+     "source": "domains/DM/spec.md",
+     "text_preview": "DM demographics domain: AGE, SEX, RACE. One record per subject."
+    }
+   ],
+   "truncated": false,
+   "usage": {
+    "completion_tokens": 6,
+    "prompt_tokens": 20,
+    "total_tokens": 26
+   }
+  },
+  "calls": [
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.completion",
+    "keys": [
+     "messages",
+     "model"
+    ],
+    "messages_sha": "d607d699ea0c26bc",
+    "model": "light",
+    "roles": [
+     "system",
+     "user"
+    ]
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "9075d10ad370f650",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.completion",
+    "keys": [
+     "messages",
+     "model"
+    ],
+    "messages_sha": "b23a55999edfbbbb",
+    "model": "default",
+    "roles": [
+     "system",
+     "user"
+    ]
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.completion",
+    "keys": [
+     "messages",
+     "model"
+    ],
+    "messages_sha": "3801bb80f24fce2d",
+    "model": "default",
+    "roles": [
+     "system",
+     "user",
+     "assistant",
+     "user"
+    ]
+   }
+  ],
+  "status": 200
+ },
+ "ask_compare": {
+  "body": {
+   "answers": [
+    {
+     "answer": "Answer from openai/gpt-4o.",
+     "cost_usd": 5.5e-05,
+     "error": null,
+     "latency_ms": 0,
+     "model": "openai/gpt-4o",
+     "usage": {
+      "completion_tokens": 3,
+      "prompt_tokens": 10,
+      "total_tokens": 13
+     }
+    },
+    {
+     "answer": "Answer from deepseek/deepseek-v4-pro.",
+     "cost_usd": 2.5e-05,
+     "error": null,
+     "latency_ms": 0,
+     "model": "deepseek/deepseek-v4-pro",
+     "usage": {
+      "completion_tokens": 3,
+      "prompt_tokens": 10,
+      "total_tokens": 13
+     }
+    }
+   ],
+   "judge": {
+    "best_model": "openai/gpt-4o",
+    "ranking": [
+     {
+      "comment": "ok",
+      "model": "openai/gpt-4o",
+      "rank": 1
+     },
+     {
+      "comment": "meh",
+      "model": "deepseek/deepseek-v4-pro",
+      "rank": 2
+     }
+    ],
+    "rationale": "grounded"
+   },
+   "sources": [
+    {
+     "chunk_id": "c1",
+     "corpus": null,
+     "domain": "AE",
+     "file_type": "spec",
+     "section": "AE variables",
+     "similarity": 0.6787,
+     "source": "domains/AE/spec.md",
+     "text_preview": "AETERM is the reported term for the adverse event. AE domain Events class."
+    },
+    {
+     "chunk_id": "c2",
+     "corpus": null,
+     "domain": "AE",
+     "file_type": "assumptions",
+     "section": "AE assumptions",
+     "similarity": 0.8862,
+     "source": "domains/AE/assumptions.md",
+     "text_preview": "AE domain assumptions: one record per adverse event per subject."
+    },
+    {
+     "chunk_id": "c3",
+     "corpus": null,
+     "domain": "DM",
+     "file_type": "spec",
+     "section": "DM variables",
+     "similarity": 0.6915,
+     "source": "domains/DM/spec.md",
+     "text_preview": "DM demographics domain: AGE, SEX, RACE. One record per subject."
+    }
+   ]
+  },
+  "calls": [
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "2a6f0f017f11c9c1",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "num_retries",
+     "timeout"
+    ],
+    "messages_sha": "262468731cd64f48",
+    "model": "openai/gpt-4o",
+    "num_retries": 1,
+    "roles": [
+     "system",
+     "user"
+    ],
+    "timeout": 120.0
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "num_retries",
+     "timeout"
+    ],
+    "messages_sha": "262468731cd64f48",
+    "model": "deepseek/deepseek-v4-pro",
+    "num_retries": 1,
+    "roles": [
+     "system",
+     "user"
+    ],
+    "timeout": 120.0
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "num_retries",
+     "temperature",
+     "timeout"
+    ],
+    "messages_sha": "6ba4834955053d3e",
+    "model": "deepseek/deepseek-chat",
+    "num_retries": 1,
+    "roles": [
+     "system",
+     "user"
+    ],
+    "temperature": 0.0,
+    "timeout": 120.0
+   }
+  ],
+  "status": 200
+ },
+ "ask_stream_auto": {
+  "body": "event: sources\ndata: {\"sources\": [{\"chunk_id\": \"c2\", \"source\": \"domains/AE/assumptions.md\", \"domain\": \"AE\", \"file_type\": \"assumptions\", \"section\": \"AE assumptions\", \"similarity\": 0.8818, \"text_preview\": \"AE domain assumptions: one record per adverse event per subject.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c3\", \"source\": \"domains/DM/spec.md\", \"domain\": \"DM\", \"file_type\": \"spec\", \"section\": \"DM variables\", \"similarity\": 0.8263, \"text_preview\": \"DM demographics domain: AGE, SEX, RACE. One record per subject.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c1\", \"source\": \"domains/AE/spec.md\", \"domain\": \"AE\", \"file_type\": \"spec\", \"section\": \"AE variables\", \"similarity\": 0.8757, \"text_preview\": \"AETERM is the reported term for the adverse event. AE domain Events class.\", \"corpus\": \"cdisc\"}], \"routed_corpus\": \"cdisc\", \"dossier\": null}\n\nevent: token\ndata: {\"text\": \"Auto answer.\"}\n\nevent: done\ndata: {\"model_used\": \"m-stream\", \"models_used\": [\"m-stream\"], \"model_id\": \"default\", \"verified\": null, \"fell_back\": null, \"usage\": {\"prompt_tokens\": 7, \"completion_tokens\": 2, \"total_tokens\": 9}, \"web_status\": \"off\", \"web_searches_ok\": 0, \"continue_rounds\": 0, \"truncated\": false, \"pdf_trigger\": null, \"pdf_pages\": null, \"dossier\": null}\n\n",
+  "calls": [
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.completion",
+    "keys": [
+     "messages",
+     "model"
+    ],
+    "messages_sha": "00cada128ab4883d",
+    "model": "light",
+    "roles": [
+     "system",
+     "user"
+    ]
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "78cd3ce209a02621",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "stream",
+     "stream_options"
+    ],
+    "messages_sha": "b1bb0b231960c0bd",
+    "model": "default",
+    "roles": [
+     "system",
+     "user",
+     "assistant",
+     "user"
+    ],
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    }
+   }
+  ],
+  "status": 200
+ },
+ "ask_stream_study_hyde": {
+  "body": "event: sources\ndata: {\"sources\": [{\"chunk_id\": \"s2\", \"source\": \"card_form_b.md\", \"domain\": null, \"file_type\": \"card\", \"section\": \"Form B\", \"similarity\": 0.8812, \"text_preview\": \"Synthetic form B: vital signs, systolic pressure, unit mmHg.\", \"corpus\": \"study\"}, {\"chunk_id\": \"s1\", \"source\": \"card_form_a.md\", \"domain\": null, \"file_type\": \"card\", \"section\": \"Form A\", \"similarity\": 0.8042, \"text_preview\": \"Synthetic form A: adverse event term field, onset date field.\", \"corpus\": \"study\"}], \"routed_corpus\": \"study\", \"dossier\": null}\n\nevent: token\ndata: {\"text\": \"Study answer.\"}\n\nevent: done\ndata: {\"model_used\": \"m-stream\", \"models_used\": [\"m-stream\"], \"model_id\": \"opus-5\", \"verified\": true, \"fell_back\": true, \"usage\": {\"prompt_tokens\": 7, \"completion_tokens\": 2, \"total_tokens\": 9}, \"web_status\": \"off\", \"web_searches_ok\": 0, \"continue_rounds\": 0, \"truncated\": false, \"pdf_trigger\": null, \"pdf_pages\": null, \"dossier\": null}\n\n",
+  "calls": [
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "bf7ddf1afdf7f5d7",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.completion",
+    "keys": [
+     "messages",
+     "model",
+     "temperature"
+    ],
+    "messages_sha": "12f197bd613c0c42",
+    "model": "deepseek/deepseek-chat",
+    "roles": [
+     "system",
+     "user"
+    ],
+    "temperature": 0.0
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "ee80d743156434dd",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "stream",
+     "stream_options"
+    ],
+    "messages_sha": "512fc8ec8361769c",
+    "model": "opus-5",
+    "roles": [
+     "system",
+     "user"
+    ],
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    }
+   }
+  ],
+  "status": 200
+ },
+ "ask_stream_web_continue": {
+  "body": "event: sources\ndata: {\"sources\": [{\"chunk_id\": \"c1\", \"source\": \"domains/AE/spec.md\", \"domain\": \"AE\", \"file_type\": \"spec\", \"section\": \"AE variables\", \"similarity\": 0.8987, \"text_preview\": \"AETERM is the reported term for the adverse event. AE domain Events class.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c4\", \"source\": \"terminology/C66742.md\", \"domain\": null, \"file_type\": \"terminology\", \"section\": \"No Yes Response\", \"similarity\": 0.849, \"text_preview\": \"Codelist C66742 No Yes Response: N, Y, U, NA.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c2\", \"source\": \"domains/AE/assumptions.md\", \"domain\": \"AE\", \"file_type\": \"assumptions\", \"section\": \"AE assumptions\", \"similarity\": 0.7611, \"text_preview\": \"AE domain assumptions: one record per adverse event per subject.\", \"corpus\": \"cdisc\"}], \"routed_corpus\": \"cdisc\", \"dossier\": null}\n\nevent: tool_call\ndata: {\"round\": 1, \"query\": \"AETERM definition\", \"id\": \"call_1\"}\n\nevent: tool_result\ndata: {\"id\": \"call_1\", \"count\": 1, \"status\": \"ok\", \"urls\": [\"https://example.org/aeterm\"]}\n\nevent: token\ndata: {\"text\": \"Answer with web \"}\n\nevent: continue\ndata: {\"round\": 1}\n\nevent: token\ndata: {\"text\": \"[Web: https://example.org/aeterm].\"}\n\nevent: done\ndata: {\"model_used\": \"m-stream\", \"models_used\": [\"m-stream\"], \"model_id\": \"default\", \"verified\": null, \"fell_back\": null, \"usage\": {\"prompt_tokens\": 21, \"completion_tokens\": 6, \"total_tokens\": 27}, \"web_status\": \"ok\", \"web_searches_ok\": 1, \"continue_rounds\": 1, \"truncated\": false, \"pdf_trigger\": null, \"pdf_pages\": null, \"dossier\": null}\n\n",
+  "calls": [
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "eda116d2e82a9165",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "stream",
+     "stream_options",
+     "tools"
+    ],
+    "messages_sha": "4edf4288d83ac9e7",
+    "model": "default",
+    "roles": [
+     "system",
+     "user"
+    ],
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    },
+    "tools": [
+     "web_search"
+    ]
+   },
+   {
+    "auth": true,
+    "call": "tavily.post",
+    "json": {
+     "max_results": 3,
+     "query": "AETERM definition",
+     "search_depth": "advanced"
+    },
+    "timeout": 30.0,
+    "url": "https://api.tavily.com/search"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "stream",
+     "stream_options",
+     "tools"
+    ],
+    "messages_sha": "9eafe98bc9df9d11",
+    "model": "default",
+    "roles": [
+     "system",
+     "user",
+     "assistant",
+     "tool"
+    ],
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    },
+    "tools": [
+     "web_search"
+    ]
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "stream",
+     "stream_options",
+     "tools"
+    ],
+    "messages_sha": "be86f7ce136fd2ec",
+    "model": "default",
+    "roles": [
+     "system",
+     "user",
+     "assistant",
+     "tool",
+     "assistant",
+     "user"
+    ],
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    },
+    "tools": [
+     "web_search"
+    ]
+   }
+  ],
+  "status": 200
+ },
+ "info": {
+  "body": {
+   "chunk_count": 4,
+   "collection_name": "cdisc_t",
+   "compare_models": [
+    "deepseek/deepseek-v4-pro",
+    "openai/gpt-4o",
+    "anthropic/claude-sonnet-4-6"
+   ],
+   "default_model": "anthropic/claude-sonnet-5-5",
+   "dossier_auto_attach_models": [
+    "opus-5"
+   ],
+   "dossier_gate": false,
+   "dossier_prompt_cache": true,
+   "fallback_model": "deepseek/deepseek-v4-pro",
+   "federation": true,
+   "hybrid": true,
+   "hybrid_fusion": "rrf",
+   "index_fresh": null,
+   "index_freshness_reason": null,
+   "judge_model": "deepseek/deepseek-chat",
+   "prompt_guardrail": true,
+   "selectable_models": [
+    {
+     "id": "opus-5",
+     "label": "Claude Opus 5",
+     "max_output_tokens": 128000,
+     "model": "anthropic/claude-opus-5",
+     "verified": true
+    },
+    {
+     "id": "sonnet-5",
+     "label": "Claude Sonnet 5",
+     "max_output_tokens": 128000,
+     "model": "anthropic/claude-sonnet-5",
+     "verified": false
+    },
+    {
+     "id": "opus-5-5",
+     "label": "Claude Opus 5.5",
+     "max_output_tokens": 128000,
+     "model": "anthropic/claude-opus-5-5",
+     "verified": false
+    },
+    {
+     "id": "sonnet-5-5",
+     "label": "Claude Sonnet 5.5",
+     "max_output_tokens": 128000,
+     "model": "anthropic/claude-sonnet-5-5",
+     "verified": false
+    }
+   ],
+   "structured_lookup": false,
+   "top_k": 3,
+   "web_search": true
+  },
+  "calls": [],
+  "status": 200
+ },
+ "validate": {
+  "body": null,
+  "calls": [
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "556b9f4b53b82e7b",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "cdb26a659a8eecd6",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.completion",
+    "keys": [
+     "messages",
+     "model"
+    ],
+    "messages_sha": "3bd5118c69fa175c",
+    "model": "hard",
+    "roles": [
+     "system",
+     "user"
+    ]
+   }
+  ],
+  "status": 200
+ },
+ "x_ask_llm_fail_502": {
+  "body": {
+   "detail": "LLM service temporarily unavailable."
+  },
+  "calls": [
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "eda116d2e82a9165",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.completion",
+    "keys": [
+     "messages",
+     "model"
+    ],
+    "messages_sha": "4edf4288d83ac9e7",
+    "model": "default",
+    "roles": [
+     "system",
+     "user"
+    ]
+   }
+  ],
+  "status": 502
+ },
+ "x_stream_disconnect": {
+  "body": [
+   "event: sources\ndata: {\"sources\": [{\"chunk_id\": \"c1\", \"source\": \"domains/AE/spec.md\", \"domain\": \"AE\", \"file_type\": \"spec\", \"section\": \"AE variables\", \"similarity\": 0.8987, \"text_preview\": \"AETERM is the reported term for the adverse event. AE domain Events class.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c4\", \"source\": \"terminology/C66742.md\", \"domain\": null, \"file_type\": \"terminology\", \"section\": \"No Yes Response\", \"similarity\": 0.849, \"text_preview\": \"Codelist C66742 No Yes Response: N, Y, U, NA.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c2\", \"source\": \"domains/AE/assumptions.md\", \"domain\": \"AE\", \"file_type\": \"assumptions\", \"section\": \"AE assumptions\", \"similarity\": 0.7611, \"text_preview\": \"AE domain assumptions: one record per adverse event per subject.\", \"corpus\": \"cdisc\"}], \"routed_corpus\": \"cdisc\", \"dossier\": null}\n\n",
+   "event: token\ndata: {\"text\": \"A\"}\n\n"
+  ],
+  "calls": [
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "eda116d2e82a9165",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "stream",
+     "stream_options"
+    ],
+    "messages_sha": "4edf4288d83ac9e7",
+    "model": "default",
+    "roles": [
+     "system",
+     "user"
+    ],
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    }
+   }
+  ],
+  "status": null
+ },
+ "x_stream_midstream_error": {
+  "body": "event: sources\ndata: {\"sources\": [{\"chunk_id\": \"c1\", \"source\": \"domains/AE/spec.md\", \"domain\": \"AE\", \"file_type\": \"spec\", \"section\": \"AE variables\", \"similarity\": 0.8987, \"text_preview\": \"AETERM is the reported term for the adverse event. AE domain Events class.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c4\", \"source\": \"terminology/C66742.md\", \"domain\": null, \"file_type\": \"terminology\", \"section\": \"No Yes Response\", \"similarity\": 0.849, \"text_preview\": \"Codelist C66742 No Yes Response: N, Y, U, NA.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c2\", \"source\": \"domains/AE/assumptions.md\", \"domain\": \"AE\", \"file_type\": \"assumptions\", \"section\": \"AE assumptions\", \"similarity\": 0.7611, \"text_preview\": \"AE domain assumptions: one record per adverse event per subject.\", \"corpus\": \"cdisc\"}], \"routed_corpus\": \"cdisc\", \"dossier\": null}\n\nevent: token\ndata: {\"text\": \"Half \"}\n\nevent: error\ndata: {\"message\": \"LLM stream failed\"}\n\n",
+  "calls": [
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "eda116d2e82a9165",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "stream",
+     "stream_options"
+    ],
+    "messages_sha": "4edf4288d83ac9e7",
+    "model": "default",
+    "roles": [
+     "system",
+     "user"
+    ],
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    }
+   }
+  ],
+  "status": 200
+ },
+ "x_stream_narrow_retry": {
+  "body": "event: sources\ndata: {\"sources\": [{\"chunk_id\": \"c1\", \"source\": \"domains/AE/spec.md\", \"domain\": \"AE\", \"file_type\": \"spec\", \"section\": \"AE variables\", \"similarity\": 0.8987, \"text_preview\": \"AETERM is the reported term for the adverse event. AE domain Events class.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c4\", \"source\": \"terminology/C66742.md\", \"domain\": null, \"file_type\": \"terminology\", \"section\": \"No Yes Response\", \"similarity\": 0.849, \"text_preview\": \"Codelist C66742 No Yes Response: N, Y, U, NA.\", \"corpus\": \"cdisc\"}, {\"chunk_id\": \"c2\", \"source\": \"domains/AE/assumptions.md\", \"domain\": \"AE\", \"file_type\": \"assumptions\", \"section\": \"AE assumptions\", \"similarity\": 0.7611, \"text_preview\": \"AE domain assumptions: one record per adverse event per subject.\", \"corpus\": \"cdisc\"}], \"routed_corpus\": \"cdisc\", \"dossier\": null}\n\nevent: token\ndata: {\"text\": \"Retried.\"}\n\nevent: done\ndata: {\"model_used\": \"m-stream\", \"models_used\": [\"m-stream\"], \"model_id\": \"default\", \"verified\": null, \"fell_back\": null, \"usage\": null, \"web_status\": \"off\", \"web_searches_ok\": 0, \"continue_rounds\": 0, \"truncated\": false, \"pdf_trigger\": null, \"pdf_pages\": null, \"dossier\": null}\n\n",
+  "calls": [
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "litellm.embedding",
+    "input_sha": "eda116d2e82a9165",
+    "keys": [
+     "input",
+     "model"
+    ],
+    "model": "text-embedding-3-small"
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "stream",
+     "stream_options"
+    ],
+    "messages_sha": "4edf4288d83ac9e7",
+    "model": "default",
+    "roles": [
+     "system",
+     "user"
+    ],
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    }
+   },
+   {
+    "api_base": false,
+    "api_key": false,
+    "call": "router.acompletion",
+    "keys": [
+     "messages",
+     "model",
+     "stream"
+    ],
+    "messages_sha": "4edf4288d83ac9e7",
+    "model": "default",
+    "roles": [
+     "system",
+     "user"
+    ],
+    "stream": true
+   }
+  ],
+  "status": 200
+ }
+}

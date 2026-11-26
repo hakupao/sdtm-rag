@@ -2,7 +2,7 @@
   "project": "10_split_and_public",
   "tier": 3,
   "status": "P1_1.8_DONE",
-  "current_step": "1.9 正例演练: 等 pedia 下次真实发版 (推 Tier B 67 提交 + 打 kb-* tag) → kb-sync (定时或手动) 建候选过闸 → 「KB 更新」→ 部署首次换数据 (测停机时长)。检测空跑 + 反例已过",
+  "current_step": "P2 完成 (分支 p2, 未合 main): P2.0 接缝 + L1-L4 + 2.9 整体审查 (code-reviewer + security-reviewer 复审 PASS); 待用户确认 → 合 main → 只构建 → 测试端口 (私有档) → 部署; 之后 P3",
   "next_step": "1.9 设计+演练 (只演练私有实例; 公开实例 P3.3 才建) → P2",
   "completed": [
     {
@@ -125,7 +125,10 @@
     "pyproject authors 真名 vs LICENSE holder hakupao (用户裁定)",
     "P4: VM 磁盘自动清理规则",
     "lan-services: deploy/caddy/Dockerfile:13 注释旧路径 (改了会触发 caddy 重建, 随下次 caddy 改动一起); /Volumes/DevSSD/mini-home/lan-services 是无远端老副本, 用户定去留; 确认 mini 上 com.sdtmrag.* launchd 未加载",
-    "P4: 删 deploy/deploy.sh + deploy/.env.service.template (launchd 遗留)"
+    "P4: 删 deploy/deploy.sh + deploy/.env.service.template (launchd 遗留)",
+    "P3.4c: 窄屏 (≤600px) 侧栏不收起, 公开档顶栏徽标挤压标题",
+    "P3: 依赖残余 pip-audit 8 包 (均不在公开路径, 见 p2.9_fix.md)",
+    "P3 冒烟: /api/info.tier==public + /openapi.json 404 + 可信代理=cloudflared + 端口只绑 127.0.0.1"
   ],
   "decisions_1_9": "2026-11-25 用户: CI 检测+闸+报告, 升级提交由本地「KB 更新」双推; pyproject 作者→hakupao; mini-home/lan-services 改名 .archived-20261125",
   "log": [
@@ -137,7 +140,27 @@
         "checkpoints/step_1.9_impl.md",
         "failures/step_1.9_drill_neg_attempt_1.md"
       ]
+    },
+    {
+      "date": "2026-11-26",
+      "step": "P2",
+      "status": "DONE_ON_BRANCH",
+      "evidence": [
+        "checkpoints/p2.0_seam.md",
+        "checkpoints/p2_l1.md",
+        "checkpoints/p2_l2.md",
+        "checkpoints/p2_l3.md",
+        "checkpoints/p2_l4.md",
+        "checkpoints/p2.9_fix.md"
+      ],
+      "gates": "pytest 2950/0, node 107/0, mutations 51/51 (p2.9), golden unchanged, oidscan CLEAN, CDISC 140q 命中/recall 逐题一致"
     }
   ],
-  "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)"
+  "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)",
+  "decisions_p2": [
+    "2026-11-26 用户: 服务器 key 合计 ≤$5/天, BYOK 顺带调用从中划 $2",
+    "主会话: BYOK 不自动挂研读包 (显式 dossier=on 仍允许, 按 D5)",
+    "主会话: 每 IP 免费 50/天 + 并发 5 (共享出口 IP), 总量由 $3 免费池封顶",
+    "主会话: deepseek-v4-pro 按 $1.32/$3.96 每 1M (P3 前对照官方价格页核实)"
+  ]
 }

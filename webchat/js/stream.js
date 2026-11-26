@@ -1,4 +1,5 @@
-// SSE 流式客户端。不读 DOM: 检索范围 / 联网 / 模型由调用方算好传进来。
+// SSE 流式客户端。不读 DOM: 检索范围 / 联网 / 模型 / BYOK 由调用方算好传进来。
+import { httpErrorView, refusalText } from "./notices.js";
 export function parseSSE(raw) {
   let event = "message", data = "";
   for (const line of raw.split("\n")) {
@@ -9,7 +10,8 @@ export function parseSSE(raw) {
   try { return { event, data: JSON.parse(data) }; } catch (_) { return null; }
 }
 
-export async function streamAsk({ question, history, corpus, web, model, dossier },
+// byok = js/byok.js byokRequest() 的结果或 null。null ⇒ 不发 provider 字段也不发 key 头 (服务器 key)。
+export async function streamAsk({ question, history, corpus, web, model, dossier, byok },
                                 { onSources, onToken, onToolCall, onToolResult, onContinue, onGrounding, onRegenerate,
                                   onDone, onError, onClose, onAbort, signal }) {
   let resp;
@@ -21,15 +23,31 @@ export async function streamAsk({ question, history, corpus, web, model, dossier
     // ——「省略」与「显式传 default」在服务端是同一行为, 但省略不会在产物里留下一个
     // 用户根本没做过的选择。
     if (model) payload.model = model;
+    const headers = { "Content-Type": "application/json" };
+    // §2.1: key 只走请求头, 与 provider 字段同进同退; model 换成该 provider 的模型 id。
+    if (byok && byok.provider && byok.headers) {
+      payload.provider = byok.provider;
+      payload.model = byok.model;
+      Object.assign(headers, byok.headers);
+    }
     resp = await fetch("/api/ask_stream", {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers,
       body: JSON.stringify(payload), signal,
     });
   } catch (e) {
     if (signal?.aborted) { onAbort?.(); return; }
     onError("无法连接服务"); return;
   }
-  if (!resp.ok) { onError(`服务错误 ${resp.status}`); return; }
+  if (!resp.ok) {
+    // §2.3: detail 对象带 code ⇒ 按表出文案, 第二参交出 detail (额度显示要用); 其余形态见 httpErrorView。
+    let body = null, retryAfter = null;
+    try { body = await resp.json(); } catch (_) {}
+    // 读错误体时用户点了停止 ⇒ 是停止, 不是服务错误 (json() 会以 AbortError 抛, 上面吞掉了)
+    if (signal?.aborted) { onAbort?.(); return; }
+    try { retryAfter = resp.headers?.get?.("Retry-After") ?? null; } catch (_) {}
+    const v = httpErrorView(resp.status, body, retryAfter);
+    onError(v.text, v.detail); return;
+  }
   const reader = resp.body.getReader();
   const dec = new TextDecoder();
   let buf = "";
@@ -51,7 +69,13 @@ export async function streamAsk({ question, history, corpus, web, model, dossier
     else if (ev.event === "grounding") onGrounding?.(ev.data || {});
     else if (ev.event === "regenerate") onRegenerate?.(ev.data || {});
     else if (ev.event === "done") { terminal = true; onDone(ev.data || {}); }
-    else if (ev.event === "error") { terminal = true; onError(ev.data.message || "生成失败"); }
+    // 流已开后 hook 拒绝: error 事件带 code (§2.4); 旧的无 code 形态原样走老路。
+    else if (ev.event === "error") {
+      terminal = true;
+      const d = ev.data || {};
+      if (typeof d.code === "string" && d.code) onError(refusalText(d), d);
+      else onError(d.message || "生成失败");
+    }
   };
   try {
     while (true) {

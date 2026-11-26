@@ -23,10 +23,11 @@ import json
 import time
 from dataclasses import dataclass
 
-import litellm
 import structlog
 
+from server import outbound
 from server.cost import estimate_cost
+from server.request_context import ServiceRefusal
 
 log = structlog.get_logger()
 
@@ -55,7 +56,8 @@ async def _one_completion(
     over the fleet always yields one result per model (failure isolation, NFR2)."""
     t0 = time.perf_counter()
     try:
-        resp = await litellm.acompletion(
+        resp = await outbound.acompletion(
+            None, "compare", None,
             model=model,
             messages=messages,
             timeout=timeout_s,
@@ -78,6 +80,8 @@ async def _one_completion(
             cost_usd=estimate_cost(model, usage),
             error=None,
         )
+    except ServiceRefusal:
+        raise   # a hook refusal (quota / BYOK) is a request-level 4xx, not one model's slot error
     except Exception as exc:  # noqa: BLE001 — isolate this model; surface as a visible slot error
         latency_ms = int((time.perf_counter() - t0) * 1000)
         log.warning("compare_model_failed", model=model, error=str(exc))
@@ -100,8 +104,17 @@ async def run_compare(
     """Fan all `models` out concurrently on the shared `messages`; return one
     ModelAnswer per model, IN INPUT ORDER (gather preserves order). Never raises for a
     single model's failure — that model's slot carries the error instead."""
-    tasks = [_one_completion(m, messages, timeout_s, num_retries) for m in models]
-    return await asyncio.gather(*tasks)
+    tasks = [asyncio.ensure_future(_one_completion(m, messages, timeout_s, num_retries))
+             for m in models]
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        # Only a hook refusal (ServiceRefusal) or cancellation gets here: stop the siblings
+        # instead of letting them run (and spend) for an answer nobody will receive.
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
 
 # ── Judge ─────────────────────────────────────────────────────────────────
@@ -225,11 +238,14 @@ async def run_judge(
         {"role": "user", "content": user},
     ]
     try:
-        resp = await litellm.acompletion(
+        resp = await outbound.acompletion(
+            None, "judge", None,
             model=judge_model, messages=messages, temperature=0.0,
             timeout=timeout_s, num_retries=num_retries,
         )
         content = resp.choices[0].message.content or ""
+    except ServiceRefusal:
+        raise
     except Exception as exc:  # noqa: BLE001 — judge is assistive; its failure must not 500 the request
         log.warning("judge_failed", model=judge_model, error=str(exc))
         return None

@@ -25,3 +25,14 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "local_data" in item.keywords:
             item.add_marker(skip)
+
+
+# P2 L2: a public-tier app refuses to start without a visitor-cookie secret and trusted proxies
+# (fail-loud by design). Test apps get harmless test values; call AFTER clearing SDTM_RAG_* env.
+PUBLIC_QUOTA_TEST_ENV = {"SDTM_RAG_VISITOR_SECRET": "test-visitor-secret-" + "x" * 24,
+                         "SDTM_RAG_QUOTA_TRUSTED_PROXIES": "10.255.255.1/32"}
+
+
+def set_public_quota_env(monkeypatch) -> None:
+    for k, v in PUBLIC_QUOTA_TEST_ENV.items():
+        monkeypatch.setenv(k, v)

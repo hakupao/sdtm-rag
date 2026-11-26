@@ -13,12 +13,13 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import structlog
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.types import Scope
 
 from scripts.spec_loader import SpecLoader
+from server import instance, providers
 from server.auth import install_security
 from server.config import settings
 from server.domain_expand import build_expander
@@ -26,7 +27,21 @@ from server.llm_config import create_router
 from server.rag import RAGEngine
 from server.router import api_router
 
+# structlog's default chain, with two P2.0 changes: providers.log_processors() (L1 redaction hook)
+# before the renderer, and rich tracebacks WITHOUT frame locals — show_locals=True (the default)
+# printed every frame's locals (question text, and with BYOK the `api_key` in outbound's kwargs).
+LOG_PROCESSORS = [
+    structlog.contextvars.merge_contextvars,
+    structlog.processors.add_log_level,
+    structlog.processors.StackInfoRenderer(),
+    structlog.dev.set_exc_info,
+    structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
+    *providers.log_processors(),
+    structlog.dev.ConsoleRenderer(
+        exception_formatter=structlog.dev.RichTracebackFormatter(show_locals=False)),
+]
 structlog.configure(
+    processors=LOG_PROCESSORS,
     wrapper_class=structlog.make_filtering_bound_logger(
         logging.getLevelName(settings.log_level)
     ),
@@ -199,6 +214,8 @@ async def lifespan(app: FastAPI):
         web_search_enabled=s.web_search_enabled,
     )
     rag_init_s = round(time.perf_counter() - t_rag, 2)  # incl. BM25 index build when hybrid on
+    if s.instance == "public":  # no study_* collection may sit in a public chroma
+        instance.check_chroma(s, app.state.rag.client)
     if s.structured_lookup_enabled:
         # S1 的 VARIABLE_INDEX 字面 section 映射在启动期预热一次。
         # 这条不是性能优化, 是把失败点从请求期挪到部署动作: 映射依赖 chroma 元数据里的
@@ -434,14 +451,29 @@ def create_app(app_settings=None) -> FastAPI:
     app.state so the lifespan + every route read the SAME object — passing custom settings
     here configures the whole app, not just the middleware."""
     app_settings = app_settings or settings
+    # P2 2.1/2.3: public tier refuses to build with study data / switches on (fail-loud), and
+    # gets no /docs /openapi.json /redoc. Private: no-op, FastAPI defaults unchanged.
+    instance.check_startup(app_settings)
+    public = app_settings.instance == "public"
+    # stdlib loggers (litellm / httpx) get the same key scrubbing; public also holds them at WARNING
+    providers.install_log_redaction(public)
+    no_docs = dict(docs_url=None, redoc_url=None, openapi_url=None) if public else {}
     application = FastAPI(
         title="SDTM RAG Q&A Service",
         description="SDTM knowledge base semantic search and Q&A (Phase 1B)",
         version="0.1.0",
         lifespan=lifespan,
+        **no_docs,
     )
     application.state.settings = app_settings  # single config source (lifespan + routes read this)
-    application.include_router(api_router)
+    if public:
+        # §2.7 allowlist: validate* (untrusted binary parsing) / ask_compare are not registered (404).
+        public_router = APIRouter()
+        public_router.routes.extend(
+            r for r in api_router.routes if r.path in instance.PUBLIC_API_PATHS)
+        application.include_router(public_router)
+    else:
+        application.include_router(api_router)
 
     # Static hosting for the ChatGPT-style chat UI (docs/design/DESIGN_chat_ui.md §1). `/static` and
     # `GET /` do not collide with the api_router's `/api/*` prefix. Guard with exists() so

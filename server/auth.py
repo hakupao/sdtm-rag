@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import ipaddress
 import math
 import os
 import secrets
@@ -68,6 +69,56 @@ def _client_ip(scope, trust_forwarded: bool) -> str:
                 return v.decode("latin1").split(",")[0].strip() or "unknown"
     client = scope.get("client")
     return client[0] if client else "unknown"
+
+
+def _trusted_nets(trusted: str) -> list:
+    return [ipaddress.ip_network(p.strip(), strict=False)
+            for p in (trusted or "").split(",") if p.strip()]
+
+
+def client_key(ip: str, v6_prefix: int = 64) -> str:
+    """Quota / rate-limit key for an IP: IPv4-mapped IPv6 -> IPv4; other IPv6 -> its /v6_prefix
+    network (one end user typically owns a whole /64). Non-IP strings pass through."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if addr.version == 6 and addr.ipv4_mapped is not None:
+        return str(addr.ipv4_mapped)
+    if addr.version == 6:
+        return str(ipaddress.ip_network(f"{addr}/{v6_prefix}", strict=False))
+    return str(addr)
+
+
+def resolve_client_ip(scope, trusted: str, v6_prefix: int = 64) -> str:
+    """Client key (see client_key) of the socket peer, or of `CF-Connecting-IP` ONLY when the peer
+    is a configured trusted proxy (the Cloudflare tunnel connector); otherwise the header is
+    ignored (spoofable)."""
+    return client_key(_resolve_ip(scope, trusted), v6_prefix)
+
+
+def _resolve_ip(scope, trusted: str) -> str:
+    client = scope.get("client")
+    peer = client[0] if client else "unknown"
+    nets = _trusted_nets(trusted)
+    try:
+        if not nets or not any(ipaddress.ip_address(peer) in n for n in nets):
+            return peer
+    except ValueError:
+        return peer
+    for k, v in scope.get("headers", []):
+        if k == b"cf-connecting-ip":
+            try:
+                return str(ipaddress.ip_address(v.decode("latin1").strip()))
+            except ValueError:
+                return peer
+    return peer
+
+
+def _json_refusal(status: int, code: str, message: str, headers=None, **fields) -> JSONResponse:
+    """Same body shape as request_context.ServiceRefusal (contract v1.1 §2.3)."""
+    return JSONResponse({"detail": {"code": code, "message": message, **fields}},
+                        status_code=status, headers=headers)
 
 
 def _safe_next(raw: str | None) -> str:
@@ -169,10 +220,15 @@ class RateLimitMiddleware:
     # 发 no-cache (必须回源校验), 缓存并不能把请求数压下去。真正要挡的 `/api/*` 一个不放。
     def __init__(self, app, *, limiter: TokenBucketLimiter, trust_forwarded: bool = False,
                  exempt: tuple[str, ...] = ("/api/health", "/"),
-                 exempt_prefixes: tuple[str, ...] = ("/static/",)):
+                 exempt_prefixes: tuple[str, ...] = ("/static/",),
+                 trusted_proxies: str | None = None, v6_prefix: int = 64):
         self.app = app
         self.limiter = limiter
         self.trust_forwarded = trust_forwarded
+        # Public tier (P2.9 SR3): key on the real visitor — CF-Connecting-IP from the trusted tunnel
+        # peer only — not the socket peer (= the tunnel, one bucket for every visitor).
+        self.trusted = trusted_proxies
+        self.v6_prefix = v6_prefix
         self.exempt = set(exempt)
         self.exempt_prefixes = tuple(exempt_prefixes)
 
@@ -182,7 +238,10 @@ class RateLimitMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or self._is_exempt(scope["path"]):
             return await self.app(scope, receive, send)
-        ip = _client_ip(scope, self.trust_forwarded)
+        if self.trusted is not None:
+            ip = resolve_client_ip(scope, self.trusted, self.v6_prefix)
+        else:
+            ip = _client_ip(scope, self.trust_forwarded)
         ok, retry = self.limiter.allow(ip)
         if ok:
             return await self.app(scope, receive, send)
@@ -212,6 +271,193 @@ class AuthGateMiddleware:
             nxt = quote(scope["path"], safe="/")
             resp = RedirectResponse(url=f"/login?next={nxt}", status_code=302)
         return await resp(scope, receive, send)
+
+
+# ── P2 L2 quota middleware (only installed when server.quota.app_enabled) ────
+
+_VISITOR_SALT = "sdtm-rag.visitor.v1"
+
+
+class VisitorMiddleware:
+    """Signed visitor cookie (own secret, separate from the login SessionMiddleware) + client IP.
+    Puts `sdtm_visitor` / `sdtm_client_ip` into scope state for server.quota; mints and sets the
+    cookie when absent or tampered. Applies to /api/* only."""
+
+    def __init__(self, app, *, secret: str, cookie_name: str, secure: bool, max_age: int,
+                 trusted_proxies: str, v6_prefix: int = 64):
+        from itsdangerous import Signer
+
+        self.app = app
+        self.signer = Signer(secret, salt=_VISITOR_SALT)
+        self.cookie_name = cookie_name
+        self.secure = secure
+        self.max_age = max_age
+        self.trusted = trusted_proxies
+        self.v6_prefix = v6_prefix
+
+    def _read(self, scope) -> str | None:
+        from itsdangerous import BadSignature
+        from starlette.requests import cookie_parser
+
+        for k, v in scope.get("headers", []):
+            if k == b"cookie":
+                raw = cookie_parser(v.decode("latin1")).get(self.cookie_name)
+                if raw:
+                    try:
+                        return self.signer.unsign(raw).decode("ascii")
+                    except (BadSignature, UnicodeDecodeError):
+                        return None
+        return None
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not scope["path"].startswith("/api/"):
+            return await self.app(scope, receive, send)
+        vid = self._read(scope)
+        fresh = vid is None
+        if fresh:
+            vid = secrets.token_urlsafe(16)
+        state = scope.setdefault("state", {})
+        state["sdtm_visitor"] = vid
+        state["sdtm_client_ip"] = resolve_client_ip(scope, self.trusted, self.v6_prefix)
+        if not fresh:
+            return await self.app(scope, receive, send)
+        cookie = (f"{self.cookie_name}={self.signer.sign(vid).decode('ascii')}; Path=/; "
+                  f"Max-Age={self.max_age}; HttpOnly; SameSite=Lax"
+                  + ("; Secure" if self.secure else ""))
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                message.setdefault("headers", []).append((b"set-cookie", cookie.encode("latin1")))
+            await send(message)
+
+        return await self.app(scope, receive, send_wrapper)
+
+
+class BodyLimitMiddleware:
+    """Reject request bodies over `limit` bytes with 413 `request_too_large` (contract §2.3), by
+    Content-Length up front and by counting chunked bodies. The body (bounded by the limit) is
+    buffered and replayed; later receive() calls go to the server (disconnect detection)."""
+
+    def __init__(self, app, *, limit: int,
+                 exempt: tuple[str, ...] = ("/api/validate", "/api/validate-study")):
+        self.app = app
+        self.limit = limit
+        self.exempt = set(exempt)
+
+    def _too_large(self):
+        return _json_refusal(413, "request_too_large", "请求体过大。", limit=self.limit)
+
+    async def __call__(self, scope, receive, send):
+        if (scope["type"] != "http" or scope["method"] not in ("POST", "PUT", "PATCH")
+                or not scope["path"].startswith("/api/") or scope["path"] in self.exempt):
+            return await self.app(scope, receive, send)
+        for k, v in scope.get("headers", []):
+            if k == b"content-length":
+                try:
+                    declared = int(v)
+                except ValueError:
+                    declared = self.limit + 1
+                if declared > self.limit:
+                    return await self._too_large()(scope, receive, send)
+        chunks, total = [], 0
+        while True:
+            msg = await receive()
+            if msg["type"] != "http.request":   # client went away before the body arrived
+                return await self.app(scope, _replay([msg], receive), send)
+            body = msg.get("body", b"")
+            total += len(body)
+            if total > self.limit:
+                return await self._too_large()(scope, receive, send)
+            chunks.append(body)
+            if not msg.get("more_body", False):
+                break
+        return await self.app(scope, _replay(
+            [{"type": "http.request", "body": b"".join(chunks), "more_body": False}], receive), send)
+
+
+def _replay(messages: list, receive):
+    pending = list(messages)
+
+    async def wrapped():
+        if pending:
+            return pending.pop(0)
+        return await receive()
+    return wrapped
+
+
+class FlagRateLimitMiddleware:
+    """Per-client-IP token bucket on POST /api/flag (contract §2.7: flag is open on both tiers).
+    Event-loop only (no await between bucket read/write), like RateLimitMiddleware."""
+
+    def __init__(self, app, *, limiter: TokenBucketLimiter, trusted_proxies: str,
+                 v6_prefix: int = 64, path: str = "/api/flag"):
+        self.app = app
+        self.limiter = limiter
+        self.trusted = trusted_proxies
+        self.v6_prefix = v6_prefix
+        self.path = path
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["path"] != self.path or scope["method"] != "POST":
+            return await self.app(scope, receive, send)
+        ok, retry = self.limiter.allow(resolve_client_ip(scope, self.trusted, self.v6_prefix))
+        if ok:
+            return await self.app(scope, receive, send)
+        r = max(1, int(math.ceil(retry)))
+        resp = _json_refusal(429, "rate_limited", "操作太频繁, 请稍后再试。",
+                             headers={"Retry-After": str(r)}, retry_after_s=r)
+        return await resp(scope, receive, send)
+
+
+# Public: the CIDRs allowed to set CF-Connecting-IP. The tunnel connector (cloudflared) is ONE
+# host on the container's own network, so anything wider than a /24 (v4) or /120 (v6) trusts hosts
+# that are not the connector and lets them spoof every visitor's identity (quota + rate limits).
+_MIN_TRUSTED_PREFIX = {4: 24, 6: 120}
+
+
+def _check_public_trusted(trusted: str) -> None:
+    broad = [str(n) for n in _trusted_nets(trusted) if n.prefixlen < _MIN_TRUSTED_PREFIX[n.version]]
+    if broad:
+        raise RuntimeError(f"public tier: SDTM_RAG_QUOTA_TRUSTED_PROXIES too broad {broad} "
+                           "(trust only the tunnel connector: ≥ /24 IPv4, ≥ /120 IPv6)")
+
+
+def _install_quota(app, settings) -> None:
+    from server import quota
+
+    eff = quota.validate(settings)   # malformed / misspelt quota settings fail at startup
+    public = getattr(settings, "instance", "private") == "public"
+    if not quota.app_enabled(settings):
+        if public:
+            raise RuntimeError("public tier refuses to start unmetered: SDTM_RAG_QUOTA_ENABLED "
+                               "must be unset or true")
+        return
+    log.info("quota_settings", **eff)
+    secret = quota.cfg(settings, "visitor_secret")
+    if not secret:
+        raise RuntimeError("quota enabled (public tier or SDTM_RAG_QUOTA_ENABLED) requires "
+                           "SDTM_RAG_VISITOR_SECRET (fail-loud, no unsigned visitor ids).")
+    trusted = quota.cfg(settings, "quota_trusted_proxies")
+    _trusted_nets(trusted)   # malformed CIDR => fail at startup, not per request
+    if public and not trusted:
+        raise RuntimeError("public tier requires SDTM_RAG_QUOTA_TRUSTED_PROXIES (the tunnel "
+                           "connector's address): without it every visitor is the tunnel's IP.")
+    if public:
+        _check_public_trusted(trusted)
+    secure = quota.cfg(settings, "visitor_cookie_secure")
+    if secure is None:
+        secure = public
+    v6 = int(quota.cfg(settings, "quota_ipv6_prefix"))
+    app.add_middleware(FlagRateLimitMiddleware, trusted_proxies=trusted, v6_prefix=v6, limiter=TokenBucketLimiter(
+        int(quota.cfg(settings, "flag_rate_per_min")), int(quota.cfg(settings, "flag_rate_burst"))))
+    app.add_middleware(VisitorMiddleware, secret=secret,
+                       cookie_name=quota.cfg(settings, "visitor_cookie_name"), secure=bool(secure),
+                       max_age=int(quota.cfg(settings, "visitor_cookie_max_age_s")),
+                       trusted_proxies=trusted, v6_prefix=v6)
+    # /api/validate* (CSV upload) is exempt only on private: on public it is not registered, and
+    # if it ever were, its body must be bounded like every other endpoint.
+    app.add_middleware(BodyLimitMiddleware, limit=int(quota.cfg(settings, "quota_max_body_bytes")),
+                       exempt=() if public else ("/api/validate", "/api/validate-study"))
 
 
 # ── Login brute-force throttle (failure-based, per-IP) ──────────────────────
@@ -331,7 +577,7 @@ def build_auth_router(settings) -> APIRouter:
 def install_security(app, settings) -> None:
     """Attach the phase-3 middleware stack to `app` per settings. Middleware added LAST is
     OUTERMOST, so adding in the order below yields the inbound call order:
-        SecurityHeaders -> RateLimit -> Session -> AuthGate -> route
+        SecurityHeaders -> RateLimit -> [BodyLimit -> Visitor -> FlagRateLimit] -> Session -> AuthGate -> route
     (headers wrap every response incl. 429/401/302; rate-limit throttles before auth so
     login brute-force is capped; session is loaded before the gate reads it)."""
     if settings.auth_enabled:
@@ -351,12 +597,28 @@ def install_security(app, settings) -> None:
             https_only=False,  # plain HTTP over LAN (§1); cannot require Secure
         )
 
+    # P2 L2 (public tier / quota_enabled only): BodyLimit -> Visitor -> FlagRateLimit, inside
+    # RateLimit and outside Session/AuthGate.
+    _install_quota(app, settings)
+
+    public = getattr(settings, "instance", "private") == "public"
+    if public and settings.rate_limit_trust_forwarded:
+        # X-Forwarded-For is client-controlled through the tunnel: spoofable bucket key.
+        raise RuntimeError("public tier refuses SDTM_RAG_RATE_LIMIT_TRUST_FORWARDED=true "
+                           "(the client IP comes from CF-Connecting-IP via trusted proxies)")
     if settings.rate_limit_enabled:
         limiter = TokenBucketLimiter(settings.rate_limit_per_min, settings.rate_limit_burst)
+        pub_kw = {}
+        if public:
+            from server import quota
+
+            pub_kw = dict(trusted_proxies=quota.cfg(settings, "quota_trusted_proxies"),
+                          v6_prefix=int(quota.cfg(settings, "quota_ipv6_prefix")))
         app.add_middleware(
             RateLimitMiddleware,
             limiter=limiter,
             trust_forwarded=settings.rate_limit_trust_forwarded,
+            **pub_kw,
         )
 
     if settings.security_headers_enabled:

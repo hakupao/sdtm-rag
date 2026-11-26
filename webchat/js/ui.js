@@ -114,7 +114,8 @@ export function selectedCorpus() {
   return "auto";
 }
 // 联网是与 corpus 正交的第四维: 只决定挂不挂 web_search 工具, 不参与判库。
-export function webEnabled() { return $("scope-web").checked; }
+// 置灰 (公开档免费题不联网) 时一律 false: 用户看见的是"不可用", 请求里就不能是 true。
+export function webEnabled() { const el = $("scope-web"); return !!el.checked && !el.disabled; }
 
 // DM2 研读包的第五维: auto = 后端按域码+范围词自判, on/off = 用户强开/强关 (总闸关时 on 也不挂)。
 // ⚠ 控件不在 (#scope 整块在 federation=false 时 hidden, 或旧页面缓存) 时返回 "auto" ——

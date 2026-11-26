@@ -56,6 +56,15 @@ button { font: inherit; color: inherit; }
 #settings-panel label { display: flex; align-items: center; gap: 8px; padding: 4px 0; color: var(--ink); cursor: pointer; }
 #settings-panel input[type=checkbox] { margin: 0; accent-color: var(--accent); }
 #scope[hidden] { display: none !important; }
+#web-opt[hidden], #quota-badge[hidden] { display: none !important; }
+.pill.disabled { opacity: .5; cursor: not-allowed; }
+#settings-panel label.field { flex-direction: column; align-items: stretch; gap: 4px; color: var(--ink-2); font-size: 12.5px; }
+#settings-panel label.field select, #settings-panel label.field input { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--bg-panel); color: var(--ink); }
+.byok-actions { display: flex; align-items: center; gap: 8px; padding-top: 4px; }
+.byok-actions button { font: inherit; font-size: 12.5px; padding: 4px 10px; border: 1px solid var(--line-2); border-radius: var(--r-sm); background: var(--bg-panel); color: var(--ink-2); cursor: pointer; }
+.byok-actions button:hover { border-color: var(--danger); color: var(--danger); }
+.byok-actions .hint { margin-top: 0; }
+.turn-note.downgrade { margin-top: 6px; font-size: 12.5px; color: var(--warn); }
 .hint { font-size: 12px; color: var(--ink-3); margin-top: 6px; line-height: 1.5; }
 .hint.warn { color: var(--warn); }
 

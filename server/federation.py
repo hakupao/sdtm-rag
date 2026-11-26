@@ -16,6 +16,8 @@ import math
 
 import structlog
 
+from server import outbound
+from server.request_context import ServiceRefusal
 from server.routing_signals import WIDEN_REASON_BY_CORPUS, WIDEN_REASONS
 
 log = structlog.get_logger()
@@ -95,7 +97,12 @@ _FEDERATION_RULES = (
 def route_corpus(llm_router, question: str) -> tuple[str, bool]:
     """判库. 返回 (corpus, fallback_used). 任何异常 → ("both", True)."""
     try:
-        resp = llm_router.completion(
+        if llm_router is None:
+            # pre-P2 behaviour: `None.completion` raised → fallback "both". ⛔ Don't let outbound's
+            # router=None ⇒ litellm path turn this into a direct call of the group name "light".
+            raise TypeError("route_corpus needs an llm_router")
+        resp = outbound.completion(
+            None, "route", llm_router,
             model="light",
             messages=[
                 {"role": "system", "content": _ROUTER_SYSTEM},
@@ -110,6 +117,8 @@ def route_corpus(llm_router, question: str) -> tuple[str, bool]:
         if corpus not in VALID_CORPORA:
             raise ValueError(f"invalid corpus {corpus!r}")
         return corpus, False
+    except ServiceRefusal:
+        raise
     except Exception:
         log.warning("route_corpus_fallback_both", exc_info=True)
         return "both", True
