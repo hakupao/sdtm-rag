@@ -153,18 +153,26 @@ def test_free_web_key_actually_enables_web(pub, monkeypatch):  # noqa: F811
     assert calls and "tools" in calls[0]
 
 
-def test_upstream_cut_charges_prompt_plus_streamed(pub):  # noqa: F811
+def test_upstream_exception_mid_stream_keeps_the_full_reservation(pub):  # noqa: F811
     client, router, s = pub()
     router.stream_script = [[_chunk("partial answer " * 20), RuntimeError("upstream cut")]]
     r = client.post("/api/ask_stream", json={"question": "q", "model": MODEL})
     assert [e for e, _ in _events(r.text)][-1] == "error"
-    store = quota._store(s)
-    full = quota.round_estimate_usd(s, MODEL)
-    spent = store.spent(quota._day())
-    out_floor = quota._price(s, "m-stream", 0, quota._text_tokens("partial answer " * 20))
-    assert out_floor < spent < full / 10      # charged what streamed (x1.5 + prompt), not 32K out
-    rows = store._db.execute("SELECT status FROM reservations").fetchall()
-    assert rows and all(st in ("settled", "charged") for (st,) in rows)
+    spent = quota._store(s).spent(quota._day())      # (reservations.usd keeps the estimate;
+    out_32k = quota._price(s, "deepseek/deepseek-v4-pro", 0, 32000)   # spend holds the charge)
+    assert spent >= out_32k                  # ambiguous failure: the 32K-output reservation stands
+
+
+def test_usage_less_normal_end_charges_streamed_heuristic(pub):  # noqa: F811
+    client, router, s = pub()
+    text = "complete answer " * 20
+    ds = "deepseek/deepseek-v4-pro"   # reported model => priced at DeepSeek rates
+    router.stream_script = [[_chunk(text, model=ds), _chunk(finish="stop", model=ds)]]   # no usage
+    r = client.post("/api/ask_stream", json={"question": "q", "model": MODEL})
+    assert [e for e, _ in _events(r.text)][-1] == "done"
+    spent = quota._store(s).spent(quota._day())
+    out = quota._price(s, ds, 0, quota._text_tokens(text))
+    assert out < spent < quota._price(s, ds, 0, 32000) / 10   # streamed x1.5 + prompt, not 32K
 
 
 def test_client_closing_the_stream_early_settles_partial(pub):  # noqa: F811

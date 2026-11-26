@@ -342,8 +342,12 @@ def test_aborted_stream_is_charged_prompt_plus_streamed_not_the_reservation(sett
 
     asyncio.run(run())
     assert ctx.quota.open == {}
-    # priced as the model the stream REPORTED ("m": unknown => conservative fallback rate)
-    want = quota._price(s, "m", pt, math.ceil(1.5 * quota._text_tokens(text)))
+    # closed early by the reader: streamed + abort buffer (provider generates until it sees the
+    # close); priced as the model the stream REPORTED ("m": unknown => conservative fallback rate)
+    n = quota._text_tokens(text)
+    buf = int(quota.cfg(s, "quota_abort_buffer_tokens"))
+    assert n + buf > math.ceil(1.5 * n)
+    want = quota._price(s, "m", pt, n + buf)
     prompt_only = quota._price(s, "m", pt, 0)
     assert prompt_only < want < est / 10       # both sides: above prompt-only, far below reserve
     assert _spent(s) == pytest.approx(want)
@@ -398,21 +402,47 @@ class _FailOpen:
         raise self.exc
 
 
-def test_stream_open_failure_is_prompt_only_and_refundable(settings):
+class _Status(Exception):  # noqa: N818
+    def __init__(self, status):
+        super().__init__(f"HTTP {status}")
+        self.status_code = status
+
+
+def _open_fail(s, ctx, exc, **extra):
+    before = _spent(s)
+    with pytest.raises(type(exc)):
+        asyncio.run(outbound.acompletion(ctx, "answer", _FailOpen(exc), **_abort_kw(), **extra))
+    assert ctx.quota.open == {}
+    return _spent(s) - before
+
+
+def test_stream_open_failure_charge_follows_how_clear_the_rejection_is(settings):
+    import httpx
+
+    s = settings
+    s.quota_site_cap_usd = 1000.0     # several full ~$2 reservations in one test
+    ctx = _ctx(s, endpoint="ask_stream")
+    quota.admit(ctx, _body())
+    est, model, pt = quota._estimate_parts(s, "answer", _abort_kw())
+    prompt_only = quota._price(s, model, pt, 0)
+    # clear: HTTP error status on open, or the connection was never made => prompt only
+    assert _open_fail(s, ctx, _Status(429)) == pytest.approx(prompt_only)
+    assert _open_fail(s, ctx, _Status(500)) == pytest.approx(prompt_only)
+    assert _open_fail(s, ctx, httpx.ConnectError("refused")) == pytest.approx(prompt_only)
+    # ambiguous: timeouts / unknown errors => the full reservation
+    for exc in (_Status(504), TimeoutError("t"), RuntimeError("x"), httpx.ReadError("r")):
+        assert _open_fail(s, ctx, exc) == pytest.approx(est), exc
+    # router's narrow retry: a clear rejection is refunded, an ambiguous one is not
+    assert _open_fail(s, ctx, _Status(400), refund_open_error=True) == pytest.approx(0)
+    assert _open_fail(s, ctx, RuntimeError("x"), refund_open_error=True) == pytest.approx(est)
+
+
+def test_cancelled_open_keeps_the_full_reservation(settings):
     s = settings
     ctx = _ctx(s, endpoint="ask_stream")
     quota.admit(ctx, _body())
-    kw = _abort_kw()
-    _est, model, pt = quota._estimate_parts(s, "answer", kw)
-    with pytest.raises(RuntimeError):
-        asyncio.run(outbound.acompletion(ctx, "answer", _FailOpen(RuntimeError("x")), **kw))
-    assert _spent(s) == pytest.approx(quota._price(s, model, pt, 0))
-    before = _spent(s)
-    with pytest.raises(RuntimeError):   # router's narrow stream_options retry: first try refunded
-        asyncio.run(outbound.acompletion(ctx, "answer", _FailOpen(RuntimeError("x")),
-                                         refund_open_error=True, **kw))
-    assert _spent(s) == pytest.approx(before)
-    assert ctx.quota.open == {}
+    est = quota._estimate(s, "answer", _abort_kw())[0]
+    assert _open_fail(s, ctx, asyncio.CancelledError()) == pytest.approx(est)
 
 
 def test_failed_non_streamed_call_keeps_the_reservation(settings):

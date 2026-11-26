@@ -9,8 +9,10 @@
 > ① 新拒绝码 `site_busy` (503 + `Retry-After` + `retry_after_s`: 进行中的预留占满额度, 已结算花费未到顶) 与 `storage_full` (507, `/api/flag` 日志满);
 > `rate_limited` 另有三个来源 (每 IP 同时进行数、BYOK 错 key 次数、BYOK 附加调用每 IP 份额), 形状不变;
 > ② **推翻 v1.1 一条**: `/api/ask` 续写轮被拒 ⇒ 保留已生成部分, `truncated=true` + `continue_error=<拒绝码>` (同续写普通失败); 首轮 / 重答轮被拒仍整体返回 4xx;
-> ③ `quota.settle` 加仅关键字参数 `streamed_text`: 流没带 usage 收尾 (断开 / 上游断流) 按「估算 prompt + ceil(1.5 × 已流出 token)」结算 (不超过预留);
-> 开流即失败只扣 prompt; `outbound.acompletion(refund_open_error=True)` (路由窄重试的第一次) 失败不扣; 非流式调用失败仍扣整笔预留 (见 §3);
+> ③ `quota.settle` 加仅关键字参数 `streamed_text` / `closed_early`: 流没带 usage 时按**怎么结束的**结算 (均不超过预留, 见 §3):
+> 正常走完 = prompt + ceil(1.5 × 已流出); 我方 / 客户端提前关 = prompt + max(1.5 × 已流出, 已流出 + `quota_abort_buffer_tokens`=4096);
+> 上游中途抛错 / 超时 / 未知异常 = 整笔预留; 开流被明确拒 (HTTP 4xx/5xx, 408/504 除外; 或连接没建立) = 只扣 prompt,
+> 路由窄重试第一次 (`refund_open_error=True`) 被明确拒 = 不扣; 非流式调用失败仍扣整笔预留;
 > ④ 免费题不联网的唯一归属 = L1 `providers.capability("web_tools")` 读 L2 键 `quota_free_web_enabled` (`quota.free_web_allowed`); L2 不再改写 `body.web`;
 > 降级时 `done.web_status = "off"`; ⑤ `/api/info` 有额外键 / 公开档时带 `Cache-Control: no-store`; ⑥ §5 P3 就绪清单 (新增)。
 > 计划: `.work/10_split_and_public/PLAN.md` §2 P2、§6。证据: `.work/10_split_and_public/evidence/checkpoints/p2.0_seam.md`。
@@ -173,9 +175,11 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, request, tier
 - 访客身份 / 设置从 `ctx.request` 取 (cookie、`CF-Connecting-IP`、`ctx.request.app.state.settings`); ⛔ 不读模块级 `server.config.settings` (与 app.state 可能不是同一份)。
 - `quota.reserve` 返回的句柄原样回到同一次调用的 `settle`; `settle` 的 `model` = provider 报的模型 (Router 回退会改变它, 计价按它)。`route` / `review` / `embedding` / `hyde` 用的不是 `ctx.model`, 以 `reserve` 的 `kw["model"]` 与 `settle` 的 `model` 为准。
 - 拒绝只用 `ServiceRefusal` (状态码 + §2.3 code); 其它异常类型会被各处兜底吞掉。
-- v1.2: `quota.settle(ctx, purpose, handle, usage, model, *, streamed_text=None)`。`outbound._metered` 传本次流已产出的文本 (content + reasoning_content + 工具调用参数);
-  usage 缺失时按 `prompt 估算 + ceil(1.5 × 已流出 token)` 结算 (≤ 预留)。开流失败 = `streamed_text=""` (只扣 prompt); 非流式失败不传 (扣整笔预留:
-  非流式调用可能在上游已生成后才超时失败, 而我们没有可数的输出)。`finalize` / 过期仍按整笔预留扣 (没人 settle 的句柄)。
+- v1.2: `quota.settle(ctx, purpose, handle, usage, model, *, streamed_text=None, closed_early=False)`。`outbound._metered` 记本次流已产出的文本
+  (content + reasoning_content + 工具调用参数) 和结束方式。usage 缺失时: 正常耗尽 ⇒ `prompt 估算 + ceil(1.5 × 已流出)`; 提前关闭 (GeneratorExit /
+  取消) ⇒ 至少 `已流出 + quota_abort_buffer_tokens` (provider 看到断开前还在生成); 上游异常 ⇒ 不传 `streamed_text` = 整笔预留 (模糊失败不打折)。
+  开流失败: `outbound._clear_rejection` (HTTP 4xx/5xx 但非 408/504, 或 `httpx.ConnectError`) ⇒ `streamed_text=""` 只扣 prompt; 其余 (超时 / 取消 /
+  读错误 / 未知) ⇒ 整笔。非流式失败扣整笔 (可能上游已生成后才失败, 我们没有可数的输出)。`finalize` / 过期仍按整笔预留扣。
 - `quota.settle` 的 `usage` 可能为 None (调用失败 / 客户端提前停读), 也可能是 litellm **估算**值: 流结束时没收到 usage 片, litellm 就自己数 token 补一个 —— 上游中途断流 (分块传输缺结束块) litellm **不抛异常**, 也走这条 (BYOK 探针第 5 条)。`finalize` 结算未结清的预留。
 - 顺序 (v1.1): 断开 / 循环体抛错时, 打开着的流先被关闭 (`aclosing` + `finalizing` 先 `aclose` 内层) ⇒ 它的 `settle` **先于** `finalize`。Starlette 断开时不主动关 `body_iterator`, 所以 `finalize` 在响应迭代器被关闭 / 回收时才跑 (CPython 下及时, 但不是同步于断开)。**`finalize` 之后到达的 `settle` 必须是 no-op** (按句柄幂等: 已结算或已被 finalize 按预留扣过的句柄不再计费)。
 - BYOK 调用**不得**走带 `fallbacks` 的 Router 组 (探针: 逐次 `api_key` 会被带进回退目标 = 用户的 A 家 key 发给 B 家)。

@@ -284,9 +284,9 @@ def test_aborted_stream_is_still_charged(make):
     st = quota._store(store_s)
     est = quota._estimate(store_s, "answer", {"model": "default", "messages": [
         {"role": "user", "content": "x"}]})[0]
-    # P2.9 #1 (deliberate change; was ">= est", the whole max_output reservation): no usage =>
-    # prompt + 1.5 x what streamed. Strictly above zero, far below one full reservation.
-    assert 0 < st.spent(quota._day()) < est / 10
+    # an upstream exception mid-stream is AMBIGUOUS (the provider may have kept generating):
+    # the whole reservation stands (P2.9 #1 refinement; only clean ends / closes are discounted)
+    assert st.spent(quota._day()) >= est
     rows = st._db.execute("SELECT status FROM reservations").fetchall()
     assert rows and all(s in ("settled", "charged") for (s,) in rows)
 

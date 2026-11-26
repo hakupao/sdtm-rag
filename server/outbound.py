@@ -9,6 +9,8 @@ With the default hooks each function is exactly the call it replaced: same calla
 """
 from __future__ import annotations
 
+import asyncio
+
 from server import providers, quota
 from server.request_context import RequestContext, ServiceRefusal, current
 
@@ -37,31 +39,40 @@ def completion(ctx, purpose: str, llm_router, **kw):
 
 
 async def acompletion(ctx, purpose: str, llm_router, *, refund_open_error: bool = False, **kw):
-    """Non-streamed: settle on return. Streamed: the returned iterator settles with the last usage
-    chunk and the last reported model it saw when it is exhausted / closed (None if never seen),
-    plus the text it streamed (quota.settle prices a usage-less stream by that, not max_tokens).
-    A stream whose open fails is charged its prompt only — or nothing with refund_open_error=True
-    (router's narrow stream_options retry: the immediate re-open is the one that counts)."""
+    """Non-streamed: settle on return. Streamed: the returned iterator settles when it ends (see
+    _metered). A failed open is charged by how clearly nothing was generated (_open_failure_usage);
+    refund_open_error=True (router's narrow stream_options retry) charges nothing for a CLEAR
+    rejection, because the immediate re-open is the call that counts."""
     ctx = _ctx(ctx)
     fn, kw = providers.resolve(ctx, purpose, "acompletion", llm_router, kw)
     handle = quota.reserve(ctx, purpose, kw)
     try:
         resp = await fn(**kw)
-    except Exception:
-        if refund_open_error:
+    except BaseException as e:
+        clear = kw.get("stream") and _clear_rejection(e)
+        if clear and refund_open_error:
             quota.settle(ctx, purpose, handle, {"prompt_tokens": 0, "completion_tokens": 0}, None)
+        elif clear:
+            quota.settle(ctx, purpose, handle, None, None, streamed_text="")   # prompt only
         else:
-            quota.settle(ctx, purpose, handle, None, None,
-                         streamed_text="" if kw.get("stream") else None)
-        raise
-    except BaseException:   # cancelled (timeout / disconnect) while opening
-        quota.settle(ctx, purpose, handle, None, None,
-                     streamed_text="" if kw.get("stream") else None)
+            quota.settle(ctx, purpose, handle, None, None)   # ambiguous: full reservation
         raise
     if not kw.get("stream"):
         _settle(ctx, purpose, handle, resp)
         return resp
     return _metered(ctx, purpose, handle, resp)
+
+
+def _clear_rejection(e: BaseException) -> bool:
+    """The provider certainly generated nothing: it answered the open with an HTTP error status,
+    or the connection was never established (request never sent). Timeouts, cancellation, read /
+    protocol errors and unknown exceptions are ambiguous (the request may be running upstream)."""
+    import httpx
+
+    status = getattr(e, "status_code", None)
+    if isinstance(status, int) and 400 <= status <= 599 and not isinstance(e, TimeoutError):
+        return status not in (408, 504)   # gateway / request timeouts: may have run upstream
+    return isinstance(e, httpx.ConnectError)
 
 
 def _streamed_text(chunk, out: list) -> None:
@@ -83,16 +94,29 @@ def _streamed_text(chunk, out: list) -> None:
 
 
 async def _metered(ctx, purpose, handle, stream):
+    """Settle when the stream ends. Without a usage chunk the charge depends on HOW it ended:
+    exhausted normally => what streamed (x1.5); closed by us / the client (GeneratorExit,
+    cancellation) => what streamed + an abort buffer (the provider keeps generating until it sees
+    the close); upstream exception mid-stream => ambiguous => the full reservation."""
     usage = model = None
     streamed: list[str] = []
+    end = "error"
     try:
         async for chunk in stream:
             usage = getattr(chunk, "usage", None) or usage
             model = getattr(chunk, "model", None) or model
             _streamed_text(chunk, streamed)
             yield chunk
+        end = "done"
+    except (GeneratorExit, asyncio.CancelledError):
+        end = "closed"
+        raise
     finally:
-        quota.settle(ctx, purpose, handle, usage, model, streamed_text="".join(streamed))
+        if end == "error":
+            quota.settle(ctx, purpose, handle, usage, model)
+        else:
+            quota.settle(ctx, purpose, handle, usage, model, streamed_text="".join(streamed),
+                         closed_early=end == "closed")
         close = getattr(stream, "aclose", None)   # release the provider stream too, if closable
         if close is not None:
             await close()

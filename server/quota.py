@@ -80,6 +80,7 @@ _DEFAULTS: dict = {
     "flag_rate_per_min": 5,
     "flag_rate_burst": 3,
     # P2.9 fixes (checkpoint p2.9_fix.md)
+    "quota_abort_buffer_tokens": 4096,  # usage-less stream closed early: output still generated upstream
     "quota_busy_retry_s": 15,          # site_busy: open reservations (not settled spend) fill the pool
     "quota_inflight_per_ip": 3,        # concurrent metered requests per client IP (0 = off)
     "quota_byok_side_per_ip_usd": 0.5,  # one IP's share of the BYOK side budget per UTC day
@@ -595,11 +596,13 @@ def _usage_tokens(usage) -> tuple[int, int] | None:
     return int(pt or 0), int(ct or 0)
 
 
-def settle(ctx, purpose: str, handle, usage, model, *, streamed_text: str | None = None) -> None:
-    """usage None + streamed_text None (failed non-streamed call, web) => the reservation is the
-    charge. usage None + streamed_text given (a stream that ended without usage: aborted, cut, or
-    an open that failed before its first chunk with streamed_text="") => estimated prompt +
-    ceil(1.5 x tokens actually streamed), never more than the reservation."""
+def settle(ctx, purpose: str, handle, usage, model, *, streamed_text: str | None = None,
+           closed_early: bool = False) -> None:
+    """usage given => priced from it. Else streamed_text None (failed non-streamed call, ambiguous
+    stream failure, web) => the reservation is the charge. Else (a stream that ended without usage,
+    or "" = an open the provider clearly rejected) => estimated prompt + ceil(1.5 x streamed
+    tokens); closed_early (client / router closed it) => at least streamed + abort buffer. Never
+    more than the reservation."""
     st = getattr(ctx, "quota", None) if ctx is not None else None
     if handle is None or not isinstance(st, _ReqState):
         return
@@ -612,7 +615,10 @@ def settle(ctx, purpose: str, handle, usage, model, *, streamed_text: str | None
     if tokens is not None:
         actual = _price(s, model or entry.model, *tokens)
     elif streamed_text is not None and purpose != "web":
-        out = math.ceil(1.5 * _text_tokens(streamed_text))
+        n = _text_tokens(streamed_text)
+        out = math.ceil(1.5 * n)
+        if closed_early:
+            out = max(out, n + int(cfg(s, "quota_abort_buffer_tokens")))
         actual = min(entry.est, _price(s, model or entry.model, entry.pt, out))
     else:
         actual = entry.est

@@ -477,5 +477,8 @@ def test_narrow_retry_spends_one_round(make):  # noqa: F811
 
     spend([list(ok)])                                  # warm the query-embedding cache
     plain = spend([list(ok)])
-    retried = spend([TypeError("stream_options unsupported"), list(ok)])
+    class _BadRequest(Exception):  # noqa: N818   # litellm BadRequestError shape: a clear 400 on open
+        status_code = 400
+
+    retried = spend([_BadRequest("stream_options unsupported"), list(ok)])
     assert plain > 0 and retried == pytest.approx(plain)
