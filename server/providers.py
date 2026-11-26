@@ -229,7 +229,8 @@ def _byok_call(ctx, purpose, kind, t, kw):
         out["client"] = openai_client(t["pin"], ctx.credentials.api_key,
                                       is_async=(kind == "acompletion"), timeout=t["timeout"])
         out["num_retries"] = 0
-    if t["provider"] == "anthropic" and t["caps"].prompt_cache and "messages" in out:
+    if (t["provider"] == "anthropic" and t["caps"].prompt_cache and "messages" in out
+            and getattr(_settings(ctx.request), "dossier_prompt_cache", False)):   # kill switch
         out["messages"] = _with_cache_breakpoint(out["messages"])
     provider = t["provider"]
 
@@ -348,8 +349,8 @@ def info_fields(request) -> dict:
 # ── log redaction (contract §3: grep the RENDERED line) ─────────────────
 
 _SECRET_PATTERNS = [
-    re.compile(r"sk-[A-Za-z0-9_\-]{12,}"),                      # OpenAI / Anthropic / DeepSeek / Kimi …
-    re.compile(r"AIza[0-9A-Za-z_\-]{20,}"),                      # Google
+    re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_\-]{12,}"),      # OpenAI / Anthropic / DeepSeek / Kimi …
+    re.compile(r"(?<![A-Za-z0-9])AIza[0-9A-Za-z_\-]{20,}"),      # Google
     re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._\-~+/=]{12,}"),
     re.compile(r"(?i)((?:x-api-key|x-goog-api-key|api[_-]?key|authorization|x-llm-api-key)"
                r"[\"']?\s*[:=]\s*[\"']?)[^\s\"',}]{8,}"),

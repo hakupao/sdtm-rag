@@ -279,7 +279,12 @@ def test_downgrade_dossier_auto_context_too_small(harness, tier, wire, monkeypat
 def test_byok_anthropic_dossier_layout_gets_cache_breakpoint_without_mutating_router_messages():
     from server.request_context import Credentials, RequestContext
 
-    ctx = RequestContext(endpoint="ask", credentials=Credentials(api_key=KEY), provider="anthropic")
+    from server.config import Settings
+
+    s = Settings()
+    req = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(settings=s)))
+    ctx = RequestContext(endpoint="ask", request=req, credentials=Credentials(api_key=KEY),
+                         provider="anthropic")
     caps = SimpleNamespace(prompt_cache=True)
     ctx.flags["byok"] = {"provider": "anthropic", "model": "anthropic/claude-sonnet-5-5",
                          "api_base": None, "max_tokens": 1, "caps": caps, "pin": None,
@@ -293,32 +298,71 @@ def test_byok_anthropic_dossier_layout_gets_cache_breakpoint_without_mutating_ro
     plain = [{"role": "system", "content": "no dossier"}, {"role": "user", "content": "q"}]
     _fn, kw = providers.resolve(ctx, "answer", "completion", object(), {"model": "x", "messages": plain})
     assert kw["messages"] is plain
+    # kill switch (dossier_prompt_cache=False): legacy layout also carries the marker -> no rewrite
+    s.dossier_prompt_cache = False
+    _fn, kw = providers.resolve(ctx, "answer", "completion", object(), {"model": "x", "messages": msgs})
+    assert kw["messages"] is msgs
 
 
-# ── redaction in the router's own log lines (main.py chain, rendered) ────
+# shapeless key (no sk-/AIza/Bearer shape): only the exact-key scrub via the request ctx catches it
+ODD = "".join(["q9", "Zx", "77", "Lm", "Np", "0w"]) * 3
 
-def test_router_log_line_with_upstream_error_containing_key_is_redacted(harness, tier, wire):  # noqa: F811
-    """continue-round failure keeps the raw upstream exception (router logs error=str(e) +
-    exc_info): render through main.py's processors into a buffer and grep."""
+
+@pytest.fixture
+def rendered_log():
     import structlog
 
     import server.main as main_mod
 
-    client, _rec, _router = harness
-    tier(byok_enabled=True)
     buf = io.StringIO()
     old = structlog.get_config()
     structlog.configure(processors=main_mod.LOG_PROCESSORS,
                         logger_factory=structlog.PrintLoggerFactory(buf),
                         cache_logger_on_first_use=False)
-    try:
-        wire.script["completion"] = [_resp("Half ", finish="length"),
-                                     _Upstream(500, f"upstream echoed Authorization: Bearer {KEY}")]
-        r = client.post("/api/ask", json={"question": "q", "corpus": "cdisc", "provider": "kimi",
-                                          "model": "kimi-k3"}, headers=HDR)
-    finally:
-        structlog.configure(**old)
-    text = buf.getvalue()
+    yield buf
+    structlog.configure(**old)
+
+
+def test_router_log_line_with_upstream_error_containing_key_is_redacted(harness, tier, wire,  # noqa: F811
+                                                                        rendered_log):
+    """/api/ask continue-round failure keeps the raw upstream exception (router logs error=str(e) +
+    exc_info): render through main.py's processors and grep."""
+    client, _rec, _router = harness
+    tier(byok_enabled=True)
+    wire.script["completion"] = [_resp("Half ", finish="length"),
+                                 _Upstream(500, f"upstream echoed token {ODD} in body")]
+    r = client.post("/api/ask", json={"question": "q", "corpus": "cdisc", "provider": "glm",
+                                      "model": "glm-5.1"}, headers={providers.BYOK_KEY_HEADER: ODD})
+    text = rendered_log.getvalue()
     assert r.status_code == 200 and r.json()["truncated"] is True
-    assert "continue_round_failed" in text and "upstream echoed" in text and "Traceback" in text
-    assert KEY not in text and KEY not in r.text
+    assert "continue_round_failed" in text and "upstream echoed token" in text and "Traceback" in text
+    assert ODD not in text and ODD not in r.text
+
+
+def test_stream_log_line_with_upstream_error_containing_key_is_redacted(harness, tier, wire,  # noqa: F811
+                                                                        rendered_log):
+    """Chat UI path: continue round fails on open (+ narrow retry) -> router logs stream_failed."""
+    client, _rec, _router = harness
+    tier(byok_enabled=True)
+    wire.script["acompletion"] = [[_chunk("Half "), _chunk(finish="length"), _chunk(usage=True)],
+                                  _Upstream(500, f"echo {ODD}"), _Upstream(500, f"echo again {ODD}")]
+    r = client.post("/api/ask_stream", json={"question": "q", "corpus": "cdisc", "provider": "glm",
+                                             "model": "glm-5.1"},
+                    headers={providers.BYOK_KEY_HEADER: ODD})
+    text = rendered_log.getvalue()
+    ev = _events(r.text)
+    assert ev[-1] == ("error", {"message": "LLM stream failed"})
+    assert "stream_failed" in text and "echo again" in text and "Traceback" in text
+    assert ODD not in text and ODD not in r.text
+
+
+def test_byok_midstream_failure_is_coded_error_event(harness, tier, wire):  # noqa: F811
+    client, _rec, _router = harness
+    tier(byok_enabled=True)
+    wire.script["acompletion"] = [[_chunk("Half "), _Upstream(502, f"cut {KEY}")]]
+    ev = _events(client.post("/api/ask_stream", json={
+        "question": "q", "corpus": "cdisc", "provider": "openai", "model": "gpt-5.5"},
+        headers=HDR).text)
+    assert [e for e, _ in ev] == ["sources", "token", "error"]
+    assert ev[-1][1]["code"] == "byok_provider_error" and ev[-1][1]["upstream_status"] == 502
+    assert KEY not in json.dumps(ev)

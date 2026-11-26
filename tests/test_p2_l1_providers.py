@@ -358,3 +358,8 @@ def test_byok_answer_without_checked_target_fails_closed():
     import litellm
     fn, kw = providers.resolve(ctx, "embedding", "embedding", None, {"model": "e", "input": ["x"]})
     assert fn is litellm.embedding and "api_key" not in kw
+
+
+def test_generic_patterns_do_not_eat_ordinary_words():
+    text = _render(lambda log: log.info("ask", question="risk-benefit-assessment of task-specific AIzaWord"))
+    assert "risk-benefit-assessment" in text and "task-specific" in text
