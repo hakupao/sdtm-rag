@@ -19,7 +19,9 @@ _PRICES: dict[str, tuple[float, float]] = {
     "claude-sonnet-4-6": (3.00, 15.00),
     "claude-opus-4-7": (5.00, 25.00),
     "claude-haiku-4-5": (1.00, 5.00),
-    "deepseek-v4-pro": (0.435, 0.87),
+    # 2026-11-26: litellm 1.88.1 rate (latest source, peak; pessimistic = safe for the L2 site cap).
+    # Was (0.435, 0.87) from DEPLOY_PLAN §9. ⚠ Verify against DeepSeek's official price page before P3.
+    "deepseek-v4-pro": (1.32, 3.96),
 }
 
 
@@ -53,6 +55,7 @@ def estimate_cost(model: str, usage: dict | None) -> float | None:
     Returns a float, or None when it cannot be priced honestly:
       - no usage / no token counts          -> None  (nothing to price)
       - model in the §9 table               -> exact arithmetic from token counts
+      - model in the provider registry      -> its override / price_ref price
       - otherwise litellm.completion_cost   -> its number if > 0
       - all of the above fail               -> None  ("—" in the UI, never a guess)
     """
@@ -69,6 +72,14 @@ def estimate_cost(model: str, usage: dict | None) -> float | None:
     if table is not None:
         in_rate, out_rate = table
         return round(pt / 1_000_000 * in_rate + ct / 1_000_000 * out_rate, 6)
+
+    # provider registry (P2 L1): the file's price override, or litellm's price for the
+    # registry's `price_ref` (OpenAI-compatible aliases like openai/qwen3-max).
+    from server.provider_registry import registry_cost
+
+    reg = registry_cost(model, pt, ct)
+    if reg is not None:
+        return reg
 
     # Not in §9's table — ask litellm's own (frequently-updated) price map via
     # cost_per_token (model, prompt_tokens, completion_tokens) -> (in_cost, out_cost).

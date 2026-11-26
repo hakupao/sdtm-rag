@@ -374,4 +374,4 @@ def test_main_installs_provider_log_processors():
 
     import server.main as main_mod
     assert "*providers.log_processors()" in inspect.getsource(main_mod)
-    assert providers.log_processors() == []
+    assert isinstance(providers.log_processors(), list)   # L1 fills it (redaction); P2.0 shipped []
