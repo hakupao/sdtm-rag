@@ -1,0 +1,3 @@
+SKIPPED [1] tests/test_webchat_cache_browser.py:28: 真浏览器端到端闸需要 playwright (dev-only 可选; 装法见本文件 docstring)
+SKIPPED [1] tests/test_webchat_stream_render.py:22: 真浏览器闸需要 playwright (dev-only 可选; 装法见 test_webchat_cache_browser.py)
+2943 passed, 2 skipped, 3 deselected, 9 warnings in 78.57s (0:01:18)
