@@ -15,7 +15,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import chromadb
-import litellm
+
+from server import outbound
+from server.request_context import ServiceRefusal
 
 if TYPE_CHECKING:  # 仅供标注: S2 是对象注入, 运行时不 import study_lookup 模块
     from server.study_lookup import StudyLookup
@@ -756,8 +758,11 @@ class RAGEngine:
         turns the propagated failure into a visible 502, never a silent degrade)."""
         for attempt in range(5):
             try:
-                resp = litellm.embedding(model=self.embedding_model, input=[text])
+                resp = outbound.embedding(None, "embedding",
+                                          model=self.embedding_model, input=[text])
                 return resp.data[0]["embedding"]
+            except ServiceRefusal:
+                raise
             except Exception as exc:
                 msg = str(exc).lower()
                 if ("rate" in msg or "429" in msg or "too many" in msg) and attempt < 4:
@@ -996,12 +1001,13 @@ class RAGEngine:
         "only the passage."
     )
 
-    def _llm(self, system: str, user: str) -> str:
+    def _llm(self, system: str, user: str, purpose: str = "hyde") -> str:
         """Expansion LLM call with rate-limit retry/backoff (trial keys throttle).
         Non-rate errors re-raise immediately so the caller's fallback handles them."""
         for attempt in range(5):
             try:
-                resp = litellm.completion(
+                resp = outbound.completion(
+                    None, purpose, None,
                     model=self.expansion_model,
                     messages=[
                         {"role": "system", "content": system},
@@ -1010,6 +1016,8 @@ class RAGEngine:
                     temperature=0.0,
                 )
                 return resp.choices[0].message.content or ""
+            except ServiceRefusal:
+                raise
             except Exception as exc:
                 msg = str(exc).lower()
                 if ("rate" in msg or "429" in msg or "too many" in msg) and attempt < 4:
@@ -1028,11 +1036,14 @@ class RAGEngine:
         queries = [query]
         try:
             want = max(1, self.expansion_n_queries - 1)
-            out = self._llm(self._MULTIQUERY_SYS, f"Question: {query}\n\nWrite {want} queries.")
+            out = self._llm(self._MULTIQUERY_SYS, f"Question: {query}\n\nWrite {want} queries.",
+                            purpose="multiquery")
             for line in out.splitlines():
                 line = line.strip().lstrip("0123456789.-) ").strip()
                 if line and line.lower() != query.lower():
                     queries.append(line)
+        except ServiceRefusal:
+            raise
         except Exception as exc:
             print(f"[T4 multiquery fallback -> single-query] {exc}", file=sys.stderr)
         return queries[: self.expansion_n_queries]
@@ -1043,6 +1054,8 @@ class RAGEngine:
         try:
             hypo = self._llm(self._HYDE_SYS, f"Question: {query}").strip()
             return hypo or query
+        except ServiceRefusal:
+            raise
         except Exception as exc:
             print(f"[T4 hyde fallback -> raw query] {exc}", file=sys.stderr)
             return query

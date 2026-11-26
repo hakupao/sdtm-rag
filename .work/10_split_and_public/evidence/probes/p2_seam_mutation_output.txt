@@ -1,0 +1,14 @@
+M1 resolve: router.completion +api_key: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.81s
+M2 resolve: router.acompletion +api_base: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.53s
+M3 resolve: litellm.embedding +api_key: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.48s
+M4 resolve: litellm.completion (hyde) +api_key: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.31s
+M5 resolve: litellm.acompletion (compare/judge) +timeout: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.50s
+M6 outbound.web_search query altered: applied=True test=test_p2_seam_characterization.py exit=1 KILLED | 1 failed in 1.32s
+M7 router /api/ask bypasses outbound: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.32s
+M8 router /api/ask retrieval swallows refusal: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 2 passed in 1.35s
+M9 finalizing() drops finalize: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.43s
+M10 rag embedding bypasses outbound: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.38s
+M11 federation route bypasses outbound: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed in 1.34s
+M12 done drops quota.response_fields: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 6 passed in 1.36s
+M13 route_corpus swallows refusal: applied=True test=test_p2_seam_hooks.py exit=1 KILLED | 1 failed, 3 passed in 1.27s
+restored all; mutations not killed or not applied: 0

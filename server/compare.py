@@ -23,9 +23,9 @@ import json
 import time
 from dataclasses import dataclass
 
-import litellm
 import structlog
 
+from server import outbound
 from server.cost import estimate_cost
 
 log = structlog.get_logger()
@@ -55,7 +55,8 @@ async def _one_completion(
     over the fleet always yields one result per model (failure isolation, NFR2)."""
     t0 = time.perf_counter()
     try:
-        resp = await litellm.acompletion(
+        resp = await outbound.acompletion(
+            None, "compare", None,
             model=model,
             messages=messages,
             timeout=timeout_s,
@@ -225,7 +226,8 @@ async def run_judge(
         {"role": "user", "content": user},
     ]
     try:
-        resp = await litellm.acompletion(
+        resp = await outbound.acompletion(
+            None, "judge", None,
             model=judge_model, messages=messages, temperature=0.0,
             timeout=timeout_s, num_retries=num_retries,
         )

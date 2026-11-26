@@ -13,8 +13,11 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from server import instance, outbound, providers, quota
 from server.config import SelectableModel
-from server.llm_config import fell_back, known_model_groups, merge_reported_model
+from server.llm_config import fell_back, merge_reported_model
+from server.request_context import ServiceRefusal, finalizing, request_scope
+from server.request_context import current as current_ctx
 from server.web_search import WEB_TOOL_SPEC, WebSearcher, render_tool_result
 
 log = structlog.get_logger()
@@ -259,6 +262,8 @@ class AskRequest(BaseModel):
     corpus: Literal["auto", "cdisc", "study", "both"] = "auto"
     # DM2 研读包: auto = 域码+范围词自动判; on/off = 手动强开/强关 (总闸 OFF 时 on 也不挂).
     dossier: Literal["auto", "on", "off"] = "auto"
+    # P2 contract v1 §2.2: provider registry id for BYOK (None = server key). L1 interprets it.
+    provider: str | None = None
 
 
 class SourceItem(BaseModel):
@@ -297,6 +302,10 @@ class AskResponse(BaseModel):
     # response_model_exclude_unset, 没挂时这个键不出现, 响应与引入前逐字节同; 挂上但 index 缺
     # (闸没跑) 时显式设 None。
     grounding: dict | None = None
+    # P2 contract v1 §2.4/§2.5. Only **set** when a hook supplies them (exclude_unset ⇒ absent
+    # otherwise, response byte-identical to pre-P2).
+    quota: dict | None = None
+    downgrades: list[dict] | None = None
 
 
 class InfoResponse(BaseModel):
@@ -339,7 +348,7 @@ def health():
 def info(request: Request):
     rag = request.app.state.rag
     s = request.app.state.settings
-    return InfoResponse(
+    payload = InfoResponse(
         collection_name=s.collection_name,
         chunk_count=rag.collection.count(),
         default_model=s.default_model,
@@ -361,6 +370,8 @@ def info(request: Request):
         dossier_auto_attach_models=list(s.dossier_auto_attach_models),
         dossier_prompt_cache=s.dossier_prompt_cache,
     )
+    return instance.shape_info(
+        request, payload, {**providers.info_fields(request), **quota.info_fields(request)})
 
 
 def maybe_attach_pdf_pages(request: Request, question: str, chunks, messages):
@@ -376,6 +387,8 @@ def maybe_attach_pdf_pages(request: Request, question: str, chunks, messages):
     """
     builder = getattr(request.app.state, "pdf_context", None)
     if builder is None:
+        return None, None
+    if not providers.capability(current_ctx(), "vision", True):
         return None, None
     from server.pdf_trigger import parse_chunks, should_attach_pdf
 
@@ -468,7 +481,8 @@ def maybe_attach_dossier(request: Request, question: str, chunks, routed: str | 
     query_domains = lookup._query_domains if lookup is not None else (lambda q: [])
     s = request.app.state.settings
     decision = decide_dossier(question, mode, s.dossier_enabled, query_domains,
-                              auto_attach=_auto_attach_allowed(s, model))
+                              auto_attach=providers.capability(
+                                  current_ctx(), "dossier_auto", _auto_attach_allowed(s, model)))
     info = {"attached": decision.attach, "reason": decision.reason,
             "domains": list(decision.domains), "sha": dossier.sha,
             "sections": list(dossier.sections), "chars": dossier.chars}
@@ -484,6 +498,8 @@ def maybe_attach_dossier(request: Request, question: str, chunks, routed: str | 
         k_each = math.ceil(k / 2)
         try:
             cd = fed.cdisc.retrieve(question, domain=domain, file_type=file_type, top_k=k_each)
+        except ServiceRefusal:
+            raise
         except Exception as e:
             # 检索炸了要报 502 (与两个端点开头那次检索同口径), 不能穿透成 500 ——
             # "上游检索暂时不可用"是调用方能重试的, 500 只会被当成本服务的 bug。
@@ -504,6 +520,7 @@ def maybe_attach_dossier(request: Request, question: str, chunks, routed: str | 
 
 # exclude_unset: 只为 `grounding` 的「没挂研读包 ⇒ 不出现」; 其余字段在构造处全部显式传值, 不受影响。
 @api_router.post("/ask", response_model=AskResponse, response_model_exclude_unset=True)
+@request_scope("ask")
 def ask(body: AskRequest, request: Request):
     rag = request.app.state.rag
     llm_router = request.app.state.llm_router
@@ -516,11 +533,11 @@ def ask(body: AskRequest, request: Request):
     # 与 /api/ask_stream 共用 known_model_groups —— 曾经这里是一份写死的
     # {"default","hard","light"}, 于是 /api/info 广播出去的 id 打到本端点就 422,
     # 同一个仓库两个端点对同一个模型名给出相反答案 (它连 default-fallback 都漏了)。
-    # 白名单只能有一份, 且必须是 Router 事实的那份。
-    known = known_model_groups(s)
-    if body.model not in known:
-        raise HTTPException(status_code=422,
-                            detail=f"unknown model {body.model!r}; known: {sorted(known)}")
+    # 白名单只能有一份, 且必须是 Router 事实的那份。(P2.0: 校验本体移到 providers.check_model)
+    ctx = current_ctx()
+    instance.check_request(ctx, body)
+    providers.check_model(ctx, s)
+    quota.admit(ctx)
 
     log.info("ask", question=body.question[:100], model=body.model, domain=body.domain)
 
@@ -539,6 +556,8 @@ def ask(body: AskRequest, request: Request):
                 file_type=body.file_type,
                 top_k=body.top_k,
             )
+    except ServiceRefusal:
+        raise
     except Exception as e:
         log.error("retrieve_failed", error=str(e), exc_info=True)
         raise HTTPException(status_code=502, detail="Retrieval service temporarily unavailable.") from e
@@ -621,8 +640,13 @@ def ask(body: AskRequest, request: Request):
         while True:
             pass_calls = 0   # 本轮 (首答 / 重答) 已成功的调用数; 续写失败判定看它, 不看累计值
             while True:
+                purpose = ("regen" if gate is not None and gate.first is not None
+                           else "continue" if pass_calls else "answer")
                 try:
-                    response = llm_router.completion(model=body.model, messages=msgs)
+                    response = outbound.completion(ctx, purpose, llm_router,
+                                                   model=body.model, messages=msgs)
+                except ServiceRefusal:
+                    raise
                 except Exception as e:  # noqa: BLE001 — 只吞**续写轮**的失败, 见下
                     if gate is not None and gate.first is not None:
                         # 重答轮 (首调或续写) 失败: 首轮答案已在手且已判过, 不能退化成 502,
@@ -696,6 +720,8 @@ def ask(body: AskRequest, request: Request):
             first_pass = (answer_parts, truncated, continue_error, continue_rounds, response)
             msgs = gate.regenerate_messages(messages, "".join(answer_parts))
             answer_parts, truncated, continue_error, continue_rounds = [], False, None, 0
+    except ServiceRefusal:
+        raise
     except Exception as e:
         log.error("llm_failed", error=str(e), model=body.model, exc_info=True)
         raise HTTPException(status_code=502, detail="LLM service temporarily unavailable.") from e
@@ -752,6 +778,8 @@ def ask(body: AskRequest, request: Request):
         pdf_pages=pdf_pages,
         dossier=dossier_info,
         **({"grounding": gate.payload() if gate else None} if dossier_block else {}),
+        **quota.response_fields(ctx),
+        **({"downgrades": list(ctx.notes)} if ctx.notes else {}),
     )
 
 
@@ -771,9 +799,11 @@ class AskStreamRequest(BaseModel):
     model: str = "default"
     # DM2 研读包: auto = 域码+范围词自动判; on/off = 手动强开/强关 (总闸 OFF 时 on 也不挂).
     dossier: Literal["auto", "on", "off"] = "auto"
+    provider: str | None = None  # P2 contract v1 §2.2 (same as AskRequest.provider)
 
 
 @api_router.post("/ask_stream")
+@request_scope("ask_stream", streaming=True)
 async def ask_stream(body: AskStreamRequest, request: Request):
     """SSE 流式单模型问答 (DeepSeek V4 Pro via Router 'default'). 检索一次 (FR1),
     然后流式生成。检索失败在开流前返 502; 流中途失败发 error 事件。"""
@@ -784,11 +814,11 @@ async def ask_stream(body: AskStreamRequest, request: Request):
     if not body.question.strip():
         raise HTTPException(status_code=422, detail="question must not be empty")
 
-    known = known_model_groups(s)
-    if body.model not in known:
-        # ⛔ 不静默退回 default: 静默退回会让"选了模型 X 却拿到 Y 的答案"完全不可见。
-        raise HTTPException(status_code=422,
-                            detail=f"unknown model {body.model!r}; known: {sorted(known)}")
+    # 模型白名单 (⛔ 不静默退回 default) 在 providers.check_model, 与 /api/ask 同一份。
+    ctx = current_ctx()
+    instance.check_request(ctx, body)
+    providers.check_model(ctx, s)
+    quota.admit(ctx)
 
     verified_by_id = {m.id: m.verified for m in s.selectable_models}
     # default/hard/light 不在表里 ⇒ None = "未知", 不是 False。发 False 会把"没这个概念"
@@ -807,6 +837,8 @@ async def ask_stream(body: AskStreamRequest, request: Request):
             chunks = rag.retrieve(
                 body.question, domain=body.domain, file_type=body.file_type, top_k=body.top_k
             )
+    except ServiceRefusal:
+        raise
     except Exception as e:
         log.error("stream_retrieve_failed", error=str(e), exc_info=True)
         raise HTTPException(status_code=502, detail="Retrieval service temporarily unavailable.") from e
@@ -878,11 +910,11 @@ async def ask_stream(body: AskStreamRequest, request: Request):
 
     gate = _dossier_gate_run(request, dossier_block, body.question)
 
-    use_web = bool(body.web) and s.web_search_enabled
+    use_web = providers.capability(ctx, "web_tools", bool(body.web) and s.web_search_enabled)
     tools = [WEB_TOOL_SPEC] if use_web else None
     searcher = WebSearcher(s) if use_web else None
 
-    async def _open_stream(msgs, with_tools: bool):
+    async def _open_stream(msgs, with_tools: bool, purpose: str = "answer"):
         """include_usage 让 done 能报 token; 个别 provider 不收该 kwarg, 失败则退化重开一次
         (保住答案, usage 报 null 而非编造)。开流失败才重试 —— 迭代中途失败不重试 (会重复生成),
         由下面的 except 兜。工具参数只在 with_tools 时传 —— web 关闭时请求体与本功能引入前
@@ -891,14 +923,18 @@ async def ask_stream(body: AskStreamRequest, request: Request):
         if with_tools and tools:
             kw["tools"] = tools
         try:
-            return await llm_router.acompletion(**kw, stream_options={"include_usage": True})
+            return await outbound.acompletion(ctx, purpose, llm_router, **kw,
+                                              stream_options={"include_usage": True})
+        except ServiceRefusal:
+            raise
         except Exception:  # noqa: BLE001 — 窄重试: 去掉 stream_options, 保住答案
             log.warning("stream_options_unsupported_retry_without", exc_info=True)
-            return await llm_router.acompletion(**kw)
+            return await outbound.acompletion(ctx, purpose, llm_router, **kw)
 
     async def gen():
         yield sse("sources", {"sources": sources, "routed_corpus": routed,
-                              "dossier": dossier_info})
+                              "dossier": dossier_info,
+                              **({"downgrades": list(ctx.notes)} if ctx.notes else {})})
         model_used = None   # 流里一个 chunk 都没报模型时就一直是 None —— done 事件如实发 null,
                             # ⛔ 不许兜成 "default": 那是**编**一个模型名, 而这个值会进历史存档
         # 逐 chunk 收全**出现过的**模型, 有序去重 (spec R6)。与 model_used 各记一件事:
@@ -954,8 +990,10 @@ async def ask_stream(body: AskStreamRequest, request: Request):
                         while True:
                             # 开流的外层上限 (REV MED-b): provider 连接挂死时以 error 事件收场, 不把
                             # SSE 连接晾着。流中途**不**包 wait_for —— 单一 deadline 会截断健康的长答案。
+                            purpose = ("regen" if gate is not None and gate.first is not None
+                                       else "continue" if continue_rounds else "answer")
                             resp = await asyncio.wait_for(
-                                _open_stream(msgs, with_tools), timeout=s.request_timeout_s)
+                                _open_stream(msgs, with_tools, purpose), timeout=s.request_timeout_s)
 
                             acc: dict[int, dict] = {}   # 流式 tool_calls 是增量的, 按 index 拼
                             round_parts: list[str] = []  # 本轮文本, 回灌 assistant 消息用
@@ -1100,7 +1138,8 @@ async def ask_stream(body: AskStreamRequest, request: Request):
                                 # searcher.search 是同步 requests.post, 单次最长 web_timeout_s,
                                 # 单请求可跑 web_max_searches 次 —— 直接调会把整个 event loop
                                 # (所有并发 SSE 流 + 健康检查) 占死几分钟。本服务是 LAN 共享的。
-                                refs, st = await asyncio.to_thread(searcher.search, query)
+                                refs, st = await asyncio.to_thread(
+                                    outbound.web_search, ctx, searcher, query)
                                 content = render_tool_result(refs, st)
 
                             if st == "ok":
@@ -1113,6 +1152,8 @@ async def ask_stream(body: AskStreamRequest, request: Request):
                                                       "status": st, "urls": [r.url for r in refs]})
                             msgs.append({"role": "tool", "tool_call_id": v["id"],
                                          "name": v["name"], "content": content})
+                except ServiceRefusal:
+                    raise
                 except Exception as e:  # noqa: BLE001 — 只接重答轮; 首轮的失败原样抛 (error 事件)
                     if gate is None or gate.first is None:
                         raise
@@ -1201,13 +1242,18 @@ async def ask_stream(body: AskStreamRequest, request: Request):
                                "pdf_pages": pdf_pages,
                                # DM2 研读包。None = 通道没跑 (总闸 OFF); dict 里
                                # attached 说挂没挂, reason 说为何 (徽章/存档读它)。
-                               "dossier": dossier_info, **grounding_kw})
+                               "dossier": dossier_info, **grounding_kw,
+                               **quota.response_fields(ctx),
+                               **({"downgrades": list(ctx.notes)} if ctx.notes else {})})
+        except ServiceRefusal as e:  # 流已开: hook 拒绝 (额度 / BYOK) 以 error 事件带 code 暴露
+            log.warning("stream_refused", code=e.detail.get("code"), status=e.status_code)
+            yield sse("error", dict(e.detail))
         except Exception as e:  # noqa: BLE001 — 流已开, 以事件形式暴露
             log.error("stream_failed", error=str(e), exc_info=True)
             yield sse("error", {"message": "LLM stream failed"})
 
     return StreamingResponse(
-        gen(), media_type="text/event-stream",
+        finalizing(gen(), ctx), media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
@@ -1312,6 +1358,7 @@ _MAX_COMPARE_MODELS = 6
 
 
 @api_router.post("/ask_compare", response_model=AskCompareResponse)
+@request_scope("ask_compare")
 async def ask_compare(body: AskCompareRequest, request: Request):
     """One question -> N models answer over the SAME retrieved context, side by side,
     with an optional anonymized judge. Reuses retrieve/format/build (FR1: retrieval runs
@@ -1326,6 +1373,9 @@ async def ask_compare(body: AskCompareRequest, request: Request):
 
     if not body.question.strip():
         raise HTTPException(status_code=422, detail="question must not be empty")
+    ctx = current_ctx()
+    instance.check_request(ctx, body)
+    quota.admit(ctx)
 
     models = [m.strip() for m in (body.models or s.compare_models) if m and m.strip()]
     # De-dup, preserving order: identical slots would render indistinguishable columns
@@ -1358,6 +1408,8 @@ async def ask_compare(body: AskCompareRequest, request: Request):
             file_type=body.file_type,
             top_k=body.top_k,
         )
+    except ServiceRefusal:
+        raise
     except Exception as e:
         log.error("retrieve_failed", error=str(e), exc_info=True)
         raise HTTPException(status_code=502, detail="Retrieval service temporarily unavailable.") from e
@@ -1440,6 +1492,7 @@ async def ask_compare(body: AskCompareRequest, request: Request):
 
 
 @api_router.post("/validate")
+@request_scope("validate")
 async def validate_dataset(
     request: Request,
     file: UploadFile = File(...),
@@ -1453,6 +1506,9 @@ async def validate_dataset(
     from server.reviewer import review
     from server.validator import validate
 
+    ctx = current_ctx()
+    instance.check_request(ctx, None)
+    quota.admit(ctx)
     spec_loader = request.app.state.spec_loader
     t0 = time.perf_counter()
 
@@ -1493,6 +1549,8 @@ async def validate_dataset(
                 df, effective_domain, meta.variables, rag,
                 model="hard", llm_router=llm_router,
             )
+        except ServiceRefusal:
+            raise
         except Exception as e:
             log.error("semantic_review_failed", error=str(e))
             from server.reviewer import ReviewResult, SemanticFinding
