@@ -27,6 +27,7 @@
         </button>
         <span id="topbar-title">SDTM 知识库助手</span>
         <span id="topbar-model" class="topbar-model"></span>
+        <span id="quota-badge" class="topbar-model" hidden></span>
         <div class="topbar-right">
           <button id="settings-btn" class="icon-btn" type="button" title="设置" aria-label="设置" aria-expanded="false">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -36,6 +37,22 @@
               <h3>显示</h3>
               <label><input type="checkbox" id="show-citations" /> 显示正文行内出处 (调试用)</label>
               <div class="hint">关闭时出处只在底部「来源」里看; 生成中不可切换。</div>
+            </section>
+            <!-- BYOK: /api/info 没有 providers 时整块保持 hidden (私有档 / 旧服务端与改前一致) -->
+            <section id="byok-section" hidden>
+              <h3>自己的 API key (可选)</h3>
+              <label class="field">服务商
+                <select id="byok-provider"><option value="">不用 · 使用本站额度</option></select>
+              </label>
+              <label class="field">模型 <select id="byok-model"></select></label>
+              <label class="field">API key
+                <input id="byok-key" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴 key" />
+              </label>
+              <div class="byok-actions">
+                <button id="byok-clear" type="button">清除 key</button>
+                <span id="byok-status" class="hint"></span>
+              </div>
+              <div class="hint">key 只存在本浏览器 (独立存储项), 只随请求头经本站转给所选服务商; 服务端不落盘、不写日志。用自己的 key 不占免费额度。</div>
             </section>
           </div>
         </div>
@@ -58,9 +75,6 @@
                 <span class="opt-sep" aria-hidden="true"></span>
                 <label class="pill"><input type="checkbox" id="scope-cdisc" /> CDISC 標準</label>
                 <label class="pill"><input type="checkbox" id="scope-study" /> 本研究 (ST01)</label>
-                <label class="pill" title="让模型自行决定是否搜索公开网络 (业界实践参考, 非标准依据)">
-                  <input type="checkbox" id="scope-web" /> 联网参考
-                </label>
                 <select id="scope-dossier" class="pill-select" aria-label="研读模式"
                         title="研读模式: 域级映射题整段喂入 PRT 章节 + EDC 全项目一览。Claude Opus 5 下映射题自动挂载; 其他模型命中时徽章提示, 需要时选「研读:开」">
                   <option value="auto" selected>研读 · 自动</option>
@@ -68,6 +82,11 @@
                   <option value="off">研读 · 关</option>
                 </select>
               </fieldset>
+              <!-- 联网与检索范围正交, 不属于 study 区 (P2 2.1): 显隐看 /api/info.web_search (缺键 ⇒ 随 federation, 同改前);
+                   公开档免费题不联网 ⇒ 置灰 (见 js/byok.js webState)。 -->
+              <label class="pill" id="web-opt" title="让模型自行决定是否搜索公开网络 (业界实践参考, 非标准依据)" hidden>
+                <input type="checkbox" id="scope-web" /> 联网参考
+              </label>
             </div>
             <button id="send" type="submit" aria-label="发送" title="发送 (Enter)">
               <svg class="ic-send" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
