@@ -438,6 +438,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="旧行为: 整目录清空 (会删除 study_* collection)",
     )
+    parser.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="跳过 R-16 备份 (deploy/kbsync 在生产副本上灌库: 副本本身即备份; 备份会写进只读的 data/ 且磁盘翻倍)",
+    )
     args = parser.parse_args(argv)
 
     print(f"[setup] sdtm-rag root  = {SDTM_RAG_ROOT}")
@@ -449,8 +454,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.skip_ingest:
         # ── R-16 backup ──
-        backup = backup_existing_chroma(CHROMA_DIR)
-        if backup:
+        backup = None if args.no_backup else backup_existing_chroma(CHROMA_DIR)
+        if args.no_backup:
+            print("[R-16] --no-backup: skip backup")
+        elif backup:
             print(f"[R-16] backed up existing Chroma → {backup}")
         else:
             print(f"[R-16] no prior Chroma payload; skip backup")
