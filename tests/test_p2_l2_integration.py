@@ -224,13 +224,36 @@ def test_kill_switch_disables_free_not_byok(make, monkeypatch):
     assert r.status_code == 200
 
 
-def test_cap_hit_mid_request_refuses_continuation(make):
-    client, router = make(quota_site_cap_usd=0.02)
-    # the answer is truncated -> the continuation's reservation no longer fits under the cap
+def test_cap_hit_mid_request_refuses_continuation(make, engines):
+    _base, _rag, rec, _ = engines
+    client, router = make(quota_site_cap_usd=5.0)
+    s = client.app.state.settings
+    store = quota._store(s)
+    real = router.completion
+
+    def completion(**kw):
+        out = real(**kw)
+        if kw["model"] == "default":   # after the first answer round: the day's spend hits the cap
+            store.reserve("other-visitors", quota._day(), 5.0, None, quota._now())
+        return out
+
+    router.completion = completion
     router.ask_script = [_resp("Part one. ", finish="length"), _resp("never")]
+    rec.calls.clear()
     r = client.post("/api/ask", json={"question": "q", "corpus": "cdisc"})
     assert r.status_code == 429 and r.json()["detail"]["code"] == "site_cap_reached"
-    assert quota._store(client.app.state.settings).spent(quota._day()) <= 0.02 + 1e-9
+    answers = [c for c in rec.calls if c["call"] == "router.completion" and c["model"] == "default"]
+    assert len(answers) == 1          # first round ran; the continuation was refused before the wire
+    assert "answer" not in r.text     # half answer discarded (contract §2.3)
+
+
+def test_ipv6_clients_keyed_by_64(make):
+    client, router = make(client_addr=("2001:db8:1:2::1", 1), quota_free_per_ip_day=1)
+    assert _ask(client, router).status_code == 200
+    client, router = make(client_addr=("2001:db8:1:2:ffff::9", 1), quota_free_per_ip_day=1)
+    assert _ask(client, router).status_code == 429     # same /64, new cookie jar
+    client, router = make(client_addr=("2001:db8:1:3::1", 1), quota_free_per_ip_day=1)
+    assert _ask(client, router).status_code == 200     # different /64
 
 
 def test_aborted_stream_is_still_charged(make):

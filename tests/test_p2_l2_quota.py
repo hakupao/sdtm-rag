@@ -371,3 +371,50 @@ def test_admit_refuses_at_cap_before_counting(settings):
     assert e.value.status_code == 429 and e.value.detail["code"] == "site_cap_reached"
     assert quota._store(s).count("v:v1", quota._day()) == 0
     quota.admit(_ctx(s, creds=Credentials(api_key="sk-user")), _body())   # BYOK admitted
+
+
+def test_client_key_normalizes_ipv6():
+    from server.auth import client_key
+
+    assert client_key("2001:db8:1:2:aaaa::1") == "2001:db8:1:2::/64"
+    assert client_key("2001:db8:1:2:aaaa::1", 48) == "2001:db8:1::/48"
+    assert client_key("::ffff:203.0.113.7") == "203.0.113.7"
+    assert client_key("203.0.113.7") == "203.0.113.7"
+    assert client_key("testclient") == "testclient"
+
+
+def test_byok_side_calls_have_a_hard_ceiling(settings):
+    s = settings
+    s.quota_site_cap_usd, s.quota_byok_side_cap_usd = 1.0, 2.0
+    store = quota._store(s)
+    assert store.reserve("seed", quota._day(), 1.5, None, quota._now())   # over free cap
+    ctx = _ctx(s, creds=Credentials(api_key="junk-key"))
+    quota.admit(ctx, _body())
+    emb = {"model": "text-embedding-3-small", "input": ["x"]}
+    assert quota.reserve(ctx, "embedding", emb) is not None            # BYOK still works
+    assert store.reserve("seed2", quota._day(), 0.5, None, quota._now())  # now at the ceiling
+    with pytest.raises(ServiceRefusal) as e:
+        quota.reserve(ctx, "embedding", emb)
+    assert e.value.detail["code"] == "site_cap_reached"
+
+
+def test_every_metered_endpoint_counts_compare_weighted(settings):
+    s = settings
+    s.quota_free_per_day = 5
+    body = SimpleNamespace(history=[], models=["a", "b", "c"], judge=SimpleNamespace(enabled=True))
+    quota.admit(_ctx(s, endpoint="ask_compare"), body)                 # 3 answers + judge = 4
+    assert quota._store(s).count("v:v1", quota._day()) == 4
+    quota.admit(_ctx(s, endpoint="validate"), None)                    # validate counts too
+    assert quota._store(s).count("v:v1", quota._day()) == 5
+    with pytest.raises(ServiceRefusal):
+        quota.admit(_ctx(s, endpoint="ask_compare"), body)
+
+
+def test_rate_limit_covers_non_ask_endpoints(settings):
+    s = settings
+    s.quota_rate_per_min, s.quota_rate_burst = 1, 1
+    c = _ctx(s, endpoint="validate")
+    quota.admit(c, None)
+    with pytest.raises(ServiceRefusal) as e:
+        quota.admit(_ctx_same_app(c), None)
+    assert e.value.detail["code"] == "rate_limited"

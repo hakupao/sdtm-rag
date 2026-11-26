@@ -53,6 +53,7 @@ _DEFAULTS: dict = {
     "quota_free_per_day": 10,          # free questions per visitor (cookie) per UTC day
     "quota_free_per_ip_day": 30,       # … and per client IP (cookie clearing / cookieless clients)
     "quota_site_cap_usd": 5.0,         # all server-key calls, per UTC day
+    "quota_byok_side_cap_usd": 10.0,   # hard ceiling for BYOK requests' server-key side calls
     "quota_rate_per_min": 6,           # questions per visitor per minute (BYOK too)
     "quota_rate_burst": 3,
     "quota_ip_rate_per_min": 20,       # questions per client IP per minute
@@ -69,6 +70,7 @@ _DEFAULTS: dict = {
     "quota_fallback_out_usd_per_mtok": 25.0,
     "quota_default_max_output_tokens": 8192,
     "quota_trusted_proxies": "",       # comma list of IPs/CIDRs allowed to set CF-Connecting-IP
+    "quota_ipv6_prefix": 64,           # IPv6 clients are keyed by this prefix (one /64 = one client)
     "visitor_secret": "",              # signs the visitor cookie; required when quota is enabled
     "visitor_cookie_name": "sdtm_visitor",
     "visitor_cookie_secure": None,     # None = Secure iff public tier
@@ -78,7 +80,9 @@ _DEFAULTS: dict = {
 }
 
 _ANSWER_PURPOSES = frozenset({"answer", "continue", "regen"})
-_QUESTION_ENDPOINTS = frozenset({"ask", "ask_stream"})
+# Deny-by-default: every metered endpoint counts as (weighted) free questions and is rate-limited
+# unless listed here. None are exempt today: ask/ask_stream/validate = 1, ask_compare = N answers.
+_EXEMPT_ENDPOINTS: frozenset = frozenset()
 _TRUE = {"1", "true", "yes", "on"}
 _CAP_MSG = "今日全站免费额度已用完, 请明天再来或使用自己的 API key。"
 
@@ -195,8 +199,9 @@ def _identity(request) -> tuple[str | None, str]:
     if ip is None:
         from server.auth import resolve_client_ip
 
-        ip = resolve_client_ip(request.scope,
-                               cfg(getattr(request.app.state, "settings", None), "quota_trusted_proxies"))
+        s = getattr(request.app.state, "settings", None)
+        ip = resolve_client_ip(request.scope, cfg(s, "quota_trusted_proxies"),
+                               int(cfg(s, "quota_ipv6_prefix")))
     return state.get("sdtm_visitor"), ip
 
 
@@ -261,7 +266,8 @@ def admit(ctx, body) -> None:
         if store.spent(st.day) >= float(cfg(s, "quota_site_cap_usd")):
             _refuse(429, "site_cap_reached", _CAP_MSG, reset_s, reset_at=reset_at)
 
-    if ctx.endpoint in _QUESTION_ENDPOINTS:
+    metered = ctx.endpoint not in _EXEMPT_ENDPOINTS
+    if metered:
         v_lim, ip_lim = _limiters(ctx)
         for lim, key in ((v_lim, st.visitor), (ip_lim, f"ip:{st.ip}")):
             if key is None:
@@ -275,17 +281,26 @@ def admit(ctx, body) -> None:
         body.history = trim_history(body.history, int(cfg(s, "quota_history_max_messages")),
                                     int(cfg(s, "quota_history_max_chars")))
 
-    if st.byok or ctx.endpoint not in _QUESTION_ENDPOINTS:
+    if st.byok or not metered:
         return
     limits = [(f"ip:{st.ip}", int(cfg(s, "quota_free_per_ip_day")))]
     if st.visitor:
         limits.append((f"v:{st.visitor}", int(cfg(s, "quota_free_per_day"))))
-    if not store.take(limits, st.day):
+    if not store.take(limits, st.day, _weight(ctx, body, s)):
         _refuse(429, "free_quota_exhausted", "今日免费提问次数已用完, 请明天再来或使用自己的 API key。",
                 reset_s, remaining=0, reset_at=reset_at)
     if getattr(body, "web", False) and not cfg(s, "quota_free_web_enabled"):
         body.web = False
         ctx.notes.append({"capability": "web_tools", "reason": "free_tier_no_web"})
+
+
+def _weight(ctx, body, s) -> int:
+    """Free questions one request costs: ask_compare = one per answering model (+1 for the judge)."""
+    if ctx.endpoint != "ask_compare" or body is None:
+        return 1
+    models = getattr(body, "models", None) or getattr(s, "compare_models", None) or []
+    judge = getattr(getattr(body, "judge", None), "enabled", False)
+    return max(1, len(models)) + (1 if judge else 0)
 
 
 def _text_tokens(text: str) -> int:
@@ -373,8 +388,10 @@ def reserve(ctx, purpose: str, kw: dict):
     est, model = _estimate(s, purpose, kw)
     now = _now()
     store.expire(now - float(cfg(s, "quota_reservation_ttl_s")))
-    # BYOK side calls are metered but never refused by the cap (only its web searches are).
-    cap = None if (st.byok and purpose != "web") else float(cfg(s, "quota_site_cap_usd"))
+    # BYOK side calls are not stopped by the free cap (BYOK must keep working after it) but by a
+    # higher hard ceiling: a junk BYOK header must not buy unlimited server-key spend.
+    cap = float(cfg(s, "quota_byok_side_cap_usd") if (st.byok and purpose != "web")
+                else cfg(s, "quota_site_cap_usd"))
     rid = uuid.uuid4().hex
     if not store.reserve(rid, _day(now), est, cap, now):
         _refuse(429, "site_cap_reached", _CAP_MSG, reset_s, reset_at=reset_at)

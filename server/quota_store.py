@@ -43,21 +43,21 @@ class QuotaStore:
                                    (key, day)).fetchone()
         return row[0] if row else 0
 
-    def take(self, limits: list[tuple[str, int]], day: str) -> bool:
-        """Increment every key by 1 iff ALL are below their limit (all-or-nothing)."""
+    def take(self, limits: list[tuple[str, int]], day: str, n: int = 1) -> bool:
+        """Add `n` to every key iff ALL stay within their limit (all-or-nothing)."""
         with self._lock:
             self._db.execute("BEGIN IMMEDIATE")
             try:
                 for key, limit in limits:
                     row = self._db.execute("SELECT n FROM counters WHERE key=? AND day=?",
                                            (key, day)).fetchone()
-                    if (row[0] if row else 0) >= limit:
+                    if (row[0] if row else 0) + n > limit:
                         self._db.execute("ROLLBACK")
                         return False
                 for key, _ in limits:
                     self._db.execute(
-                        "INSERT INTO counters (key, day, n) VALUES (?, ?, 1) "
-                        "ON CONFLICT (key, day) DO UPDATE SET n = n + 1", (key, day))
+                        "INSERT INTO counters (key, day, n) VALUES (?, ?, ?) "
+                        "ON CONFLICT (key, day) DO UPDATE SET n = n + excluded.n", (key, day, n))
                 self._db.execute("COMMIT")
                 return True
             except BaseException:

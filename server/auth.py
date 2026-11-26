@@ -76,9 +76,28 @@ def _trusted_nets(trusted: str) -> list:
             for p in (trusted or "").split(",") if p.strip()]
 
 
-def resolve_client_ip(scope, trusted: str) -> str:
-    """Socket peer, or `CF-Connecting-IP` ONLY when the peer is a configured trusted proxy (the
-    Cloudflare tunnel connector). The header from any other peer is ignored (spoofable)."""
+def client_key(ip: str, v6_prefix: int = 64) -> str:
+    """Quota / rate-limit key for an IP: IPv4-mapped IPv6 -> IPv4; other IPv6 -> its /v6_prefix
+    network (one end user typically owns a whole /64). Non-IP strings pass through."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if addr.version == 6 and addr.ipv4_mapped is not None:
+        return str(addr.ipv4_mapped)
+    if addr.version == 6:
+        return str(ipaddress.ip_network(f"{addr}/{v6_prefix}", strict=False))
+    return str(addr)
+
+
+def resolve_client_ip(scope, trusted: str, v6_prefix: int = 64) -> str:
+    """Client key (see client_key) of the socket peer, or of `CF-Connecting-IP` ONLY when the peer
+    is a configured trusted proxy (the Cloudflare tunnel connector); otherwise the header is
+    ignored (spoofable)."""
+    return client_key(_resolve_ip(scope, trusted), v6_prefix)
+
+
+def _resolve_ip(scope, trusted: str) -> str:
     client = scope.get("client")
     peer = client[0] if client else "unknown"
     nets = _trusted_nets(trusted)
@@ -257,7 +276,7 @@ class VisitorMiddleware:
     cookie when absent or tampered. Applies to /api/* only."""
 
     def __init__(self, app, *, secret: str, cookie_name: str, secure: bool, max_age: int,
-                 trusted_proxies: str):
+                 trusted_proxies: str, v6_prefix: int = 64):
         from itsdangerous import Signer
 
         self.app = app
@@ -266,6 +285,7 @@ class VisitorMiddleware:
         self.secure = secure
         self.max_age = max_age
         self.trusted = trusted_proxies
+        self.v6_prefix = v6_prefix
 
     def _read(self, scope) -> str | None:
         from itsdangerous import BadSignature
@@ -290,7 +310,7 @@ class VisitorMiddleware:
             vid = secrets.token_urlsafe(16)
         state = scope.setdefault("state", {})
         state["sdtm_visitor"] = vid
-        state["sdtm_client_ip"] = resolve_client_ip(scope, self.trusted)
+        state["sdtm_client_ip"] = resolve_client_ip(scope, self.trusted, self.v6_prefix)
         if not fresh:
             return await self.app(scope, receive, send)
         cookie = (f"{self.cookie_name}={self.signer.sign(vid).decode('ascii')}; Path=/; "
@@ -362,16 +382,17 @@ class FlagRateLimitMiddleware:
     Event-loop only (no await between bucket read/write), like RateLimitMiddleware."""
 
     def __init__(self, app, *, limiter: TokenBucketLimiter, trusted_proxies: str,
-                 path: str = "/api/flag"):
+                 v6_prefix: int = 64, path: str = "/api/flag"):
         self.app = app
         self.limiter = limiter
         self.trusted = trusted_proxies
+        self.v6_prefix = v6_prefix
         self.path = path
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or scope["path"] != self.path or scope["method"] != "POST":
             return await self.app(scope, receive, send)
-        ok, retry = self.limiter.allow(resolve_client_ip(scope, self.trusted))
+        ok, retry = self.limiter.allow(resolve_client_ip(scope, self.trusted, self.v6_prefix))
         if ok:
             return await self.app(scope, receive, send)
         r = max(1, int(math.ceil(retry)))
@@ -394,12 +415,13 @@ def _install_quota(app, settings) -> None:
     secure = quota.cfg(settings, "visitor_cookie_secure")
     if secure is None:
         secure = getattr(settings, "instance", "private") == "public"
-    app.add_middleware(FlagRateLimitMiddleware, trusted_proxies=trusted, limiter=TokenBucketLimiter(
+    v6 = int(quota.cfg(settings, "quota_ipv6_prefix"))
+    app.add_middleware(FlagRateLimitMiddleware, trusted_proxies=trusted, v6_prefix=v6, limiter=TokenBucketLimiter(
         int(quota.cfg(settings, "flag_rate_per_min")), int(quota.cfg(settings, "flag_rate_burst"))))
     app.add_middleware(VisitorMiddleware, secret=secret,
                        cookie_name=quota.cfg(settings, "visitor_cookie_name"), secure=bool(secure),
                        max_age=int(quota.cfg(settings, "visitor_cookie_max_age_s")),
-                       trusted_proxies=trusted)
+                       trusted_proxies=trusted, v6_prefix=v6)
     app.add_middleware(BodyLimitMiddleware, limit=int(quota.cfg(settings, "quota_max_body_bytes")))
 
 

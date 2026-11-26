@@ -6,10 +6,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]   # repo root
-U, I = "tests/test_p2_l2_quota.py", "tests/test_p2_l2_integration.py"
+U, I = "tests/test_p2_l2_quota.py", "tests/test_p2_l2_integration.py"  # noqa: E741
 M = [
-    ("M1 free-count limit", "server/quota_store.py", "if (row[0] if row else 0) >= limit:",
-     "if (row[0] if row else 0) > limit:", [U + "::test_take_is_atomic_across_threads",
+    ("M1 free-count limit", "server/quota_store.py", "if (row[0] if row else 0) + n > limit:",
+     "if (row[0] if row else 0) + n > limit + 1:", [U + "::test_take_is_atomic_across_threads",
                                            I + "::test_n_plus_1_question_is_429_with_quota_fields"]),
     ("M2 cap in reserve SQL", "server/quota_store.py", "(? IS NULL OR usd + ? <= ? + 1e-9)",
      "(? IS NULL OR ? > -1 OR ? > -1)", [U + "::test_reserve_never_exceeds_cap_across_threads",
@@ -28,8 +28,8 @@ M = [
     ("M7 body limit (chunked)", "server/auth.py", "if total > self.limit:", "if False:",
      [I + "::test_body_too_large_is_413"]),
     ("M8 flag rate limit", "server/auth.py",
-     "ok, retry = self.limiter.allow(resolve_client_ip(scope, self.trusted))\n        if ok:",
-     "ok, retry = self.limiter.allow(resolve_client_ip(scope, self.trusted))\n        if True:",
+     "ok, retry = self.limiter.allow(resolve_client_ip(scope, self.trusted, self.v6_prefix))\n        if ok:",
+     "ok, retry = self.limiter.allow(resolve_client_ip(scope, self.trusted, self.v6_prefix))\n        if True:",
      [I + "::test_flag_rate_limited"]),
     ("M9 visitor secret required", "server/auth.py", "    if not secret:\n", "    if False:\n",
      [I + "::test_enabled_without_secret_fails_at_startup"]),
@@ -43,13 +43,13 @@ M = [
      [U + "::test_admit_refuses_at_cap_before_counting"]),
     ("M13 rate limit", "server/quota.py", "            if not ok:\n", "            if False:\n",
      [U + "::test_rate_limit_applies_to_byok"]),
-    ("M14 free count", "server/quota.py", "if not store.take(limits, st.day):", "if False:",
+    ("M14 free count", "server/quota.py", "if not store.take(limits, st.day, _weight(ctx, body, s)):", "if False:",
      [I + "::test_n_plus_1_question_is_429_with_quota_fields"]),
     ("M15 IP key counted", "server/quota.py",
      "limits = [(f\"ip:{st.ip}\", int(cfg(s, \"quota_free_per_ip_day\")))]", "limits = []",
      [I + "::test_cookieless_client_is_bounded_by_ip"]),
     ("M16 BYOK cap exemption", "server/quota.py",
-     "cap = None if (st.byok and purpose != \"web\") else float(cfg(s, \"quota_site_cap_usd\"))",
+     "cap = float(cfg(s, \"quota_byok_side_cap_usd\") if (st.byok and purpose != \"web\")\n                else cfg(s, \"quota_site_cap_usd\"))",
      "cap = float(cfg(s, \"quota_site_cap_usd\"))",
      [I + "::test_cap_reached_free_off_byok_still_works"]),
     ("M17 BYOK answer user-paid", "server/quota.py",
@@ -69,6 +69,20 @@ M = [
      [I + "::test_free_stream_gets_no_web"]),
     ("M23 unknown model never $0", "server/quota.py", "if r_in is None and r_out is None:",
      "if False:", [U + "::test_estimate_uses_deployment_max_tokens_and_never_zero"]),
+    ("M24 BYOK side-call ceiling", "server/quota.py", "cap = float(cfg(s, \"quota_byok_side_cap_usd\") if (st.byok and purpose != \"web\")\n                else cfg(s, \"quota_site_cap_usd\"))",
+     "cap = None if (st.byok and purpose != \"web\") else float(cfg(s, \"quota_site_cap_usd\"))",
+     [U + "::test_byok_side_calls_have_a_hard_ceiling"]),
+    ("M25 deny-by-default endpoints", "server/quota.py", "_EXEMPT_ENDPOINTS: frozenset = frozenset()",
+     "_EXEMPT_ENDPOINTS: frozenset = frozenset({\"ask_compare\", \"validate\"})",
+     [U + "::test_every_metered_endpoint_counts_compare_weighted",
+      U + "::test_rate_limit_covers_non_ask_endpoints"]),
+    ("M26 compare weight", "server/quota.py", "return max(1, len(models)) + (1 if judge else 0)",
+     "return 1", [U + "::test_every_metered_endpoint_counts_compare_weighted"]),
+    ("M27 IPv6 /64 key", "server/auth.py",
+     "return str(ipaddress.ip_network(f\"{addr}/{v6_prefix}\", strict=False))", "return str(addr)",
+     [U + "::test_client_key_normalizes_ipv6", I + "::test_ipv6_clients_keyed_by_64"]),
+    ("M28 IPv4-mapped -> IPv4", "server/auth.py", "return str(addr.ipv4_mapped)", "return str(addr)",
+     [U + "::test_client_key_normalizes_ipv6"]),
 ]
 
 env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
