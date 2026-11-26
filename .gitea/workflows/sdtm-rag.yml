@@ -115,10 +115,17 @@ jobs:
           IMG="$IMAGE:$TAG"
           docker pull "$IMG"
           FP=$(python3 deploy/kbsync/kbsync.py image-fp --image "$IMG")
-          OUT=$(python3 deploy/kbsync/kbsync.py --via "$IMG" predeploy-check --data-root "$DATA_ROOT" --target-fp "$FP")
+          CHROMA_V=$(python3 deploy/kbsync/kbsync.py chromadb-version --image "$IMG")
+          OUT=$(python3 deploy/kbsync/kbsync.py --via "$IMG" predeploy-check --data-root "$DATA_ROOT" \
+            --target-fp "$FP" --chromadb-version "$CHROMA_V")
           echo "$OUT"
           DECISION=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["decision"])')
           case "$DECISION" in
+            journal_pending)
+              # 上次换数据的 job 被取消/超时: 数据处于未知中间态, 任何决定 (含 force) 都不可信
+              echo "数据根残留 kbsync_swap.json (上次换数据未收尾); 生产未动。先停服务人工"
+              echo "  python3 deploy/kbsync/kbsync.py --via <镜像> restore --data-root $DATA_ROOT  (或确认已生效后 finish)"
+              exit 1 ;;
             same) echo "镜像 KB 指纹与生产 chroma 一致, 不换数据" ;;
             swap) echo "镜像 KB 指纹 ${FP:0:12} ≠ 生产 → 部署时换上 $(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["source_chroma"])')" ;;
             unknown|missing)
@@ -132,14 +139,18 @@ jobs:
               fi ;;
             *) echo "未知决定 $DECISION"; exit 1 ;;
           esac
-          { echo "decision=$DECISION"; echo "fp=$FP"; } >> "$GITHUB_OUTPUT"
+          { echo "decision=$DECISION"; echo "fp=$FP"; echo "chromadb=$CHROMA_V"; } >> "$GITHUB_OUTPUT"
 
       - name: 部署
+        id: deploy
         if: gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false'
         env:
           DECISION: ${{ steps.kbcheck.outputs.decision }}
           FP: ${{ steps.kbcheck.outputs.fp }}
+          CHROMA_V: ${{ steps.kbcheck.outputs.chromadb }}
         run: |
+          # 退回镜像步只在本步开始后才有意义 (kbcheck 失败 = 生产未动, 不该重建容器)
+          echo "started=true" >> "$GITHUB_OUTPUT"
           # 挂载目标跟随镜像的 WorkingDir: step 1.5a 前 (monorepo 时代) 的镜像是
           # /Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag, 之后是 /app —— 回滚旧镜像时 data/.env 才挂得对
           APP_DIR=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMAGE:${{ steps.tag.outputs.tag }}")
@@ -149,9 +160,18 @@ jobs:
           if [ "$DECISION" = swap ]; then
             # 停服务 → 非 KB 集合核对 → 改名换 chroma/meta (journal 记在数据根, 失败步按它退回)
             IMAGE_TAG="${{ steps.tag.outputs.tag }}" docker compose -f deploy/container/compose.yml stop
-            python3 deploy/kbsync/kbsync.py deploy-swap --data-root "$DATA_ROOT" \
-              --image "$IMAGE:${{ steps.tag.outputs.tag }}" --target-fp "$FP" \
-              || { echo "换数据被拒, 原容器重新启动"; IMAGE_TAG=x docker compose -f deploy/container/compose.yml start; exit 1; }
+            IMG="$IMAGE:${{ steps.tag.outputs.tag }}"
+            if ! python3 deploy/kbsync/kbsync.py deploy-swap --data-root "$DATA_ROOT" \
+                --image "$IMG" --target-fp "$FP" --chromadb-version "$CHROMA_V"; then
+              # 换到一半失败 (journal 在) → 先退数据, 再起原容器; 退不干净则不起, 交给人工
+              if python3 deploy/kbsync/kbsync.py --via "$IMG" swap-status --data-root "$DATA_ROOT" | grep -q '"pending": true'; then
+                python3 deploy/kbsync/kbsync.py --via "$IMG" restore --data-root "$DATA_ROOT" \
+                  || { echo "restore 失败, 服务保持停止, 需人工处理"; exit 1; }
+              fi
+              echo "换数据被拒/失败, 数据已是部署前状态, 原容器重新启动"
+              IMAGE_TAG=x docker compose -f deploy/container/compose.yml start
+              exit 1
+            fi
           fi
           IMAGE_TAG="${{ steps.tag.outputs.tag }}" docker compose -f deploy/container/compose.yml up -d
           docker inspect sdtm-rag-api sdtm-rag-ui --format '{{.Name}} 运行镜像：{{.Config.Image}}'
@@ -201,7 +221,7 @@ jobs:
           echo "已退回部署前的 chroma/meta; 镜像由下一步退回"
 
       - name: 健康检查失败 → 退回部署前的镜像
-        if: failure() && steps.prev.outputs.prev != '' && steps.prev.outputs.prev != steps.tag.outputs.tag
+        if: failure() && steps.deploy.outputs.started == 'true' && steps.prev.outputs.prev != '' && steps.prev.outputs.prev != steps.tag.outputs.tag
         env:
           PREV: ${{ steps.prev.outputs.prev }}
         run: |

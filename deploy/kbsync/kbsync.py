@@ -108,6 +108,14 @@ def prepare(data_root: Path, fp: str, ts: str) -> dict:
     return {"candidate": c, "meta": m, "archived_stale": stale}
 
 
+def _load_avg(path: Path) -> float:
+    """产物自称的 summary.source_recall_avg (run_eval 剔除 out_of_scope 的唯一口径, 不自算)。"""
+    avg = (json.loads(path.read_text(encoding="utf-8")).get("summary") or {}).get("source_recall_avg")
+    if avg is None:
+        raise ValueError(f"{path.name}: 缺 summary.source_recall_avg")
+    return float(avg)
+
+
 def _load_recall(path: Path) -> dict[str, float]:
     data = json.loads(path.read_text(encoding="utf-8"))
     results = data.get("results") or []
@@ -127,12 +135,18 @@ def regressions(base: dict[str, float], cand: dict[str, float]) -> list[str]:
                   if k not in cand or (k in base and cand[k] < base[k]))
 
 
-def gate(data_root: Path, fp: str, max_regressions: int, ts: str, info: dict) -> dict:
+MIN_QUESTIONS = 140  # CDISC test_set_v3
+MIN_AVG = 0.95       # 绝对地板: 相对闸防不住"基线本身已塌"
+
+
+def gate(data_root: Path, fp: str, max_regressions: int, ts: str, info: dict,
+         min_questions: int = MIN_QUESTIONS, min_avg: float = MIN_AVG) -> dict:
     c, _ = cand_names(fp)
     d = data_root / c
     if not d.is_dir():
         raise SystemExit(f"gate: 候选目录不存在 {c}")
-    marker = {"fingerprint": fp, "timestamp": ts, "max_regressions": max_regressions, **info}
+    marker = {"fingerprint": fp, "timestamp": ts, "max_regressions": max_regressions,
+              "min_questions": min_questions, "min_avg": min_avg, **info}
     reason = None
     got = stamp_fp(d)
     if got != fp:  # 灌进去的不是检测到的 KB (如镜像仍是旧 KB)
@@ -141,19 +155,33 @@ def gate(data_root: Path, fp: str, max_regressions: int, ts: str, info: dict) ->
         try:
             base = _load_recall(d / EVAL_DIR / "baseline.json")
             cand = _load_recall(d / EVAL_DIR / "candidate.json")
-        except (OSError, ValueError, KeyError) as e:
+            cand_avg = _load_avg(d / EVAL_DIR / "candidate.json")
+        except (OSError, ValueError, KeyError, TypeError) as e:
             reason = f"eval_unreadable: {e}"
         else:
             reg = regressions(base, cand)
+            b_full = sum(v >= 1.0 for v in base.values())
+            c_full = sum(v >= 1.0 for v in cand.values())
             marker.update({
                 "n_questions": len(set(base) | set(cand)),
-                "baseline_full": sum(v >= 1.0 for v in base.values()),
-                "candidate_full": sum(v >= 1.0 for v in cand.values()),
+                "baseline_full": b_full,
+                "candidate_full": c_full,
+                "candidate_avg": cand_avg,
                 "regressed_ids": reg,
                 "improved_ids": sorted(k for k in cand if k in base and cand[k] > base[k]),
             })
+            fails = []
+            if set(base) != set(cand):
+                fails.append(f"id_set_mismatch ({len(set(base) ^ set(cand))} ids)")
+            if len(set(base) | set(cand)) < min_questions:
+                fails.append(f"n_questions {len(set(base) | set(cand))} < {min_questions}")
             if len(reg) > max_regressions:
-                reason = f"regressions {len(reg)} > {max_regressions}"
+                fails.append(f"regressions {len(reg)} > {max_regressions}")
+            if c_full < b_full - 1:
+                fails.append(f"candidate_full {c_full} < baseline_full {b_full} - 1")
+            if cand_avg < min_avg:
+                fails.append(f"candidate_avg {cand_avg} < {min_avg}")
+            reason = "; ".join(fails) or None
     marker["verdict"] = "FAIL" if reason else "PASS"
     marker["reason"] = reason
     (d / MARKER).write_text(json.dumps(marker, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -182,10 +210,15 @@ def _newest_prev(data_root: Path, fp: str) -> tuple[str, str] | None:
     return None
 
 
-def predeploy_check(data_root: Path, target_fp: str | None) -> dict:
-    """只读: 决定部署时 chroma/meta 怎么办。same / swap / missing / unknown。"""
+def predeploy_check(data_root: Path, target_fp: str | None, chromadb_version: str = "") -> dict:
+    """只读: 决定部署时 chroma/meta 怎么办。journal_pending / same / swap / missing / unknown。
+
+    journal 残留 (上次 job 被取消/超时) 优先于一切: 数据处于换了一半的未知状态, 任何决定都不可信。
+    候选须由与目标镜像**同版本 chromadb** 建出 (marker.chromadb), 否则不选它 (防跨版本迁移)。"""
     prod = stamp_fp(data_root / "chroma")
     base = {"prod_fp12": fp12(prod) if prod else None}
+    if (data_root / JOURNAL).exists():
+        return {**base, "decision": "journal_pending"}
     if not target_fp or not FP_RE.fullmatch(target_fp):
         return {**base, "decision": "unknown"}
     base["target_fp12"] = fp12(target_fp)
@@ -193,17 +226,19 @@ def predeploy_check(data_root: Path, target_fp: str | None) -> dict:
         return {**base, "decision": "same"}
     if is_gated_pass(data_root, target_fp):
         c, m = cand_names(target_fp)
-        return {**base, "decision": "swap", "source_chroma": c, "source_meta": m}
+        built = (read_marker(data_root / c) or {}).get("chromadb")
+        if chromadb_version and built == chromadb_version:
+            return {**base, "decision": "swap", "source_chroma": c, "source_meta": m}
+        base["candidate_skipped"] = f"chromadb {built} != target {chromadb_version or None}"
     prev = _newest_prev(data_root, target_fp)
     if prev:
         return {**base, "decision": "swap", "source_chroma": prev[0], "source_meta": prev[1]}
     return {**base, "decision": "missing"}
 
 
-def swap(data_root: Path, target_fp: str, ts: str) -> dict:
-    if (data_root / JOURNAL).exists():
-        raise SystemExit(f"swap: {JOURNAL} 已存在 (上次换数据未收尾), 先 restore 或 finish")
-    chk = predeploy_check(data_root, target_fp)
+def swap(data_root: Path, target_fp: str, ts: str, chromadb_version: str = "") -> dict:
+    # journal 残留由 predeploy_check 统一判 (journal_pending), 这里不另设第二道同义闸
+    chk = predeploy_check(data_root, target_fp, chromadb_version)
     if chk["decision"] != "swap":
         raise SystemExit(f"swap: 无可换的数据 (decision={chk['decision']})")
     old = stamp_fp(data_root / "chroma")
@@ -236,8 +271,30 @@ def restore(data_root: Path) -> dict:
             L.rename(S)
         if P.exists() and not L.exists():
             P.rename(L)
+    bad = [n for n in (j["prev_chroma"], j["prev_meta"]) if (data_root / n).exists()]
+    bad += [n for n in (j["source_chroma"], j["source_meta"], "chroma", "meta") if not (data_root / n).exists()]
+    if stamp_fp(data_root / "chroma") != j.get("old_fp"):
+        bad.append("chroma stamp != old_fp")
+    if bad:  # 终态不对就留着 journal (下次部署 journal_pending 拦住), 非零退出
+        raise SystemExit(f"restore: 终态不符 {bad}, journal 保留, 需人工处理")
     jp.unlink()
-    return {"restored": True, "prod_fp12": fp12(stamp_fp(data_root / "chroma") or "") or None}
+    return {"restored": True, "prod_fp12": fp12(j.get("old_fp") or "") or None}
+
+
+def guard_copy(data_root: Path, names: list[str], ts: str) -> dict:
+    """集合核对在副本上做: 目标镜像的 chromadb 打开目录时可能迁移 schema, 不能碰生产/候选原件。"""
+    g = data_root / f"kbsync_guard_{ts}"
+    g.mkdir()
+    for n in names:
+        shutil.copytree(data_root / n, g / n, symlinks=True)
+    return {"guard_dir": g.name}
+
+
+def guard_clean(data_root: Path, ts: str) -> dict:
+    g = data_root / f"kbsync_guard_{ts}"
+    if g.is_dir():
+        shutil.rmtree(g)
+    return {"cleaned": g.name}
 
 
 def finish(data_root: Path) -> dict:
@@ -325,48 +382,85 @@ def candidate(docker: Docker, a: argparse.Namespace) -> int:
             print(json.dumps(res))
             return 1
     info = json.dumps({"ref": a.ref, "a_commit": a.a_commit, "image": a.cand_image,
-                       "prod_image": a.prod_image})
+                       "prod_image": a.prod_image, "chromadb": chromadb_version(docker, a.cand_image)})
     res = via(docker, a.prod_image, D, ["gate", "--data-root", D, "--fp", fp, "--ts", ts,
                                         "--max-regressions", str(a.max_regressions), "--info", info])
     summary = {k: res.get(k) for k in ("verdict", "reason", "n_questions", "baseline_full",
-                                       "candidate_full", "regressed_ids", "improved_ids", "archived")}
+                                       "candidate_full", "candidate_avg", "regressed_ids",
+                                       "improved_ids", "chromadb", "archived")}
     print("[kbsync] gate " + json.dumps(summary))
     return 0 if res["verdict"] == "PASS" else 1
 
 
-COLLECTIONS_PY = ("import chromadb,json,sys;c=chromadb.PersistentClient(path=sys.argv[1]);"
-                  "print(json.dumps({x.name:c.get_collection(x.name).count() for x in c.list_collections()}))")
+# 每个集合: 条数; 非 KB 集合另算内容摘要 = sha256(按 id 排序的 [id, document, metadata])。只输出摘要, 不输出内容。
+COLLECTIONS_PY = """
+import chromadb, hashlib, json, sys
+c = chromadb.PersistentClient(path=sys.argv[1])
+kb = sys.argv[2]
+out = {}
+for x in c.list_collections():
+    col = c.get_collection(x.name)
+    n = col.count()
+    e = {"count": n}
+    if x.name != kb:
+        rows = []
+        for off in range(0, n, 1000):
+            g = col.get(limit=1000, offset=off, include=["documents", "metadatas"])
+            k = len(g["ids"])
+            rows += zip(g["ids"], g["documents"] or [None] * k, g["metadatas"] or [None] * k)
+        h = hashlib.sha256()
+        for row in sorted(rows, key=lambda r: r[0]):
+            h.update(json.dumps(list(row), sort_keys=True, ensure_ascii=False, default=str).encode())
+            h.update(b"\\n")
+        e["digest"] = h.hexdigest()
+    out[x.name] = e
+print(json.dumps(out))
+"""
+CHROMADB_VERSION_PY = "import chromadb;print(chromadb.__version__)"
 
 
-def collections(docker: Docker, image: str, host_dir: str) -> dict[str, int]:
-    # chromadb 打不开只读目录 (实测 sqlite "readonly database"), 故可写挂载; 调用方须已停生产
+def collections(docker: Docker, image: str, host_dir: str) -> dict[str, dict]:
+    # chromadb 打不开只读目录 (实测 sqlite "readonly database"), 故可写挂载 —— 只对 guard 副本用
     r = docker.run(["run", "--rm", "--mount", f"type=bind,src={host_dir},dst=/c", "--entrypoint",
-                    "python", image, "-c", COLLECTIONS_PY, "/c"])
+                    "python", image, "-c", COLLECTIONS_PY, "/c", KB_COLLECTION])
     if r.returncode != 0:
         raise RuntimeError(f"读集合失败 {Path(host_dir).name} rc={r.returncode}")
     return json.loads(r.stdout.decode().strip().splitlines()[-1])
 
 
-def non_kb(cols: dict[str, int]) -> dict[str, int]:
+def chromadb_version(docker: Docker, image: str) -> str:
+    r = docker.run(["run", "--rm", "--entrypoint", "python", image, "-c", CHROMADB_VERSION_PY])
+    out = r.stdout.decode().strip().splitlines()
+    return out[-1] if r.returncode == 0 and out else "unknown"
+
+
+def non_kb(cols: dict[str, dict]) -> dict[str, dict]:
     return {k: v for k, v in cols.items() if k != KB_COLLECTION}
 
 
 def deploy_swap(docker: Docker, a: argparse.Namespace) -> int:
-    """部署时换数据 (生产须已停): 非 KB 集合 (名 + 条数) 必须与生产一致, 否则拒换。"""
+    """部署时换数据 (生产须已停): 非 KB 集合 (名 + 条数 + 内容摘要) 必须与生产一致, 否则拒换。
+    核对在副本上做 (目标镜像 chromadb 版本可能与写库的不同, 打开即可能迁移), 原件换入前不被任何 chromadb 打开。"""
     D, ts = a.data_root, a.ts or now_ts()
-    chk = via(docker, a.image, D, ["predeploy-check", "--data-root", D, "--target-fp", a.target_fp])
+    ver = ["--chromadb-version", a.chromadb_version]
+    chk = via(docker, a.image, D, ["predeploy-check", "--data-root", D, "--target-fp", a.target_fp, *ver])
     if chk["decision"] != "swap":
         print(f"[kbsync] 不可换: {json.dumps(chk)}")
         return 1
-    prod_cols = non_kb(collections(docker, a.image, f"{D}/chroma"))
-    src_cols = non_kb(collections(docker, a.image, f"{D}/{chk['source_chroma']}"))
+    src = chk["source_chroma"]
+    g = via(docker, a.image, D, ["guard-copy", "--data-root", D, "--ts", ts, "--names", "chroma", src])
+    try:
+        prod_cols = non_kb(collections(docker, a.image, f"{D}/{g['guard_dir']}/chroma"))
+        src_cols = non_kb(collections(docker, a.image, f"{D}/{g['guard_dir']}/{src}"))
+    finally:
+        via(docker, a.image, D, ["guard-clean", "--data-root", D, "--ts", ts])
     if prod_cols != src_cols:
         diff = sorted(k for k in set(prod_cols) | set(src_cols) if prod_cols.get(k) != src_cols.get(k))
-        print(f"[kbsync] 拒换: 非 KB 集合与生产不一致 ({len(diff)} 个集合不同, 名称/条数), "
+        print(f"[kbsync] 拒换: 非 KB 集合与生产不一致 ({len(diff)} 个集合不同: 名称/条数/内容摘要), "
               "生产未动 —— 候选建好后 study 集合有变, 请重跑 kb-sync")
         return 1
     print(json.dumps(via(docker, a.image, D, ["swap", "--data-root", D, "--target-fp", a.target_fp,
-                                              "--ts", ts])))
+                                              "--ts", ts, *ver])))
     return 0
 
 
@@ -378,7 +472,11 @@ def image_fp(docker: Docker, image: str) -> str:
     """镜像内 KB 指纹; 旧镜像 (无 scripts.kb_freshness) 或任何异常 → 'unknown'。"""
     r = docker.run(["run", "--rm", "--entrypoint", "python", image, "-c", IMAGE_FP_PY])
     out = r.stdout.decode().strip().splitlines()
-    return out[-1] if r.returncode == 0 and out and FP_RE.fullmatch(out[-1]) else "unknown"
+    if r.returncode == 0 and out and FP_RE.fullmatch(out[-1]):
+        return out[-1]
+    tail = r.stderr.decode("utf-8", "replace").strip().splitlines()[-5:]
+    print(f"[kbsync] image-fp {image} rc={r.returncode}: " + " | ".join(tail), file=sys.stderr)
+    return "unknown"
 
 
 def local_fp(kb_root: str) -> str:
@@ -393,7 +491,7 @@ def local_fp(kb_root: str) -> str:
 
 # ── CLI ──────────────────────────────────────────────────────────────────
 FS_CMDS = {"detect", "prepare", "gate", "fail", "predeploy-check", "swap", "swap-status",
-           "restore", "finish", "prune"}
+           "restore", "finish", "prune", "guard-copy", "guard-clean"}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -416,9 +514,17 @@ def build_parser() -> argparse.ArgumentParser:
     g = p("gate", fp=True, ts=True)
     g.add_argument("--max-regressions", type=int, default=1)
     g.add_argument("--info", default="{}")
+    g.add_argument("--min-questions", type=int, default=MIN_QUESTIONS)
+    g.add_argument("--min-avg", type=float, default=MIN_AVG)
     p("fail", fp=True, ts=True).add_argument("--reason", required=True)
-    p("predeploy-check").add_argument("--target-fp", default="")
-    p("swap", ts=True).add_argument("--target-fp", required=True)
+    pc = p("predeploy-check")
+    pc.add_argument("--target-fp", default="")
+    pc.add_argument("--chromadb-version", default="")
+    sw = p("swap", ts=True)
+    sw.add_argument("--target-fp", required=True)
+    sw.add_argument("--chromadb-version", default="")
+    p("guard-copy", ts=True).add_argument("--names", nargs="+", required=True)
+    p("guard-clean", ts=True)
     p("swap-status")
     p("restore")
     p("finish")
@@ -432,7 +538,9 @@ def build_parser() -> argparse.ArgumentParser:
     d = p("deploy-swap", ts=True)
     d.add_argument("--image", required=True)
     d.add_argument("--target-fp", required=True)
+    d.add_argument("--chromadb-version", required=True)
     p("image-fp", data=False).add_argument("--image", required=True)
+    p("chromadb-version", data=False).add_argument("--image", required=True)
     p("fingerprint", data=False).add_argument("--kb-root", required=True)
     return ap
 
@@ -447,13 +555,17 @@ def run_fs(a: argparse.Namespace) -> dict:
     if a.cmd == "prepare":
         return prepare(D, a.fp, ts)
     if a.cmd == "gate":
-        return gate(D, a.fp, a.max_regressions, ts, json.loads(a.info))
+        return gate(D, a.fp, a.max_regressions, ts, json.loads(a.info), a.min_questions, a.min_avg)
     if a.cmd == "fail":
         return fail(D, a.fp, ts, a.reason)
     if a.cmd == "predeploy-check":
-        return predeploy_check(D, a.target_fp)
+        return predeploy_check(D, a.target_fp, a.chromadb_version)
     if a.cmd == "swap":
-        return swap(D, a.target_fp, ts)
+        return swap(D, a.target_fp, ts, a.chromadb_version)
+    if a.cmd == "guard-copy":
+        return guard_copy(D, a.names, ts)
+    if a.cmd == "guard-clean":
+        return guard_clean(D, ts)
     if a.cmd == "swap-status":
         return swap_status(D)
     if a.cmd == "restore":
@@ -481,6 +593,9 @@ def main(argv: list[str] | None = None, docker: Docker | None = None) -> int:
         return deploy_swap(docker, a)
     if a.cmd == "image-fp":
         print(image_fp(docker, a.image))
+        return 0
+    if a.cmd == "chromadb-version":
+        print(chromadb_version(docker, a.image))
         return 0
     print(local_fp(a.kb_root))
     return 0

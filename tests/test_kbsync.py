@@ -18,6 +18,7 @@ _spec.loader.exec_module(ks)
 OLD = "a" * 64
 NEW = "b" * 64
 TS = "20261126T010203Z"
+CV = "1.5.9"  # chromadb 版本
 
 
 def _chroma(d: Path, fp: str | None, payload: str = "x") -> Path:
@@ -48,14 +49,17 @@ def _snapshot(D: Path) -> dict[str, str]:
     return {str(p.relative_to(D)): (p.read_text() if p.is_file() else "<dir>") for p in sorted(D.rglob("*"))}
 
 
-def _results(scores: dict[str, float]) -> str:
-    return json.dumps({"summary": {}, "results": [{"id": k, "source_recall": v} for k, v in scores.items()]})
+def _results(scores: dict[str, float], avg: float | None = None) -> str:
+    if avg is None:
+        avg = sum(scores.values()) / len(scores) if scores else 0.0
+    return json.dumps({"summary": {"source_recall_avg": avg},
+                       "results": [{"id": k, "source_recall": v} for k, v in scores.items()]})
 
 
-def _gated_cand(D: Path, fp: str = NEW, verdict: str = "PASS") -> Path:
+def _gated_cand(D: Path, fp: str = NEW, verdict: str = "PASS", chromadb: str = CV) -> Path:
     c, m = ks.cand_names(fp)
     d = _chroma(D / c, fp, "cand")
-    (d / ks.MARKER).write_text(json.dumps({"fingerprint": fp, "verdict": verdict}))
+    (d / ks.MARKER).write_text(json.dumps({"fingerprint": fp, "verdict": verdict, "chromadb": chromadb}))
     _meta(D / m, "new-meta")
     return d
 
@@ -80,16 +84,17 @@ def test_detect_failed_marker_is_not_gated(root):
 
 
 # ── gate ──────────────────────────────────────────────────────────────────
-BASE = {f"q{i}": 1.0 for i in range(1, 6)}
+BASE = {f"q{i:03d}": 1.0 for i in range(1, 141)}
 
 
-def _prepared(D: Path, cand_scores: dict[str, float], ingest_fp: str = NEW) -> Path:
+def _prepared(D: Path, cand_scores: dict[str, float], ingest_fp: str = NEW, base=None,
+              cand_avg: float | None = None) -> Path:
     ks.prepare(D, NEW, TS)
     c, m = ks.cand_names(NEW)
     d = D / c
     (d / ks.STAMP).write_text(f"{ks.STAMP_KEY}={ingest_fp}\n")
-    (d / ks.EVAL_DIR / "baseline.json").write_text(_results(BASE))
-    (d / ks.EVAL_DIR / "candidate.json").write_text(_results(cand_scores))
+    (d / ks.EVAL_DIR / "baseline.json").write_text(_results(base or BASE))
+    (d / ks.EVAL_DIR / "candidate.json").write_text(_results(cand_scores, cand_avg))
     return d
 
 
@@ -111,8 +116,8 @@ def test_meta_sibling_files_survive_prepare_build_meta_swap_restore(root):
     assert (root / m / "implicit_relations.json").read_text() == "sib"
     (root / m / "meta.yaml").write_text("new-meta")  # = build_meta
     (root / c / ks.STAMP).write_text(f"{ks.STAMP_KEY}={NEW}\n")
-    (root / c / ks.MARKER).write_text(json.dumps({"fingerprint": NEW, "verdict": "PASS"}))
-    ks.swap(root, NEW, TS)
+    (root / c / ks.MARKER).write_text(json.dumps({"fingerprint": NEW, "verdict": "PASS", "chromadb": CV}))
+    ks.swap(root, NEW, TS, CV)
     assert (root / "meta" / "meta.yaml").read_text() == "new-meta"
     assert (root / "meta" / "implicit_relations.json").read_text() == "sib"
     ks.restore(root)
@@ -128,18 +133,18 @@ def test_prepare_archives_stale_candidate_never_deletes(root):
 
 
 def test_gate_one_regression_passes(root):
-    _prepared(root, {**BASE, "q3": 0.5})
+    _prepared(root, {**BASE, "q003": 0.5})
     mk = ks.gate(root, NEW, 1, TS, {"ref": "kb-2026.11.26"})
     assert mk["verdict"] == "PASS", mk
-    assert mk["regressed_ids"] == ["q3"]
+    assert mk["regressed_ids"] == ["q003"]
     assert ks.is_gated_pass(root, NEW)
 
 
 def test_gate_two_regressions_fail_and_archive(root):
-    _prepared(root, {**BASE, "q3": 0.5, "q4": 0.0})
+    _prepared(root, {**BASE, "q003": 0.5, "q004": 0.0})
     mk = ks.gate(root, NEW, 1, TS, {})
     assert mk["verdict"] == "FAIL", mk
-    assert mk["regressed_ids"] == ["q3", "q4"]
+    assert mk["regressed_ids"] == ["q003", "q004"]
     c, m = ks.cand_names(NEW)
     assert not (root / c).exists() and not (root / m).exists()
     failed = root / f"chroma_failed_{NEW[:12]}_{TS}"
@@ -150,11 +155,59 @@ def test_gate_two_regressions_fail_and_archive(root):
 
 def test_gate_missing_question_counts_as_regression(root):
     cand = dict(BASE)
-    cand.pop("q1")
-    cand.pop("q2")
+    cand.pop("q001")
+    cand.pop("q002")
     _prepared(root, cand)
     mk = ks.gate(root, NEW, 1, TS, {})
-    assert mk["verdict"] == "FAIL" and mk["regressed_ids"] == ["q1", "q2"], mk
+    assert mk["verdict"] == "FAIL" and mk["regressed_ids"] == ["q001", "q002"], mk
+    assert "id_set_mismatch" in mk["reason"], mk
+
+
+def test_gate_extra_candidate_id_fails_id_set(root):
+    _prepared(root, {**BASE, "q999": 1.0})
+    mk = ks.gate(root, NEW, 1, TS, {})
+    assert mk["verdict"] == "FAIL" and mk["regressed_ids"] == [], mk
+    assert mk["reason"].startswith("id_set_mismatch"), mk
+
+
+def test_gate_too_few_questions_fails(root):
+    small = {f"q{i:03d}": 1.0 for i in range(1, 140)}  # 139 题, 零回退
+    _prepared(root, dict(small), base=small)
+    mk = ks.gate(root, NEW, 1, TS, {})
+    assert mk["verdict"] == "FAIL" and mk["reason"] == "n_questions 139 < 140", mk
+
+
+def test_gate_full_hit_floor(root):
+    # 放宽逐题阈值到 5, 2 题跌出满分 → 仍须被满分地板拦下
+    _prepared(root, {**BASE, "q003": 0.5, "q004": 0.5})
+    mk = ks.gate(root, NEW, 5, TS, {})
+    assert mk["verdict"] == "FAIL" and mk["reason"] == "candidate_full 138 < baseline_full 140 - 1", mk
+
+
+def test_gate_full_hit_floor_boundary_one_passes(root):
+    _prepared(root, {**BASE, "q003": 0.5})
+    mk = ks.gate(root, NEW, 5, TS, {})
+    assert mk["verdict"] == "PASS", mk
+
+
+def test_gate_absolute_avg_floor(root):
+    # 基线本身已塌 (相对闸 0 回退) → 绝对地板 0.95 拦
+    low = {k: (0.5 if i < 20 else 1.0) for i, k in enumerate(BASE)}
+    _prepared(root, dict(low), base=low, cand_avg=0.94)
+    mk = ks.gate(root, NEW, 5, TS, {})
+    assert mk["verdict"] == "FAIL" and mk["reason"] == "candidate_avg 0.94 < 0.95", mk
+
+
+def test_gate_avg_floor_boundary_passes(root):
+    _prepared(root, dict(BASE), cand_avg=0.95)
+    assert ks.gate(root, NEW, 1, TS, {})["verdict"] == "PASS"
+
+
+def test_gate_missing_summary_avg_fails_closed(root):
+    d = _prepared(root, dict(BASE))
+    (d / ks.EVAL_DIR / "candidate.json").write_text(json.dumps({"results": json.loads(_results(BASE))["results"]}))
+    mk = ks.gate(root, NEW, 1, TS, {})
+    assert mk["verdict"] == "FAIL" and mk["reason"].startswith("eval_unreadable"), mk
 
 
 def test_gate_empty_candidate_results_fail_closed(root):
@@ -189,18 +242,48 @@ def test_predeploy_same_and_unknown(root):
 def test_swap_order_and_restore_round_trip(root):
     _gated_cand(root)
     before = _snapshot(root)
-    j = ks.swap(root, NEW, TS)
+    j = ks.swap(root, NEW, TS, CV)
     assert (root / "chroma" / "chroma.sqlite3").read_text() == "cand"
     assert (root / "meta" / "meta.yaml").read_text() == "new-meta"
     assert j["prev_chroma"] == f"chroma_prev_{OLD[:12]}_{TS}"
     assert (root / j["prev_chroma"] / "chroma.sqlite3").read_text() == "prod"
     assert (root / j["prev_meta"] / "meta.yaml").read_text() == "old-meta"
     assert ks.swap_status(root) == {"pending": True}
-    with pytest.raises(SystemExit):  # 未收尾不许二次换
-        ks.swap(root, NEW, TS)
+    assert ks.predeploy_check(root, NEW, CV)["decision"] == "journal_pending"
     assert ks.restore(root)["restored"] is True
     assert _snapshot(root) == before
     assert ks.restore(root) == {"restored": False}
+
+
+def test_leftover_journal_refuses_swap_even_with_valid_prev(root):
+    # job 取消/超时留下 journal; 目标指纹有完全合格的 chroma_prev → 仍须拒换, 且原因是 journal
+    _chroma(root / f"chroma_prev_{NEW[:12]}_20261101T000000Z", NEW, "prev-new")
+    _meta(root / f"meta_prev_{NEW[:12]}_20261101T000000Z", "prev-meta")
+    (root / ks.JOURNAL).write_text("{}")
+    before = _snapshot(root)
+    assert ks.predeploy_check(root, NEW, CV)["decision"] == "journal_pending"
+    assert ks.predeploy_check(root, OLD, CV)["decision"] == "journal_pending"  # same 也拦
+    assert ks.predeploy_check(root, "", CV)["decision"] == "journal_pending"   # unknown/force 也拦
+    with pytest.raises(SystemExit, match="journal_pending"):
+        ks.swap(root, NEW, TS, CV)
+    assert _snapshot(root) == before
+
+
+def test_candidate_built_with_other_chromadb_is_not_swapped(root):
+    _gated_cand(root, chromadb="1.4.0")
+    chk = ks.predeploy_check(root, NEW, CV)
+    assert chk["decision"] == "missing" and "chromadb" in chk["candidate_skipped"], chk
+    assert ks.predeploy_check(root, NEW, "")["decision"] == "missing"  # 版本未知 = 不选候选
+    assert ks.predeploy_check(root, NEW, "1.4.0")["decision"] == "swap"
+
+
+def test_restore_refuses_and_keeps_journal_on_bad_end_state(root):
+    _gated_cand(root)
+    j = ks.swap(root, NEW, TS, CV)
+    (root / j["prev_chroma"] / ks.STAMP).write_text(f"{ks.STAMP_KEY}={NEW}\n")  # 退回来的不是旧指纹
+    with pytest.raises(SystemExit, match="终态不符"):
+        ks.restore(root)
+    assert (root / ks.JOURNAL).is_file()
 
 
 def test_restore_after_partial_swap(root):
@@ -209,7 +292,7 @@ def test_restore_after_partial_swap(root):
     before = _snapshot(root)
     c, m = ks.cand_names(NEW)
     j = {"source_chroma": c, "source_meta": m, "prev_chroma": f"chroma_prev_{OLD[:12]}_{TS}",
-         "prev_meta": f"meta_prev_{OLD[:12]}_{TS}"}
+         "prev_meta": f"meta_prev_{OLD[:12]}_{TS}", "old_fp": OLD}
     (root / ks.JOURNAL).write_text(json.dumps(j))
     (root / "chroma").rename(root / j["prev_chroma"])
     ks.restore(root)
@@ -219,9 +302,9 @@ def test_restore_after_partial_swap(root):
 def test_rollback_finds_retained_prev(root):
     _chroma(root / f"chroma_prev_{NEW[:12]}_20261101T000000Z", NEW, "prev-new")
     _meta(root / f"meta_prev_{NEW[:12]}_20261101T000000Z", "prev-meta")
-    chk = ks.predeploy_check(root, NEW)
+    chk = ks.predeploy_check(root, NEW, CV)
     assert chk["decision"] == "swap" and chk["source_chroma"].startswith("chroma_prev_"), chk
-    ks.swap(root, NEW, TS)
+    ks.swap(root, NEW, TS, CV)
     assert (root / "chroma" / "chroma.sqlite3").read_text() == "prev-new"
     ks.finish(root)
     assert ks.swap_status(root) == {"pending": False}
@@ -250,6 +333,7 @@ class FakeDocker(ks.Docker):
                  crash_cmd=None):
         self.D, self.cand_scores, self.ingest_fp = D, cand_scores or dict(BASE), ingest_fp
         self.crash_cmd = crash_cmd
+        self.col_dirs: list[Path] = []
         self.cols = collections or {}
         self.image_fp_out = image_fp_out
         self.calls: list[list[str]] = []
@@ -271,8 +355,12 @@ class FakeDocker(ks.Docker):
                     return subprocess.CompletedProcess([], 2, b"", str(e).encode())
             return self._ok(buf.getvalue(), rc)
         if "-c" in args and args[args.index("-c") + 1] == ks.COLLECTIONS_PY:
-            src = next(a for a in args if a.startswith("type=bind,src=")).split(",")[1][4:]
-            return self._ok(json.dumps(self.cols[Path(src).name]))
+            src = Path(next(a for a in args if a.startswith("type=bind,src=")).split(",")[1][4:])
+            assert src.parent.name.startswith("kbsync_guard_"), f"集合核对必须在副本上: {src}"
+            self.col_dirs.append(src)
+            return self._ok(json.dumps(self.cols[src.name]))
+        if "-c" in args and args[args.index("-c") + 1] == ks.CHROMADB_VERSION_PY:
+            return self._ok(CV + "\n")
         if "-c" in args and args[args.index("-c") + 1] == ks.IMAGE_FP_PY:
             return self._ok(self.image_fp_out) if self.image_fp_out else self._ok("", 1)
         specs = [dict(kv.partition("=")[::2] for kv in args[i + 1].split(",")) for i, a in enumerate(args)
@@ -306,12 +394,13 @@ def _cand_args(D: Path):
 
 
 def test_candidate_pipeline_pass(root, capsys):
-    fd = FakeDocker(root, cand_scores={**BASE, "q2": 0.0})
+    fd = FakeDocker(root, cand_scores={**BASE, "q002": 0.0})
     assert ks.candidate(fd, _cand_args(root)) == 0
     assert ks.is_gated_pass(root, NEW)
+    assert ks.read_marker(root / ks.cand_names(NEW)[0])["chromadb"] == CV
     assert ks.detect(root, NEW)["result"] == "gated"
     assert (root / "chroma" / "chroma.sqlite3").read_text() == "prod"
-    assert "q2" in capsys.readouterr().out
+    assert "q002" in capsys.readouterr().out
 
 
 def test_candidate_pipeline_old_kb_image_fails(root):
@@ -335,14 +424,18 @@ def test_candidate_eval_crash_fails_and_archives(root):
 
 def _deploy_args(D: Path):
     return ks.build_parser().parse_args(
-        ["deploy-swap", "--data-root", str(D), "--image", "img:1", "--target-fp", NEW, "--ts", TS])
+        ["deploy-swap", "--data-root", str(D), "--image", "img:1", "--target-fp", NEW, "--ts", TS,
+         "--chromadb-version", CV])
+
+
+def _cols(kb: int, **study) -> dict:
+    return {"sdtm_kb_v1": {"count": kb}, **{k: {"count": v[0], "digest": v[1]} for k, v in study.items()}}
 
 
 def test_deploy_swap_refuses_on_non_kb_collection_mismatch(root):
     _gated_cand(root)
     c, _ = ks.cand_names(NEW)
-    fd = FakeDocker(root, collections={"chroma": {"sdtm_kb_v1": 10, "study_x": 5},
-                                       c: {"sdtm_kb_v1": 12, "study_x": 4}})
+    fd = FakeDocker(root, collections={"chroma": _cols(10, study_x=(5, "d1")), c: _cols(12, study_x=(4, "d1"))})
     before = _snapshot(root)
     assert ks.deploy_swap(fd, _deploy_args(root)) == 1
     assert _snapshot(root) == before
@@ -351,8 +444,7 @@ def test_deploy_swap_refuses_on_non_kb_collection_mismatch(root):
 def test_deploy_swap_refuses_on_missing_non_kb_collection(root):
     _gated_cand(root)
     c, _ = ks.cand_names(NEW)
-    fd = FakeDocker(root, collections={"chroma": {"sdtm_kb_v1": 10, "study_x": 5},
-                                       c: {"sdtm_kb_v1": 12}})
+    fd = FakeDocker(root, collections={"chroma": _cols(10, study_x=(5, "d1")), c: _cols(12)})
     before = _snapshot(root)
     assert ks.deploy_swap(fd, _deploy_args(root)) == 1
     assert _snapshot(root) == before
@@ -361,15 +453,25 @@ def test_deploy_swap_refuses_on_missing_non_kb_collection(root):
 def test_deploy_swap_kb_count_change_is_allowed(root):
     _gated_cand(root)
     c, _ = ks.cand_names(NEW)
-    fd = FakeDocker(root, collections={"chroma": {"sdtm_kb_v1": 10, "study_x": 5},
-                                       c: {"sdtm_kb_v1": 12, "study_x": 5}})
+    fd = FakeDocker(root, collections={"chroma": _cols(10, study_x=(5, "d1")), c: _cols(12, study_x=(5, "d1"))})
     assert ks.deploy_swap(fd, _deploy_args(root)) == 0
+    assert len(fd.col_dirs) == 2 and not list(root.glob("kbsync_guard_*"))  # 副本已清
     assert (root / "chroma" / "chroma.sqlite3").read_text() == "cand"
     assert ks.swap_status(root)["pending"] is True
 
 
-def test_image_fp_unknown_for_old_image(root):
+def test_deploy_swap_refuses_on_same_count_different_content(root):
+    _gated_cand(root)
+    c, _ = ks.cand_names(NEW)
+    fd = FakeDocker(root, collections={"chroma": _cols(10, study_x=(5, "d1")), c: _cols(12, study_x=(5, "d2"))})
+    before = _snapshot(root)
+    assert ks.deploy_swap(fd, _deploy_args(root)) == 1
+    assert _snapshot(root) == before
+
+
+def test_image_fp_unknown_for_old_image(root, capsys):
     assert ks.image_fp(FakeDocker(root), "old:1") == "unknown"
+    assert "image-fp old:1 rc=1" in capsys.readouterr().err
     assert ks.image_fp(FakeDocker(root, image_fp_out=NEW + "\n"), "new:1") == NEW
 
 
