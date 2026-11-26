@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from typing import Literal
+
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from pydantic_settings import BaseSettings
 
 _SDTM_RAG_ROOT = Path(__file__).resolve().parent.parent
@@ -35,7 +37,17 @@ class SelectableModel(BaseModel):
     max_output_tokens: int = 128000
 
 
+# P2 2.1: study-only switches. On the public tier they default OFF; explicitly ON = startup refusal
+# (instance.check_startup). Keep in sync with any new study channel.
+PUBLIC_FORCED_OFF = ("federation_enabled", "study_lookup_enabled", "study_docs_enabled",
+                     "dossier_enabled")
+
+
 class Settings(BaseSettings):
+    # P2 2.1 实例档位 (SDTM_RAG_INSTANCE)。private = 现状 (默认); public = 对外站: 无 study、
+    # 接口收口 (server/instance.py + main.create_app)。
+    instance: Literal["private", "public"] = "private"
+
     # LLM models (PLAN §4.2 D-2)。2026-11-04 起 Claude 全部走 Anthropic 直连:
     # 内部三档统一 Claude Sonnet 5.5; fallback 仍是 DeepSeek (spec §9 D4)。
     default_model: str = "anthropic/claude-sonnet-5-5"
@@ -389,8 +401,24 @@ class Settings(BaseSettings):
     kb_root_override: str = ""
     chroma_dir_override: str = ""
     dogfood_log_override: str = ""
+    # data/ 根 (容器里的挂载卷)。public 档据此判「data/study 是否在」与「/api/flag 是否写在 data/ 下」。
+    data_dir_override: str = ""
 
     model_config = {"env_prefix": "SDTM_RAG_", "extra": "ignore"}
+
+    @model_validator(mode="after")
+    def _public_study_defaults_off(self):
+        # public: study 开关的**默认值**改为 OFF; 显式设 ON 的保留原值, 由 instance.check_startup
+        # 拒启动 (不静默覆盖运维写下的值)。private 一个字节不动。
+        if self.instance == "public":
+            for name in PUBLIC_FORCED_OFF:
+                if name not in self.model_fields_set:
+                    object.__setattr__(self, name, False)
+        return self
+
+    @property
+    def data_dir(self) -> Path:
+        return Path(self.data_dir_override) if self.data_dir_override else _SDTM_RAG_ROOT / "data"
 
     @property
     def chroma_dir(self) -> Path:
@@ -438,7 +466,7 @@ class Settings(BaseSettings):
         return (
             Path(self.dogfood_log_override)
             if self.dogfood_log_override
-            else _SDTM_RAG_ROOT / "data" / "dogfood_failures.md"
+            else self.data_dir / "dogfood_failures.md"
         )
 
 
