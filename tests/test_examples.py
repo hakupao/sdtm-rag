@@ -297,3 +297,185 @@ def test_relrec_examples_no_crash(chunker):
         pytest.skip("RELREC/examples.md does not exist")
     chunks = chunker.chunk(relrec_file)
     assert isinstance(chunks, list)
+
+
+# ---------------------------------------------------------------------------
+# Per-H2 dispatch on synthetic PC layouts (KB-independent; CI exercises every
+# branch whatever KB version the submodule pins).
+#   S1 = only the nested `## §6.3.5.9.3` H2 (old KB)
+#   S2 = flat `## PC – Examples` H2 before the nested H2 (newer KB)
+#   S3 = everything flattened (no `#### Method`)
+# ---------------------------------------------------------------------------
+
+_NESTED_H2 = """## §6.3.5.9.3 Relating PP Records to PC Records — Worked Examples
+
+### Example 1
+
+Example 1 intro.
+
+#### Method A (Many to Many)
+
+m1a body
+
+#### Method B (One to Many)
+
+m1b body
+
+| Row | RELID |
+|-----|-------|
+| 1 | 1 |
+
+### Example 2
+
+#### Method D (One to One)
+
+m2d body
+"""
+
+_S2_FLAT_H2 = """## PC – Examples
+
+Lead-in paragraph.
+
+### Example 1
+
+| Row | STUDYID | PCTESTCD |
+|-----|---------|----------|
+| 1 | ABC | DRGX |
+
+flat tail line
+"""
+
+
+def _synthetic_pc(tmp_path: Path, body: str) -> list:
+    f = tmp_path / "domains" / "PC" / "examples.md"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("# PC — Examples\n\npreamble\n\n" + body, encoding="utf-8")
+    return ExamplesChunker(tmp_path).chunk(f)
+
+
+def _assert_layout(chunks, text: str, pos: int | None = None) -> None:
+    """Chunks appear in document order, never overlap, run to EOF, chunk_index 0..n-1.
+
+    Gaps are allowed only before an H4 (nested-mode H2/H3 lead-in, existing behavior).
+    """
+    assert [c.chunk_index for c in chunks] == list(range(len(chunks)))
+    if pos is None:
+        pos = text.index("\n## ") + 1
+    for c in chunks:
+        at = text.index(c.text, pos)
+        assert at == pos or c.text.startswith("#### "), (c.section, text[pos:at])
+        pos = at + len(c.text)
+    assert pos == len(text)
+
+
+def test_synthetic_s1_nested_only(tmp_path):
+    chunks = _synthetic_pc(tmp_path, _NESTED_H2)
+    assert [(c.example_index, c.sub_label) for c in chunks] == [
+        (1, "Method A"), (1, "Method B"), (2, "Method D"),
+    ]
+    assert {c.cdisc_section_id for c in chunks} == {"§6.3.5.9.3"}
+    assert chunks[1].text.startswith("#### Method B") and "### Example 2" in chunks[1].text
+    assert [c.has_table for c in chunks] == [False, True, False]
+    assert not any(c.has_mermaid for c in chunks)
+    _assert_layout(
+        chunks, (tmp_path / "domains/PC/examples.md").read_text(encoding="utf-8")
+    )
+
+
+def test_synthetic_s2_flat_h2_then_nested(tmp_path):
+    chunks = _synthetic_pc(tmp_path, _S2_FLAT_H2 + "\n" + _NESTED_H2)
+    assert len(chunks) == 4
+    first = chunks[0]
+    assert first.section == "PC – Examples"
+    assert first.cdisc_section_id is None  # own H2 has no §; no inheritance / mapping
+    assert first.example_index is None
+    assert first.sub_label is None
+    assert first.has_table is True
+    assert "| 1 | ABC | DRGX |" in first.text and "flat tail line" in first.text
+    assert "§6.3.5.9.3" not in first.text
+    assert [(c.example_index, c.sub_label, c.cdisc_section_id) for c in chunks[1:]] == [
+        (1, "Method A", "§6.3.5.9.3"),
+        (1, "Method B", "§6.3.5.9.3"),
+        (2, "Method D", "§6.3.5.9.3"),
+    ]
+    _assert_layout(
+        chunks, (tmp_path / "domains/PC/examples.md").read_text(encoding="utf-8")
+    )
+
+
+def test_synthetic_s3_flattened(tmp_path):
+    body = (
+        _S2_FLAT_H2
+        + "\n## §6.3.5.9.3 Worked Examples\n\n### Example 1\n\n### Method A — x\n\nbody\n"
+        + "\n## Example 2\n\ntext\n"
+    )
+    chunks = _synthetic_pc(tmp_path, body)
+    assert [(c.section, c.cdisc_section_id, c.example_index, c.sub_label) for c in chunks] == [
+        ("PC – Examples", None, None, None),
+        ("§6.3.5.9.3 Worked Examples", "§6.3.5.9.3", None, None),
+        ("Example 2", None, 2, None),
+    ]
+    _assert_layout(
+        chunks, (tmp_path / "domains/PC/examples.md").read_text(encoding="utf-8")
+    )
+
+
+def test_synthetic_nested_h2_does_not_swallow_following_flat_h2(tmp_path):
+    chunks = _synthetic_pc(tmp_path, _NESTED_H2 + "\n## Trailing Notes\n\nnote body\n")
+    last_method = chunks[2]
+    assert last_method.sub_label == "Method D"
+    assert "Trailing Notes" not in last_method.text
+    assert chunks[3].section == "Trailing Notes" and chunks[3].sub_label is None
+    _assert_layout(
+        chunks, (tmp_path / "domains/PC/examples.md").read_text(encoding="utf-8")
+    )
+
+
+def test_synthetic_parent_h3_not_inherited_across_h2(tmp_path):
+    body = _NESTED_H2 + "\n## §9.9 Other\n\n#### Method C (x)\n\nbody\n"
+    chunks = _synthetic_pc(tmp_path, body)
+    last = chunks[-1]
+    assert last.sub_label == "Method C"
+    assert last.example_index is None  # no H3 inside its own H2
+    assert last.cdisc_section_id == "§9.9"
+
+
+def test_synthetic_flat_section_id_not_inherited_from_previous_h2(tmp_path):
+    chunks = _synthetic_pc(tmp_path, "## §6.3.5.9.1 Intro\n\nintro\n\n" + _S2_FLAT_H2)
+    assert [(c.section, c.cdisc_section_id) for c in chunks] == [
+        ("§6.3.5.9.1 Intro", "§6.3.5.9.1"),
+        ("PC – Examples", None),
+    ]
+
+
+def test_synthetic_no_h2_nested_methods_still_chunked(tmp_path):
+    f = tmp_path / "domains" / "PC" / "examples.md"
+    f.parent.mkdir(parents=True)
+    body = "# PC — Examples\n\n" + _NESTED_H2.split("\n", 2)[2]  # drop the H2 line
+    f.write_text(body, encoding="utf-8")
+    chunks = ExamplesChunker(tmp_path).chunk(f)
+    assert [(c.example_index, c.sub_label, c.cdisc_section_id) for c in chunks] == [
+        (1, "Method A", None), (1, "Method B", None), (2, "Method D", None),
+    ]
+    _assert_layout(chunks, body, pos=body.index("#### Method A"))
+
+
+def test_synthetic_methods_before_first_h2_then_flat_h2(tmp_path):
+    f = tmp_path / "domains" / "PC" / "examples.md"
+    f.parent.mkdir(parents=True)
+    body = "# PC\n\n### Example 3\n\n#### Method A (x)\n\na\n\n## §9.9 Flat\n\nflat\n"
+    f.write_text(body, encoding="utf-8")
+    chunks = ExamplesChunker(tmp_path).chunk(f)
+    assert [(c.section, c.example_index, c.sub_label, c.cdisc_section_id) for c in chunks] == [
+        ("Method A (x)", 3, "Method A", None),  # pre-H2 block: no § inherited from next H2
+        ("§9.9 Flat", None, None, "§9.9"),
+    ]
+    assert "§9.9" not in chunks[0].text
+    _assert_layout(chunks, body, pos=body.index("#### Method A"))
+
+
+def test_synthetic_no_h2_without_methods_yields_nothing(tmp_path):
+    f = tmp_path / "domains" / "SS" / "examples.md"
+    f.parent.mkdir(parents=True)
+    f.write_text("# SS\n\n##### Example 1\n\ntext\n", encoding="utf-8")
+    assert ExamplesChunker(tmp_path).chunk(f) == []

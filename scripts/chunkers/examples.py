@@ -2,16 +2,21 @@
 
 Phase 1A.3 Batch B (★ HIGH-RISK per PLAN §4.4 R-1 / R-2).
 
-Heading level varies by domain:
-  - Flat H2 style (TA / IS / DS / EX / DM / MB / most domains):
-      `## Example N` (+ optional trailing `## Trial Arms Issues` etc.) — 1 chunk per H2.
-  - Nested H4 style (PC only, per chunker_feasibility §3.2 + 1A.0.a):
-      `## §6.3.5.9.3 ...` → `### Example N` → `#### Method A/B/C/D` — 1 chunk per H4 Method.
-      PC Example 4 has only Method A + D (not all 4), so H4 count = 14 (not 16).
-
-Heading-level detection rule (lightweight heuristic, single pass):
-  - If H4 count >= 2 AND any H4 text starts with "Method " → use H4 level (PC nested).
-  - Else → use H2 level (flat).
+Dispatch is decided per H2 (each `## ` heading owns the range up to the next `## `):
+  - Nested: the H2 range contains an H4 starting with "Method " (PC
+    `## §6.3.5.9.3 ...` → `### Example N` → `#### Method A/B/C/D`) — 1 chunk per H4,
+    ending at the next H4 or the end of the H2 range. example_index comes from the
+    parent H3 inside the same H2; sub_label from the H4. PC Example 4 has only
+    Method A + D, so that H2 yields 14 chunks (not 16).
+  - Flat (every other H2, e.g. TA / IS / DS / EX / DM / MB, and PC's `## PC – Examples`
+    added in newer KB versions) — 1 chunk per H2, example_index parsed from the H2.
+  - cdisc_section_id is taken only from the chunk's own H2 (`§x.y...` prefix), else None.
+  - Text before the first H2 (or the whole file if it has no H2) is chunked only
+    when it contains a `#### Method` H4 (nested rule, cdisc_section_id None);
+    otherwise it is dropped.
+  - A single `#### Method` H4 is enough to make an H2 nested; its H2/H3 lead-in
+    text before the first H4 is then not part of any chunk (existing behavior).
+  - chunk_index runs 0.. across the whole file in document order.
 
 Locks honored (per docs/evidence/checkpoints/phase_1a_0_sanity.md §4):
   - L-1 mermaid: status-machine via base.find_mermaid_blocks (0 nesting verified).
@@ -82,7 +87,7 @@ def _filter_protected(
 
 
 class ExamplesChunker(BaseChunker):
-    """Chunk a domains/*/examples.md file. Domain-aware (H2 flat vs H4 nested)."""
+    """Chunk a domains/*/examples.md file. Per-H2 dispatch (H2 flat vs H4 nested)."""
 
     file_type = "examples"
 
@@ -98,115 +103,55 @@ class ExamplesChunker(BaseChunker):
         h3s = _filter_protected(heading_positions(text, 3), protected)
         h4s = _filter_protected(heading_positions(text, 4), protected)
 
-        # Detect nested-H4 mode (PC style): >=2 H4 + any H4 text starts with "Method ".
-        is_h4_mode = len(h4s) >= 2 and any(
-            txt.startswith("Method ") for _, txt in h4s
-        )
-
-        if is_h4_mode:
-            return self._chunk_h4_nested(
-                file_path, text, domain, h2s, h3s, h4s, mermaid_blocks, table_blocks
-            )
-        return self._chunk_h2_flat(
-            file_path, text, domain, h2s, mermaid_blocks, table_blocks
-        )
-
-    # ---- H2 flat (TA / IS / DS / EX / DM / MB / ...) ----
-    def _chunk_h2_flat(
-        self,
-        file_path: Path,
-        text: str,
-        domain: str,
-        h2s: list[tuple[int, str]],
-        mermaid_blocks: list[tuple[int, int]],
-        table_blocks: list[tuple[int, int]],
-    ) -> list[Chunk]:
-        if not h2s:
-            return []
-
-        chunks: list[Chunk] = []
-        for i, (start, heading) in enumerate(h2s):
-            end = h2s[i + 1][0] if i + 1 < len(h2s) else len(text)
-            chunk_text = text[start:end]
-            chunks.append(
-                self._new_chunk(
-                    source=str(file_path),
-                    text=chunk_text,
-                    chunk_index=i,
-                    domain=domain,
-                    section=heading,
-                    cdisc_class=None,
-                    cdisc_section_id=_parse_section_id(heading),
-                    example_index=_parse_example_index(heading),
-                    sub_label=None,
-                    has_mermaid=_range_contains_block(start, end, mermaid_blocks),
-                    has_table=_range_contains_block(start, end, table_blocks),
-                    ct_code=None,
-                    ct_extensible=None,
-                    part_index=None,
-                    table_chunk_idx=None,
+        # (start, end, section, cdisc_section_id, example_index, sub_label), doc order.
+        spans: list[tuple[int, int, str, str | None, int | None, str | None]] = []
+        # Ranges: the pre-first-H2 region (heading None), then one per H2.
+        bounds = [p for p, _ in h2s] + [len(text)]
+        ranges = [(0, bounds[0], None)] + [
+            (h2_start, bounds[i + 1], h2_text)
+            for i, (h2_start, h2_text) in enumerate(h2s)
+        ]
+        for h2_start, h2_end, h2_text in ranges:
+            section_id = _parse_section_id(h2_text) if h2_text else None
+            h4_in = [(p, t) for p, t in h4s if h2_start <= p < h2_end]
+            if not any(t.startswith("Method ") for _, t in h4_in):
+                if h2_text is None:  # pre-H2 region without Method H4s: not chunked
+                    continue
+                spans.append(
+                    (h2_start, h2_end, h2_text, section_id,
+                     _parse_example_index(h2_text), None)
                 )
-            )
-        return chunks
-
-    # ---- H4 nested (PC) ----
-    def _chunk_h4_nested(
-        self,
-        file_path: Path,
-        text: str,
-        domain: str,
-        h2s: list[tuple[int, str]],
-        h3s: list[tuple[int, str]],
-        h4s: list[tuple[int, str]],
-        mermaid_blocks: list[tuple[int, int]],
-        table_blocks: list[tuple[int, int]],
-    ) -> list[Chunk]:
-        # cdisc_section_id from first H2 (PC has 1 H2 "§6.3.5.9.3 ...").
-        section_id = _parse_section_id(h2s[0][1]) if h2s else None
-
-        # Sort H3/H4 by byte position to support generic mapping
-        # (already sorted by re.finditer, but explicit for safety).
-        h3s_sorted = sorted(h3s, key=lambda t: t[0])
-        h4s_sorted = sorted(h4s, key=lambda t: t[0])
-
-        # Build (h3_start, h3_end, h3_text) ranges
-        h3_ranges: list[tuple[int, int, str]] = []
-        for i, (s, t) in enumerate(h3s_sorted):
-            e = h3s_sorted[i + 1][0] if i + 1 < len(h3s_sorted) else len(text)
-            h3_ranges.append((s, e, t))
-
-        def _h3_for(pos: int) -> str | None:
-            """Return the H3 heading text whose range contains pos, else None."""
-            for s, e, t in h3_ranges:
-                if s <= pos < e:
-                    return t
-            return None
-
-        chunks: list[Chunk] = []
-        for i, (start, heading) in enumerate(h4s_sorted):
-            end = h4s_sorted[i + 1][0] if i + 1 < len(h4s_sorted) else len(text)
-            chunk_text = text[start:end]
-            parent_h3 = _h3_for(start)
-            example_index = (
-                _parse_example_index(parent_h3) if parent_h3 else None
-            )
-            chunks.append(
-                self._new_chunk(
-                    source=str(file_path),
-                    text=chunk_text,
-                    chunk_index=i,
-                    domain=domain,
-                    section=heading,
-                    cdisc_class=None,
-                    cdisc_section_id=section_id,
-                    example_index=example_index,
-                    sub_label=_parse_sub_label(heading),
-                    has_mermaid=_range_contains_block(start, end, mermaid_blocks),
-                    has_table=_range_contains_block(start, end, table_blocks),
-                    ct_code=None,
-                    ct_extensible=None,
-                    part_index=None,
-                    table_chunk_idx=None,
+                continue
+            h3_in = [(p, t) for p, t in h3s if h2_start <= p < h2_end]
+            for j, (start, heading) in enumerate(h4_in):
+                end = h4_in[j + 1][0] if j + 1 < len(h4_in) else h2_end
+                parent_h3 = next((t for p, t in reversed(h3_in) if p < start), None)
+                example_index = (
+                    _parse_example_index(parent_h3) if parent_h3 else None
                 )
+                spans.append(
+                    (start, end, heading, section_id, example_index,
+                     _parse_sub_label(heading))
+                )
+
+        return [
+            self._new_chunk(
+                source=str(file_path),
+                text=text[start:end],
+                chunk_index=idx,
+                domain=domain,
+                section=heading,
+                cdisc_class=None,
+                cdisc_section_id=section_id,
+                example_index=example_index,
+                sub_label=sub_label,
+                has_mermaid=_range_contains_block(start, end, mermaid_blocks),
+                has_table=_range_contains_block(start, end, table_blocks),
+                ct_code=None,
+                ct_extensible=None,
+                part_index=None,
+                table_chunk_idx=None,
             )
-        return chunks
+            for idx, (start, end, heading, section_id, example_index, sub_label)
+            in enumerate(spans)
+        ]
