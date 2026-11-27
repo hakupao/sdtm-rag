@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from scripts.spec_loader import SpecLoader
+from scripts.spec_loader import SpecLoader, ct_code_of
 
 # A domain "counts toward the 63" iff it has a spec.md (the authoritative
 # 63 in knowledge_base/INDEX.md are exactly the dirs WITH spec.md — this
@@ -40,19 +40,21 @@ def _domain_label(kb_root: Path, domain: str) -> str:
 
 # ── Stubs for Task 2-6 (filled in per task) ──────────────────────────────
 
-_CT_CODE_RE = re.compile(r"^C\d+$")
-
-
 def _split_ct(controlled_terms: str) -> tuple[list[str], list[str]]:
     """Split a spec.md 'Controlled Terms' field into (C-codes, dict-tokens).
-    Values are '; '-separated: a token is a CDISC C-code (^C\\d+$) or an
-    external-dictionary/format token (MedDRA, LOINC, ISO 8601 ..., etc.)."""
+    Values are '; '-separated: a token is a CDISC C-code ('C66769' or
+    '(AESEV) C66769', stored bare) or any other token kept verbatim
+    (MedDRA, LOINC, ISO 8601 ..., '*', domain code)."""
     ct_codes: list[str] = []
     ct_dict: list[str] = []
     for tok in (t.strip() for t in controlled_terms.split(";")):
         if not tok:
             continue
-        (ct_codes if _CT_CODE_RE.match(tok) else ct_dict).append(tok)
+        code = ct_code_of(tok)
+        if code:
+            ct_codes.append(code)
+        else:
+            ct_dict.append(tok)
     return ct_codes, ct_dict
 
 
