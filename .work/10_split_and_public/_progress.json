@@ -3,7 +3,7 @@
   "tier": 3,
   "status": "P3_3.3_DONE",
   "current_step": "P3: 3.1/3.2/3.3 完成 (3.2 在分支 p3 未合并; 3.3 公开数据根 + .env 已在 VM, 公开容器验收后已 stop)",
-  "next_step": "用户裁 checkpoints/p3_public_kb_update_design.md §5 D1-D5 → (D5) B 仓修 build_meta._split_ct + spec_loader.is_ct_code 兼容 '(短名) Cnnnnn' + _model_defhome 多文件规则 (待裁) + KB 计数锚点 + gold 漂移 4 处 (单测+变异验证, 推 main 即部署; 见 kb_rehearsal_bf33bab.md) → pedia 打 kb-* tag → kb-sync 正例 | 原有: 合并 p3 → main (触发私有部署, 先确认) + 开 SDTM_RAG_PUBLIC_DEPLOY → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 定验收窗口方案 (M3) + TRUSTED_PROXIES 改 cloudflared 固定地址",
+  "next_step": "⚠ 先修 tests/test_p2_seam_characterization 日期依赖 (否则 p3 合并与任何推 main 在 CI 测试步失败) | 用户裁: 设计 D1-D8 (p3_public_kb_update_design.md) + model_defhome E1-E3 (model_defhome_rule_options.md, 推荐 R0) | 另一会话: CT 解析 + PC examples chunker 向后兼容修复 → 推 main | pedia 打 kb-* tag → kb-sync 正例 → 本地「KB 更新」按 kb_upgrade_bundle_checklist.md 一次提交 | 原有: 合并 p3 → main (触发私有部署, 先确认) + 开 SDTM_RAG_PUBLIC_DEPLOY → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 定验收窗口方案 (M3) + TRUSTED_PROXIES 改 cloudflared 固定地址",
   "completed": [
     {
       "step": "recon",
@@ -173,6 +173,18 @@
         "checkpoints/p3_public_kb_update_design.md"
       ],
       "note": "pedia 本地 KB bf33bab (00a2e93) 预演: 6 题回退 FAIL; 根因 B 仓 build_meta CT 码正则不认 pedia 44fb042 的 '(短名) Cnnnnn' 写法 (meta ct_codes 588→0); 反事实修解析 → 逐题 0 差; 修复在旧 KB 下 meta.yaml 逐字节不变。未经独立审查 (规则 D 待补); 补: 新 KB 下 pytest 30 个 KB 相关失败 (CT 解析 / model_defhome 多文件剔除 EPOCH 等 / 计数锚点), CI 测试步会拦; fact 级 gold 漂移 3 + 节级 1 (q126 any-of 成员), 未改 gold"
+    },
+    {
+      "date": "2026-11-27",
+      "step": "1.9-prep-review",
+      "status": "REVIEWED_PASS_WITH_FIXES_APPLIED",
+      "evidence": [
+        "checkpoints/kb_rehearsal_bf33bab_review.md",
+        "checkpoints/p3_public_kb_update_design_review.md",
+        "checkpoints/model_defhome_rule_options.md",
+        "checkpoints/kb_upgrade_bundle_checklist.md"
+      ],
+      "note": "预演审查 critic / 设计审查 security-reviewer 均 PASS-with-fixes 已修订; pytest 分类更正 ①16/②9/③5; PC examples chunker 丢 45 行 (新 PC 结构); test_p2_seam_characterization 日期依赖 2026-11-27 起失败 → CI 测试步挡住一切推 main (含 p3 合并)"
     }
   ],
   "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)",
@@ -187,7 +199,7 @@
     "3.2": "私有 compose.yml 不动, 公开实例独立 compose.public.yml (写死档位/路径, 不发布端口) + workflow deploy_public job (vars 门控, 失败停机)",
     "open": [
       "3.4 前定: 验收窗口 (先临时容器验 / cloudflared 验后再指) — 审查 M3",
-      "公开 chroma 的 KB 更新流程: 设计 v0.1 已出 (checkpoints/p3_public_kb_update_design.md, 推荐 A1 = kb-sync 公开腿 + deploy_public 支持 swap), 待用户裁 D1-D5 后实现; 现指纹不一致只告警跳过"
+      "公开 chroma 的 KB 更新流程: 设计 v0.2 (checkpoints/p3_public_kb_update_design.md, security-reviewer 审查 PASS-with-fixes 已修订), 推荐 A1; 待用户裁 D1-D8 后实现; 现指纹不一致只告警跳过"
     ],
     "Q3_override": "2026-11-26 用户: 公开站全部用 Anthropic key, 模型选便宜的 → 免费题 = Claude Haiku 5.5 ($0.10/$0.50), 内部组与 fallback 同",
     "3.3": "公开 chroma 只含 sdtm_kb_v1 4329; 140q 与基线逐题一致"

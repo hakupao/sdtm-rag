@@ -5,9 +5,11 @@ pedia 如果在 `00a2e93` 之后再改 KB, 打 tag 后要按新指纹重跑预�
 依据: `kb_rehearsal_bf33bab.md` (预演与 pytest 分类)、`model_defhome_rule_options.md` (类别 ②, 本清单按推荐规则 R0 写; 用户若选 R1/R2, ② 一节要重写)。
 
 ## 0. 不在本清单里、应**提前**单独合的代码修复 (向后兼容, 另一会话在做)
+**前置 (挡住一切推 main)**: `tests/test_p2_seam_characterization.py` 从 2026-11-27 起失败 (日期依赖: `server/web_search.py:85` `date.today()` 进了 golden 的 `messages_sha`), CI 测试步会因此失败、不部署。p3 合并和下面的修复推 main 之前要先修它 (冻结日期或把日期排除出哈希), 详见 `kb_rehearsal_bf33bab.md` v2 修订第 2 条。
+
 | 修复 | 理由 |
 |---|---|
-| `scripts/build_meta.py` `_split_ct` + `scripts/spec_loader.py` `is_ct_code` 兼容 `(短名) Cnnnnn` | 预演已证明旧 KB 下 meta.yaml 逐字节不变; 修后类别 ① 的测试在新 KB 下预期恢复 (要在新 KB 下重跑 pytest 确认, USES_CT 542 等计数应不变) |
+| `scripts/build_meta.py` `_split_ct` + `scripts/spec_loader.py` `is_ct_code` 兼容 `(短名) Cnnnnn` | 预演已证明旧 KB 下 meta.yaml 逐字节不变; 审查者实测: 补丁 meta + 补丁 build_meta 下类别 ① 的 16 个测试转绿; 完整修复 (含 `is_ct_code`) 仍要在新旧 KB 下各重跑 pytest |
 | `scripts/chunkers/examples.py` H4 嵌套分支兼容新 PC 结构 | 新 `domains/PC/examples.md` 在 `## §6.3.5.9.3` 之前多了 `## PC – Examples` + `### Example 1` (pedia `97e1895` / `f534395` 按 PDF 补回的 PC 浓度示例, 约 45 行含一张表)。现 chunker 只为 H4 Method 出块: 这段**不进任何 chunk** (全 KB 覆盖率扫描里唯一丢内容的文件), 且 `cdisc_section_id` 取第一个 H2 → None。修法需同时兼容旧结构 (旧 KB 只有一个 § H2), 修后 `test_pc_examples_all_have_cdisc_section_id` 的期望要在实现时定 (新增的 Example 1 块是否带 `§6.3.5.9.3`) |
 
 ## 1. `tests/` 计数锚点 (类别 ③, 已逐条核实是 KB 按 PDF 改动的正常变化)

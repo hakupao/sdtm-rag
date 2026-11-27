@@ -1,6 +1,6 @@
 # P3 公开实例 chroma 的 KB 更新流程 — 设计 v0.1 (2026-11-27, 只设计, 未实现)
 
-⚠ 未经独立审查 (本轮任务限定不开子代理, 规则 D 待补)。本轮不改 `server/` `deploy/` `.gitea/` `webchat/`, p3 合并上线内容不变。
+✅ 已独立审查 (oh-my-claudecode:security-reviewer, PASS-with-fixes, 见 `p3_public_kb_update_design_review.md`; 修订见文末 v0.2)。本轮不改 `server/` `deploy/` `.gitea/` `webchat/`, p3 合并上线内容不变。
 
 ## 1. 现状 (已读代码)
 - kb-sync (`.gitea/workflows/kb-sync.yml`) 只服务**私有数据根**: `detect` 比生产 stamp, `candidate` 的 `prepare` 复制**私有生产 chroma** (含 study 集合) → `chroma_cand_<fp12>`; 候选含 study 集合, **不能**给公开实例用 (红线)。
