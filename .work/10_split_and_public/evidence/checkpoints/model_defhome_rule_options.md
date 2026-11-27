@@ -128,3 +128,22 @@ R4 下的锚点 (替换上文 §3 的 R0 列; 数字以实现后重跑为准):
 - **E2** R4 的落地时机: 放进「随 KB 升级」批 (推荐, 旧 KB 生产行为完全不变), 还是提前合并并接受旧 KB 下 +3 条 (DOMAIN / USUBJID / POOLID → 02)。
 - **E3** REFID / SPEC: 等 pedia 对观察项 ⑥ 的裁定 (推荐), 还是现在就用 R4n 或更窄的规则找回。
 - **E4** 是否请 pedia 把「model 文件编号 ↔ SDTM 章节」也写进下游格式约定。
+
+## v3 修订 (2026-11-27, 独立审查后; 与 v2 冲突处以本节为准)
+审查: `model_defhome_rule_options_review.md` (`oh-my-claudecode:architect`, PASS-with-fixes)。
+
+1. **R4 规则文字更正 (H1)**: 第 2 条改为「**变量出现在多个文件时**, 才把 model/06 从候选里去掉」。只出现在 model/06 的变量 (RDOMAIN、IDVAR、IDVARVAL、QNAM、QLABEL、QVAL、QORIG、QEVAL、RELID、RELTYPE、PARENT、LEVEL 共 12 个) 仍归 06。照 v2 的字面去实现会丢掉 RDOMAIN, q73 / q83 回归。`probes/defhome_rules.py` 本来就是这样实现的, 实算结果不变。锚点加一条: 只在 06 的变量仍归 06 (以 RDOMAIN 为例)。
+2. **第 2 条的支撑数 (L2)**: 现有数据里需要「多文件时剔除 06」才能归属的只有 APID 一个 (n=1)。背后的通则: SDTM §6 关系数据集 (RELREC / SUPP-- / POOLDEF / APRELSUB) 只把别处定义的标识变量列为列, 不是定义处。若用户认为 n=1 不足以立规则, 去掉这一条后 APID 会丢 (其余结果不变)。
+3. **出处归因收窄 (L1)**: pedia 第 5 点只列了 TAETORD / EPOCH / MIDS / APID / REFID / SPEC 这 6 个变量。v2 表里 USUBJID / POOLID / DOMAIN / RPHASE 的「PDF 出处」是按 pedia 的通则 (一般观测类通用变量在 §3.1.x) 推断的。「与 PDF 出处逐项一致」只对这 6 个成立; 审查者对 72 个映射全查, 没有发现冲突。
+4. **R4 仍依赖 Notes 是否为空 (M2)**: Notes 是 KB 自写列, R4 仍拿它判定定义行。所以除了 REFID / SPEC, 同一张 §3.1.4 表 (`model/02:291-298`) 里 Notes 为空的 **STUDYID、SPDEVID** 也进不了映射; DOMAIN / USUBJID / POOLID 能进, 只因为它们的 Notes 非空。pedia 处理观察项 ⑥ (只涉及 model/06) 也找不回 STUDYID / SPDEVID。**R4 的结果会随 pedia 改动任何 Notes 单元格而变**, 每次 KB 升级都要重跑 `defhome_rules.py`。
+5. **EPOCH 金丝雀 (M1)**: R4 下 EPOCH 在 02 和 03 都有 6 列行, 又是 02 优先。即使有人放宽 len==6 过滤, EPOCH 仍归 02, 测试照样通过, 守不住「6 列隔离」不变量。改法: `test_defhome_canary_epoch_six_col_isolation` 降为普通断言 (EPOCH → model/02); 隔离金丝雀改用 **ETCD**。ETCD 的 6 列行在 model/03 (新 KB `:133`、旧 KB `:111`), 5 列行在 model/05 (新 `:39`、`:60`, 旧 `:35`、`:54`)。放宽过滤后它会变成 {03, 05} 多文件而被丢弃, 测试就会报错。ARMCD 也可以。RDOMAIN 金丝雀在 R4 下仍有效。
+6. **使用方补列 (L3)**: `eval/prod_wirein/sp4_cookbook_golden.py:142-150` 的 defhome:ch06 闸比较图谱与 MetaStore, 两边一起变, 不会失败, 但 APID 会移出 ch06, 闸的期望集合要核对; `scripts/build_neo4j.py:13,89-91` 与 `tests/test_structured_lookup.py:199` 的注释 / docstring 写死了 59 / 18; 原设计依据 `docs/evidence/checkpoints/d_channel_concept_definition.md` 的「宁缺毋滥」(多文件即丢) 需要补一条修订说明。
+7. **兜底检查 (L4)**: 实现 R4 时加启动 / 构建期检查: 找不到 `model/02_*`、`model/06_*`, 或它们的首个编号标题不再是 §3 / §3.1、§6, 就让 `build_meta` 报错, 防止 pedia 重排 model 文件后映射悄悄变化 (E4 的「请 pedia 通知」只是约定, 这一条是机器兜底)。
+
+### 待裁定 (替换 v2 的 E1-E4)
+- **E1** 选规则: R4 (推荐, 按本节第 1 条修正后) / R0 / R2 / R4n / 其他。
+- **E2** R4 的落地时机: 放进「随 KB 升级」批 (推荐) 还是提前合并 (旧 KB 下 +3 条)。
+- **E3** Notes 为空的定义行: REFID / SPEC (model/06) 和 STUDYID / SPDEVID (model/02 §3.1.4) 都进不了映射。可选: 接受; 等 pedia 处理 ⑥ (只能找回 REFID / SPEC); 或者换一条比 R4n 更窄的规则。
+- **E4** 是否请 pedia 把「model 文件编号 ↔ SDTM 章节」写进下游格式约定 (第 7 条的机器兜底照做)。
+- **E5** 6 列隔离金丝雀换成 ETCD (推荐) 还是 ARMCD。
+- **E6** 「多文件时剔除 06」只有 APID 一个样本 (n=1), 是否保留这一条。
