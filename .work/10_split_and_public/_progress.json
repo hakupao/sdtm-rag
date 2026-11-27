@@ -3,7 +3,7 @@
   "tier": 3,
   "status": "P3_3.3_DONE_MERGED_MAIN_SEG2",
   "current_step": "P3: 3.1/3.2/3.3 完成; p3 + 4 个修复分支已分两段合 main 并上线私有站 (0673fee → 2b24d53, 2026-11-27); 3.3 公开数据根 + .env 已在 VM, 公开容器保持停止",
-  "next_step": "等 pedia 解冻改 KB 并打 kb-* tag (kb-sync 基线镜像=线上 2b24d53, 已含 CT 解析 / PC chunker / R4) → 新指纹上重跑预演与 kb_upgrade_bundle_checklist.md 全部数字和 gold 对照 → kb-sync 私有正例 → 本地「KB 更新」一次提交 (submodule + meta.yaml + 测试锚点含 PC 6 条 + gold) → 排公开腿实现 (D1-D8) | 3.4 前: 公开站独立 Anthropic key、开 SDTM_RAG_PUBLIC_DEPLOY → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 定验收窗口方案 (M3) + TRUSTED_PROXIES 改 cloudflared 固定地址",
+  "next_step": "等 pedia 解冻改 KB 并打 kb-* tag (kb-sync 基线镜像=线上 2b24d53, 已含 CT 解析 / PC chunker / R4) → 新指纹上重跑预演与 kb_upgrade_bundle_checklist.md 全部数字和 gold 对照 → kb-sync 私有正例 → 本地「KB 更新」一次提交 (submodule + meta.yaml + 测试锚点含 PC 6 条 + gold) → 排公开腿实现 (D1-D8) | 3.4 前: 公开站独立 Anthropic key、开 SDTM_RAG_PUBLIC_DEPLOY → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 验收窗口已定 (M3=临时容器先验再换正式, deploy_public 按 p3_step3.2_compose.md「M3 裁定」改) + TRUSTED_PROXIES 改 cloudflared 固定地址",
   "completed": [
     {
       "step": "recon",
@@ -231,11 +231,12 @@
     "Q1": "公开站域名 = Cloudflare 上的 bojiang.org (2026-11-26 用户裁定)",
     "3.2": "私有 compose.yml 不动, 公开实例独立 compose.public.yml (写死档位/路径, 不发布端口) + workflow deploy_public job (vars 门控, 失败停机)",
     "open": [
-      "3.4 前定: 验收窗口 (先临时容器验 / cloudflared 验后再指) — 审查 M3",
       "公开 chroma 的 KB 更新流程: 设计 v0.2 + 2026-11-27 受托代裁 D1-D8 (见 decisions_2026_11_27_delegated); 实现待 rag main 修复合并后排"
     ],
     "Q3_override": "2026-11-26 用户: 公开站全部用 Anthropic key, 模型选便宜的 → 免费题 = Claude Haiku 5.5 ($0.10/$0.50), 内部组与 fallback 同",
-    "3.3": "公开 chroma 只含 sdtm_kb_v1 4329; 140q 与基线逐题一致"
+    "3.3": "公开 chroma 只含 sdtm_kb_v1 4329; 140q 与基线逐题一致",
+    "M3": "2026-11-27 主人本人裁定 (非代裁): 公开站部署 = 先用临时容器验, 通过后再换正式容器 (原话「先用临时容器验，通过后再换正式容器」); 3.4 实现要求与 D2 衔接点见 checkpoints/p3_step3.2_compose.md「M3 裁定」",
+    "M3_suggestion_pending": "协调方建议 (主人未裁定): 首次上线用 Cloudflare Access 只放行主人本人经隧道验一次 (真实访客 IP / 限速 / WAF), 验完再放开"
   },
   "decisions_2026_11_27_delegated": {
     "source": "2026-11-27 主人把选择题委托给协调 bot「sdtm开发」(原话:「之前那些选项，你可以替我分析后决定嘛。我听从你的建议」); 以下为 bot 受托代裁, 非主人逐条裁定",
