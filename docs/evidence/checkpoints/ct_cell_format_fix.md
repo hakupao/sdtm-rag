@@ -27,13 +27,13 @@ chunkers (`variable_index` / `terminology`) 与 `rag._VI_CT_RE`: 新 KB 中除 s
 | 旧 KB pytest | 修复前 1 failed / 2890 passed / 61 skipped; 修复后 1 failed / 2908 passed / 61 skipped。唯一失败 `test_p2_seam_characterization` 修复前即失败 (审查者在 `647fb9c` 展开树复现, 与 CT 无关) |
 | 新 KB meta | ct_codes 588 (未修复 0); 逐变量 ct_codes 与 ct_dict 与旧 KB meta **完全相同**; 剩余差异仅 RFSTDTC/RFENDTC type 与 model_defhome (范围外) |
 | 新 KB 140 题闸 | 基线 0.9917 / 修复后 0.9917, `kbsync.regressions` = [], 140 题逐题 0 差。对照: 未修复候选回退 q16/q43/q96/q98/q99/q101, avg 0.9702 (复现报告) |
-| 新 KB pytest | 修复前 31 failed → 修复后 16 failed; 类别 ① 16 项全部清零 |
+| 新 KB pytest | 修复前 31 failed → 修复后 16 failed; 类别 ① 全部清零: 报告 (审查后更正版, ① = 16 个测试 + `test_edge_counts` 的 USES_CT 断言) 的 16 个测试转绿, USES_CT 0 → 542 = 锚点 |
 
 新 KB 修复后剩余 16 个失败 (均非类别 ①):
 - ② model_defhome: `test_build_meta::test_model_defhome`, `test_meta_store::test_model_defhome_map`, `test_structured_lookup::…defhome_canary_epoch_six_col_isolation`, `test_build_neo4j::{test_defhome_edge_shape, test_class_and_chapter_nodes, test_node_counts, test_variable_model_only_split, test_edge_counts}`, `test_reconcile_neo4j::test_expected_counts_match_golden_anchors`
-  - 更正报告: 报告把 build_neo4j node/edge counts、variable split、reconcile 归入 ①。修复后其 CT 部分已对 (USES_CT 0 → 542 = 锚点), 剩余断言是 model-only 变量 1541→1544、ModelChapter 4→5、DEFHOME 59→64, 属 ②。
+  - 与报告更正版一致: 这几项剩余断言是 model-only 变量 1541→1544、ModelChapter 4→5、DEFHOME 59→64, 属 ②; CT 部分已对。
 - ③ 计数锚点 / chunker: `test_base::test_find_mermaid_blocks_ta_returns_20`, `test_chapters` ×3, `test_examples::test_pc_examples_all_have_cdisc_section_id`
-- gold 漂移: `test_section_gold_exists` (q126 `Subject Elements (SE)` 节已不存在; 修复前树无 chroma 故 skip, 非本修复引入)
+- gold 漂移: `test_section_gold_exists` (q126 `Subject Elements (SE)` 节已不存在)。修复前树最初没有 chroma, 这个测试被 skip; 补上新 KB 的 chroma 后在**未修复**代码上单跑, 结果为 1 failed, 说明不是本修复引入的
 - 环境: `test_p2_seam_characterization` (新旧 KB 都失败)
 
 ## 变异验证 (规则 5)
@@ -54,10 +54,40 @@ chunkers (`variable_index` / `terminology`) 与 `rag._VI_CT_RE`: 新 KB 中除 s
 ⚠ 变异工具自身失效一次 (规则 5 第 4 族, 新形态): M8 两串**等长** (10 字节), 回写原始字节与变异同一秒 → `__pycache__` 的 mtime+size 校验通过, 还原后 Python 仍执行**变异版字节码** (`_split_ct("ISO * x")` 返回 `([], [])`)。sha 核对只证明了磁盘字节, 证明不了解释器跑的代码。
 对策: 清 `__pycache__`, 变异子进程设 `PYTHONDONTWRITEBYTECODE=1`, 全部 8 个变异重跑 (上表即重跑结果), 再清缓存重跑旧 KB build_meta 逐字节 + 全量 pytest (1 failed seam / 2908 passed)。M1-M7 的首轮串长都与原串不同, 不受影响; 新 KB 树没有做过变异。
 
+## 每个数字对应的代码版本
+- 旧 KB meta 逐字节、全量 pytest (1 failed / 2908 passed): 最终工作区 (`178ed6f` 的代码, 已清 `__pycache__`)。
+- 新 KB meta、140 题闸、全量 pytest (16 failed): `1d4b082` 的代码; `178ed6f` 只改测试, 新 KB 下又单跑 `tests/test_ct_cell_format.py`, 18 passed。
+- 未修复对照: `647fb9c`。
+
+## 变异命令 (原串 → 变异串; 运行方式: `SDTM_RAG_KB_ROOT_OVERRIDE=<旧KB> PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest tests/test_ct_cell_format.py tests/test_build_meta.py -q -o addopts=""`)
+| # | 文件 | 原串 → 变异串 |
+|---|---|---|
+| M1 | build_meta.py | `code = ct_code_of(tok)` → `code = tok if re.fullmatch(r"C\d+", tok) else None` |
+| M2 | spec_loader.py | `re.compile(r"(?:\([A-Z0-9_]+\)\s*)?(C\d+)")` → `re.compile(r"(C\d+)")` |
+| M3 | spec_loader.py | `return ct_code_of(ct_ref) is not None` → `return bool(re.match(r"^C\d+$", ct_ref.strip()))` |
+| M4 | validator.py | `ct_ref = code  # bare code` → `pass  # bare code` |
+| M5 | build_meta.py | `if not tok or tok == "*" or tok == domain_literal:` → `if not tok or tok == domain_literal:` |
+| M6 | build_meta.py | 同一行 → `if not tok or tok == "*":` |
+| M7 | build_meta.py | `ds.domain if v.name == "DOMAIN" else None` → `ds.domain` |
+| M8 | build_meta.py | `tok == "*"` → `"*" in tok` |
+
 ## 独立审查 (规则 D)
 writer = 主会话 (Claude Code 主代理); reviewer = `oh-my-claudecode:code-reviewer` 子代理 (不同 subagent_type, 只读, 自行变异)。
 - `83a3a69`: **PASS-with-nits**。自做 5 个变异 (in-memory 注入, 不改工作区) 全红; 旧 KB 746 格新旧判定差 0、参与 CT 校验 560 格不变; 旧 KB meta sha 一致。nits: `*`/域码进 ct_dict (已由 `1d4b082` 处理); 短名不与 codelist 核对; `controlled_terms` 注释过时 (已更新); `[Cc]` 大小写口径与 terminology 解析不一致 (数据中无小写); 多 codelist 格静默跳过 (沿用旧行为); 测试只用合成数据; `validator.py` 未用 `Path` 导入 (既有)。
 - `1d4b082`: **PASS-with-nits**。边界核对 (新 KB, 进程内): 无 DOMAIN 变量的域 = RELREC/RELSPEC/RELSUB/SUPPQUAL; DOMAIN 格 ≠ 本域码 0 处; 非 DOMAIN 格为域码 0 处; 非空 DOMAIN 格 59。新 KB ct_codes+ct_dict 与旧 KB 1917 变量全等; 旧 KB meta sha 一致。自做变异 A-D 全红, E (`"*" in tok`) 存活 → 已补 `_split_ct("ISO * x")` 断言 (M8)。另补 `(NY) C66742; *` 组合格用例。上一轮 `controlled_terms` 注释 nit 确认已修。
+- `178ed6f` (补测 + 本 checkpoint): **PASS**。审查者在内存中做变异 E，新断言把它抓红 (1 failed / 17 passed)；审查者确认本节对前两轮审查的记录准确。
+
+## 环境与副作用
+- 未 push (分支无 upstream), 未合并、未开 PR、未触发部署。
+- 主仓 `data/chroma/chroma.sqlite3` 的 mtime 是 2026-11-26 22:02, `ingested_at_commit.txt` 是 2026-08-07, `data/meta/meta.yaml` 是 2026-11-26 22:11, 都早于本轮开始, 说明本轮没写主仓。主仓 `git status -- data vendor` 和 pedia `git status -- knowledge_base` 都是干净的。
+- 新 KB 入库 1 次: 4332 chunks, 2,603,011 token, embedding 约 $0.05。
+- 工作区里留有 `.venv` 和 `.env` 两个软链 (指向主仓, 未提交, `.venv` 在 `git status` 里显示为 untracked)。每次提交时临时软链主仓的 `data/study/st01/catalog.json` 供 pre-commit 闸使用, 提交完即删除。这个目录在跑 pytest 时不能存在, 否则 local_data 测试会误判本机有研究数据, 首轮因此出现 38 个假失败, 已作废重跑。
+- 其他直接读取 CT 原始格的地方: 在 `ui/`、`deploy/`、`viewer/`、`webchat/` 中 grep `controlled_terms` / `Controlled Terms` / `is_ct_code` / `ct_dict`, 0 处命中。
+
+## 仍保留的假设
+- validator 对多 codelist 格 (10 处) 仍然整格跳过, 不出 INFO。
+- `*` 标记没有记进 meta。
+- 括号里的短名不与 codelist 核对。
 
 ## 建议 (未做)
 - meta 加 `*` 标志位 (如 `ct_open`) — 需改 meta 结构, 主人定。
