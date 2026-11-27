@@ -1,9 +1,9 @@
 {
   "project": "10_split_and_public",
   "tier": 3,
-  "status": "P3_3.3_DONE_MERGED_MAIN_SEG2",
+  "status": "P3_3.3_DONE_MERGED_MAIN_SEG2_KB_REHEARSAL2_PASS",
   "current_step": "P3: 3.1/3.2/3.3 完成; p3 + 4 个修复分支已分两段合 main 并上线私有站 (0673fee → 2b24d53, 2026-11-27); 3.3 公开数据根 + .env 已在 VM, 公开容器保持停止",
-  "next_step": "等 pedia 解冻改 KB 并打 kb-* tag (kb-sync 基线镜像=线上 2b24d53, 已含 CT 解析 / PC chunker / R4) → 新指纹上重跑预演与 kb_upgrade_bundle_checklist.md 全部数字和 gold 对照 → kb-sync 私有正例 → 本地「KB 更新」一次提交 (submodule + meta.yaml + 测试锚点含 PC 6 条 + gold) → 排公开腿实现 (D1-D8) | 3.4 前: 公开站独立 Anthropic key、开 SDTM_RAG_PUBLIC_DEPLOY → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 验收窗口已定 (M3=临时容器先验再换正式, deploy_public 按 p3_step3.2_compose.md「M3 裁定」改) + TRUSTED_PROXIES 改 cloudflared 固定地址",
+  "next_step": "裁定 q76 gold 的三种做法 (A: 随「KB 更新」改新标题, kb-sync 按 1 题回退过闸、余量 0, 本机测试全程绿; B: pedia 打 tag 前先合新旧双标题 any-of, 闸 0 回退, 多一次只改题集的部署, 本机 test_section_gold_exists 升级前会红; C: 打 tag 前直接换新标题, 闸 0 回退, 本机同一条测试会红) → pedia 打 kb-* tag (KB 树哈希应 = 63f857774a42…, 指纹 477bac3ce565…; 不同则重算清单 v6) → kb-sync 私有正例 → 本地「KB 更新」一次提交 (submodule + meta.yaml + 18 个测试锚点 + gold 5 处 + README 的 tag 字样, 见 kb_upgrade_bundle_checklist.md v6) → 排公开腿实现 (D1-D8) | 3.4 前: 公开站独立 Anthropic key、开 SDTM_RAG_PUBLIC_DEPLOY → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 验收窗口已定 (M3=临时容器先验再换正式, deploy_public 按 p3_step3.2_compose.md「M3 裁定」改) + TRUSTED_PROXIES 改 cloudflared 固定地址",
   "completed": [
     {
       "step": "recon",
@@ -218,6 +218,19 @@
         "checkpoints/p3_merge_seg2_snapshot.sh"
       ],
       "note": "fix-ct-cell-format / fix-pc-examples-chunker / defhome-r4 --no-ff [skip ci] 合 main (2b24d53); 只构建 run 202 → 测试端口 0 差 + validate 冒烟同 → 部署 run 203, 线上 2b24d53, same 不换数据, 线上 meta 仍旧规则; deploy_public skipped"
+    },
+    {
+      "date": "2026-11-27",
+      "step": "1.9-prep-rehearsal2",
+      "status": "REHEARSAL_GATE_PASS_ZERO_MARGIN_REVIEWED",
+      "evidence": [
+        "checkpoints/kb_rehearsal_477bac3.md",
+        "checkpoints/kb_rehearsal_477bac3_runs/",
+        "checkpoints/kb_rehearsal_477bac3_review.md",
+        "checkpoints/kb_upgrade_bundle_checklist.md (v6)",
+        "subagent_prompts/review_kb_rehearsal_477bac3.md"
+      ],
+      "note": "pedia 定稿 KB d46f8af (指纹 477bac3ce565, 树哈希 63f85777) + main efefb7a 代码 (= 线上 2b24d53) 预演: 4333 chunks; 140 题闸 PASS, 回退 1 题 q76 (model/06 6.6 节标题改名 → 节级 gold 漂移, 文件仍排第 2), 满分 137, avg 0.9881, 余量 0; 新 KB pytest 18 failed (计数 4 / PC 6 / R4 8), 全在清单内, 套锚点后 0 failed; R4 映射 75 条 (较 00a2e93 +TSVALCD/TSVCDREF/TSVCDVER); q39 加 FA 来源实测可召回 (第 4 席) → 裁定 b 维持; q117/q120 新 fact 逐字存在; gold 新发现 = q76 (待裁定做法 A/B); 本机有索引时新 KB 下另有 test_section_gold_exists 报 q76/q126 (靠 gold 修订消除; 锚点 + gold 五处全改 + 候选索引 = 2941 passed / 0 failed); 独立审查 oh-my-claudecode:critic PASS-with-fixes (MAJOR 2 / MINOR 7 全部已修订: 做法 B 的本机测试代价、补复跑命令与 q76dual 变体、加做法 C)"
     }
   ],
   "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)",

@@ -1,0 +1,54 @@
+[setup] sdtm-rag root  = <S>/cand
+[setup] KB root        = <S>/kb/knowledge_base
+[setup] Chroma dir     = <S>/cand/data/chroma
+[setup] embedding      = text-embedding-3-small dim=1536 (cloud API)
+[R-16] --no-backup: skip backup
+[reset] collection-level: 'sdtm_kb_v1' only
+[scan] 296 .md files under <S>/kb/knowledge_base
+[scan] system-prompt skipped: ['INDEX.md', 'ROUTING.md']
+[chunks] per-type counts:
+      assumptions:   487 chunks from  64 files
+          chapter:    87 chunks from   6 files
+         examples:   201 chunks from  63 files
+            model:    32 chunks from   6 files
+             spec:  2164 chunks from  63 files
+      terminology:  1128 chunks from  91 files
+   variable_index:   234 chunks from   1 files
+            TOTAL:  4333 chunks from 294 files
+[chunks] total tokens = 2,607,334 (avg 601 tokens/chunk)
+[chunks] kb_commit_sha = unknown
+[embed] calling text-embedding-3-small API (batch_size=100) ...
+[embed] WARNING: 18 chunks truncated to 8191 tokens:
+        - [3210] (18978 tok)
+        - [3211] (19975 tok)
+        - [3224] (15528 tok)
+        - [3228] (15338 tok)
+        - [3293] (10217 tok)
+        - [3394] (12231 tok)
+        - [3444] (18846 tok)
+        - [3449] (10482 tok)
+        - [3450] (8969 tok)
+        - [3453] (12317 tok)
+        - [3454] (11601 tok)
+        - [3455] (12203 tok)
+        - [3529] (12121 tok)
+        - [3630] (8378 tok)
+        - [3631] (9143 tok)
+        - [3816] (9378 tok)
+        - [3817] (9868 tok)
+        - [4144] (10908 tok)
+[chroma] added 1000/4333
+[chroma] added 2000/4333
+[chroma] added 3000/4333
+[chroma] added 4000/4333
+[chroma] added 4333/4333
+[chroma] collection 'sdtm_kb_v1' total = 4333
+[R-18] ingest stamp -> <S>/cand/data/chroma/ingested_at_commit.txt
+[done] total files chunked, 4333 chunks, 2,607,334 tokens, wallclock 92.9s, Chroma 87.1 MB
+wrote <S>/cand/data/meta/meta.yaml (64 domains, 1005 codelists)
+kb_commit_sha=unknown
+kb_fingerprint=477bac3ce565aa810c38aeb14a35bf22f2c760c13a7e0b5f7d3bcf6ee24e3236
+ingested_at=2026-11-27T04:49:13.170381+00:00
+total_chunks=4333
+embedding_model=text-embedding-3-small
+embedding_dim=1536

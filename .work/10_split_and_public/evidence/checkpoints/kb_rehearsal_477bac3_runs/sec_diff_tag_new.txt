@@ -1,0 +1,63 @@
+old 4329 new 4333 files 293 293
+files only old ['domains/EC/examples.md'] only new ['domains/SS/examples.md']
+chapters/ch02_fundamentals.md 9 -> 8
+   - ['Findings About — Naming Findings About Domains (Reference Material)']
+   + []
+chapters/ch04_general_assumptions.md 47 -> 45
+   - ['4.2.1 Variable-Naming Conventions', '4.3.5 Storing Controlled Terminology for Synonym Qualifier Variables (MedDRA and WHODrug)', '4.5.1 Original and Standardized Results', '§6.1.3.3 Exposure/Exposure as Collected Examples (p115)', '§6.3.5.7 Microbiology Domains — RELSPEC parent/aliquot relationship (p261)']
+   + ['4.2.1 Variable-naming Conventions', '4.3.5 Storing Controlled Terminology for Synonym Qualifier Variables', '4.5.1 Original and Standardized Results of Findings and Tests Not Done']
+chapters/ch08_relationships.md 19 -> 19
+   - ['Key Rules', '8.4.3 Examples', 'Specification', 'Assumptions', 'Example', 'Specification', 'Assumptions', 'Example']
+   + ['8.4.3 SUPP-- Examples', 'RELSUB — Description/Overview', 'RELSUB — Specification', 'RELSUB — Assumptions', 'RELSUB — Examples', 'RELSPEC — Specification', 'RELSPEC — Assumptions', 'RELSPEC — Examples']
+domains/DS/assumptions.md 8 -> 7
+   - ['item_7']
+   + []
+domains/EC/examples.md 7 -> 0
+   - ['Example 1', 'Example 2', 'Example 3', 'Example 5', 'Example 6', 'Example 7', 'Example 8']
+   + []
+domains/EX/examples.md 8 -> 9
+   - []
+   + ['§6.1.3.3 Exposure/Exposure as Collected Examples']
+domains/FA/assumptions.md 7 -> 10
+   - []
+   + []
+domains/MB/examples.md 4 -> 1
+   - ['Example 1', 'Example 2', 'Example 3', '§6.3.5.7.3 Microbiology Specimen and Microbiology Susceptibility Examples']
+   + ['§6.3.5.7.3 Microbiology Specimen/Microbiology Susceptibility Examples']
+domains/MK/assumptions.md 5 -> 4
+   - ['item_4']
+   + []
+domains/PC/examples.md 14 -> 15
+   - []
+   + ['PC – Examples']
+domains/PP/examples.md 5 -> 4
+   - ['§6.3.5.9.3 RELREC Method Quick Reference (PP-side view)']
+   + []
+domains/RS/assumptions.md 15 -> 25
+   - []
+   + []
+domains/SC/examples.md 4 -> 3
+   - ['SC – Specification (p340)']
+   + []
+domains/SS/examples.md 0 -> 1
+   - []
+   + ['Example 1']
+domains/TU/examples.md 3 -> 4
+   - []
+   + ['§6.3.12.3 Tumor Identification/Tumor Results Examples']
+model/01_concepts_and_terms.md 2 -> 8
+   - ['2.1 Model Concepts and Terms — Variables']
+   + ['1 Introduction', '1.1 Purpose', '1.2 Implementation Advice for this Model', '1.3 Relationship to Prior CDISC Models', '1.4 Significant Changes from Prior Versions', '2 Model Concepts and Terms – Organization of the SDTM', '2.1 Model Concepts and Terms – Variables']
+model/02_observation_classes.md 6 -> 7
+   - ['Overview']
+   + ['3 Study Subject Data', '3.1 The General Observation Classes']
+model/03_special_purpose_domains.md 7 -> 4
+   - ['Demographics (DM)', 'Comments (CO)', 'Subject Elements (SE)', 'Subject Repro Stages', 'Subject Visits (SV)', 'Subject Disease Milestones (SM)']
+   + ['3.2.1 Demographics', '3.2.2 Comments', '3.2.3 Subject Summary Domains']
+model/05_study_level_data.md 3 -> 3
+   - ['Overview', '5.1 Trial Design Model']
+   + ['5 Study-level Data', '5.1 The Trial Design Model']
+model/06_relationship_datasets.md 9 -> 9
+   - ['Overview', '6.1 Related Records (RELREC)', '6.2 Supplemental Qualifiers (SUPP--)', '6.3 Pool Definition (POOLDEF)', '6.4 Related Subjects (RELSUB)', '6.5 Device-subject Relationships (DR)', '6.6 Associated Persons Related Subjects (APRELSUB)', '6.7 Related Specimens (RELSPEC)']
+   + ['6 Datasets for Representing Relationships', '6.1 Related Records Dataset (RELREC)', '6.2 Supplemental Qualifiers Dataset (SUPP--)', '6.3 Pool Definition Dataset (POOLDEF)', '6.4 Related Subjects Dataset (RELSUB)', '6.5 Device-subject Relationships Dataset (DR)', '6.6 Associated Persons Relationships (APRELSUB)', '6.7 Related Specimens Dataset (RELSPEC)']
+files with section changes 20

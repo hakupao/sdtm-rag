@@ -203,3 +203,95 @@ pedia 即将解冻并一次性改 KB: 约 40 行值 / 措辞裁定里的一部�
 - **q120**: 核对 pedia 定稿后 `model/06_relationship_datasets.md` 的 POOLDEF 原文仍含 `individual subjects included in a pool` (`00a2e93` 下原句是 "This dataset identifies individual subjects included in a pool of subjects…"); 若措辞又变, 按新原文改 fact, 并重新请主人确认。
 - q117 / q126: 同样在新 KB 上用 `probes/kb_rehearsal_factcheck.py`、`kb_rehearsal_secmatch.py` 复核 (q117 的新 fact 在新旧 KB 都存在; q126 删成员后同组 `domains/SE/assumptions.md` 仍应可命中)。
 - 改 gold 前后按 CLAUDE.md 跑 `python -m eval.tests_support.gold_semantics_diff` 与 `eval/lint_gold.py`。
+
+## v6 更新: 在 pedia 定稿 KB 上重算 (2026-11-27; 目标 KB = pedia `d46f8af`, 指纹 `477bac3ce565…`, KB 树哈希 `63f85777…`; 与上文冲突处以本节为准)
+依据: `kb_rehearsal_477bac3.md` (第二次预演, 含复跑命令; B 仓代码 = main `efefb7a`, 运行时代码同线上镜像 `2b24d53`)。本节只列清单, 仍未改 `eval/`、`tests/`。
+pedia 打 tag 时若 KB 树哈希不是 `63f857774a42cfaa71798705ad40ab51bc5e378a`, 本节数字要再重算。
+锚点一律按测试函数名引用 (上文各节的行号在 R4 等分支合并后已不准)。
+
+### 1. 闸与新发现
+- 140 题闸: **PASS, 回退 1 题 (q76), 满分 137, avg 0.9881**。上限是回退 ≤ 1、满分 ≥ 137, 余量为零。
+- **新增一条节级 gold 漂移: q76** `model/06_relationship_datasets.md#6.6 Associated Persons Related Subjects (APRELSUB)$` → 新标题是 `6.6 Associated Persons Relationships (APRELSUB)`。它参与 retrieval 闸 (上面那 1 题回退就是它)。v3 第 6 条第 4 步「闸结论不依赖 gold 修订」改为: 闸仍 PASS, 但唯一的容错名额被 q76 占用。
+- 待裁定 (实测与对比表见预演报告「对 kb-sync 与提交顺序的含义」):
+  - 做法 A = q76 随「KB 更新」提交改成新标题, kb-sync 按 1 题回退过闸 (余量 0); 本机测试全程是绿的。
+  - 做法 B = pedia 打 tag 前先把 q76 这条改成新旧双标题的 any-of 组 (新旧 KB 都 1.0, 闸 0 回退)。代价: 多一次只改题集的部署; 属于放宽 gold, 需非受益方裁定; 升级后删掉旧标题成员; **本机 `test_section_gold_exists.py::test_every_section_gold_exists_in_index` 在升级前会变红** (新标题成员在旧 KB 索引里不存在; CI 无索引会跳过, 不挡部署)。这是本清单开头「只在新 KB 下成立的改动不提前合」原则的一个例外, 选 B 就要接受它。
+  - 做法 C = 打 tag 前直接把 q76 换成新标题 (闸 0 回退, 基线 q76 = 0.5)。不算放宽 gold, 但本机同一条测试同样变红, 且升级前 q76 在闸里不起保护作用。
+- 本机有索引时, 新 KB 下还会多 1 个失败 (不在下面 18 个里): `test_section_gold_exists.py::test_every_section_gold_exists_in_index` 报 q76、q126 两条节级 gold 在索引里不存在。它靠第 2 条的 gold 修订消除, 所以「KB 更新」提交里 q76、q126 的 gold 修订是本机 pytest 通过的必要条件。
+
+### 2. `eval/test_set_v3.yml` gold 修订 (替换 v5 的表; 共 5 处)
+| 题 | 改法 | 新 KB 上的核对 |
+|---|---|---|
+| q39 | `expected_sources` 加 `domains/FA/assumptions.md` (裁定 b, AND) | **实测能召回**: 15 席里排第 4, 候选树 5 趟一致, q39 = 1.0 (3/3)。裁定维持, 不退回 (a)。旧 KB 下加这一条同样 3/3 |
+| q117 fact | → `should be unique for every record` | 逐字存在于 `chapters/ch08_relationships.md` ("…first 6 columns (STUDYID…QNAM) should be unique for every record.") |
+| q120 fact | → `individual subjects included in a pool` | 逐字存在于 `model/06_relationship_datasets.md` 6.3 节 ("This dataset identifies individual subjects included in a pool of subjects…") |
+| q126 any-of | 删成员 `model/03…#Subject Elements (SE)$` | 删后同组 `domains/SE/assumptions.md` 命中, q126 仍 0.5 (未命中的是 `domains/TE/spec.md`, 既有情况) |
+| **q76 (新增, 未裁定)** | `…#6.6 Associated Persons Related Subjects (APRELSUB)$` → `…#6.6 Associated Persons Relationships (APRELSUB)$` | 新标题只在新 KB 成立: 新 KB 下 q76 = 1.0, 旧 KB 下 0.5。必须与 submodule 升级同一次提交 (或按做法 B 先放双标题) |
+
+五处全改后, 新 KB 候选对原基线 0 回退、满分 138、avg 0.9917。改 gold 的提交要跑 `python -m eval.tests_support.gold_semantics_diff` 与 `eval/lint_gold.py` (本轮没有改 `eval/`, 未跑)。
+节级 gold 49 条全量重算 + pedia 两份标题变动清单交叉核对: 失效的只有 q126 (已知) 和 q76 (新增)。fact 级 466 条: 丢失的仍是 q39 / q117 / q120 三条。
+
+### 3. `tests/` 锚点 (新 KB 下失败 18 个 = 4 + 6 + 8; 套上本节锚点后 0 失败; 有索引时再加第 2 条的 gold 修订: 2941 passed / 0 failed)
+计数锚点 4 个 (数值与 v1 §1 相同):
+| 测试 | 现值 → 新值 |
+|---|---|
+| `test_base.py::test_find_mermaid_blocks_ta_returns_20` (函数名、docstring、断言) | 20 → 24 |
+| `test_chapters.py::test_ch02_splits_by_h2` (docstring「9 个 H2」、断言) | 9 → 8 |
+| `test_chapters.py::test_ch04_produces_47_chunks` (函数名、docstring、断言) | 47 → 45 |
+| `test_chapters.py::test_large_chapter_still_splits_by_h3` | 47 → 45 |
+
+PC 示例 6 个 (`test_examples.py`, 与 v4 第 2 条一致, 失败方式已实测相符):
+| 测试 | 新 KB 下 |
+|---|---|
+| `test_pc_examples_produces_14_chunks` | → 15 |
+| `test_pc_examples_all_have_sub_label_method`、`…sub_labels_are_valid_methods`、`…all_have_example_index`、`…example_indices_range_1_to_4` | 只约束合并例的 14 块。区分方式用 `section != 'PC – Examples'`, 并断言正好分出 14 + 1 块; 不要用 `sub_label is not None` 来筛 (那样断言对被筛掉的块永远成立) |
+| `test_pc_examples_all_have_cdisc_section_id` | 合并例 14 块 == `§6.3.5.9.3`; `PC – Examples` 块的 (`cdisc_section_id`, `example_index`, `sub_label`) == (None, None, None) |
+
+R4 映射 8 个 (替换 v1 §2 与 `model_defhome_rule_options.md`「R4 下的锚点」里的数值):
+| 测试 | 现值 → 新值 |
+|---|---|
+| `test_build_neo4j.py::test_node_counts` | Variable 1541 → **1546**; ModelChapter 4 → 5 |
+| `test_build_neo4j.py::test_variable_model_only_split` | model-only 18 → **23** (IG 变量 1523 不变); `APID` 仍是 model-only, 该断言不用改 |
+| `test_build_neo4j.py::test_edge_counts` | DEFHOME 62 → **75** |
+| `test_build_neo4j.py::test_class_and_chapter_nodes` | ModelChapter 集合加 `model/04_associated_persons.md` |
+| `test_build_neo4j.py::test_defhome_edge_shape` | `rows["APID"]` model/06 → model/04; 行数 62 → 75 |
+| `test_reconcile_neo4j.py::test_expected_counts_match_golden_anchors` | Variable 1546、ModelChapter 5、DEFHOME 75 |
+| `test_meta_store.py::test_model_defhome_map` | `m["EPOCH"]` model/03 → model/02 |
+| `test_structured_lookup.py::TestConceptDefinitionChannel::test_defhome_epoch` | EPOCH model/03 → model/02 |
+
+新 KB 下已经通过、不用改的: `test_build_meta.py::test_model_defhome`、`test_structured_lookup.py` 的 RDOMAIN / ETCD 金丝雀与 `test_defhome_map_hygiene`、`test_model_defhome_r4.py`、`test_ct_cell_format.py`。
+顺带更新 (不影响测试结果, 只是文字过期): `scripts/build_neo4j.py` 文件头与 DEFHOME 注释里的 1541 / 18 / 62; `tests/test_build_neo4j.py` 行内注释里的「1523 IG + 18」「全量 62」。`scripts/` 在部署路径里, 可以和「KB 更新」那次提交放一起。
+完整性验证: `probes/kb_rehearsal_apply_anchors.py` 把以上全部替换打到临时代码树 (只允许临时目录), 新 KB + 候选 meta 下 2936 passed / 0 failed。
+
+### 4. 其他随升级提交的产物 (补 v1 §4)
+- `README.md`、`README_CN.md` 第一节里的「currently `kb-2026.11.25`」/「当前 `kb-2026.11.25`」改成新 tag (README 在部署路径过滤内)。
+- `data/meta/meta.yaml`: 本机用 main 代码重跑 `build_meta`; 预期与本次候选一致 (`model_defhome` 75 条, 其余见下表)。
+
+### 5. 数字总表 (替换 v2 §C; 指纹 `477bac3c…`)
+| 数字 | 旧 KB (`kb-2026.11.25`) | 新 KB (`d46f8af`) | 取数方法 |
+|---|---|---|---|
+| 140 题闸: 回退 / 满分 / avg | — / 138 / 0.9917 | 1 (q76) / 137 / 0.9881; gold 五处改后 0 / 138 / 0.9917 | 预演报告复跑命令 |
+| chunk 总数 | 4329 | **4333** | ingest 日志 |
+| 各类 chunk | chapter 90 / assumptions 476 / examples 209 / model 28 / spec 2164 / terminology 1128 / variable_index 234 | chapter 87 / assumptions 487 / examples **201** / model 32 / 其余不变 | 同上 |
+| token 总数 / embedding 费用 | 2,548,989 | 2,607,334 / ≈ $0.052 | 同上 |
+| TA Mermaid / ch02 H2 / ch04 chunk | 20 / 9 / 47 | 24 / 8 / 45 | 本节第 3 条 |
+| PC 块数与节号 | 14 块, 全部 `§6.3.5.9.3` | 15 块: 合并例 14 块 `§6.3.5.9.3`, `PC – Examples` 块 None | `scripts.chunkers` 直接跑 |
+| `model_defhome` | 62 (仓库里提交的 meta; 线上 meta 仍是旧规则的 59 条, 换入候选后才更新) | **75** (02: 18 / 03: 31 / 04: 4 / 05: 10 / 06: 12) | `probes/kb_rehearsal_meta_stats.py`; 与 `probes/defhome_rules.py` 的 R4 逐条相等 |
+| 相对旧 KB 的映射变化 | — | 新增 15 (VISIT / VISITNUM / VISITDY / RPPLDY / RPPLSTDY / RPPLENDY / MIDSDTC / RELMIDS / RPHASE → 02; RSUBJID / RDEVID / SREL → 04; TSVALCD / TSVCDREF / TSVCDVER → 05); 移除 2 (REFID / SPEC); 改归属 4 (EPOCH / TAETORD / MIDS 03 → 02, APID 06 → 04) | 同上 |
+| 相对 `00a2e93` 的映射变化 | 72 | +3 (TSVALCD / TSVCDREF / TSVCDVER → 05), 移除 0, 改动 0 | `probes/defhome_rules.py <00a2e93 展开> <新 KB>` |
+| 图计数: Variable / model-only / ModelChapter / DEFHOME | 1541 / 18 / 4 / 62 | **1546 / 23 / 5 / 75** | 本节第 3 条的测试 |
+| meta: `ct_codes` / 带码变量 / 不同码 / `ct_dict` / codelists | 588 / 570 / 147 / 176 / 1005 | 588 / 570 / 147 / 176 / 1005 (三元组逐一相同) | `probes/kb_rehearsal_meta_stats.py` |
+| meta 里的 `*` 与 DOMAIN 域码 token | 0 / 0 | 0 / 0 (CT 修复后不再落进 `ct_dict`) | 同上 |
+| KB 里的单元格: `(短名) Cnnnnn` / `*` / DOMAIN 域码 | 0 / 0 / 0 | 570 (59 个 spec.md) / 129 / 59; `spec.md`、`terminology/`、`VARIABLE_INDEX.md` 在 `00a2e93..d46f8af` 零改动 | `grep`, 命令见 pedia `t4_downstream_notes.md`「复跑」 |
+| meta 变量字段变化 | — | 只有 DM `RFSTDTC` / `RFENDTC` 的 type DateTime → Char | `probes/kb_rehearsal_meta_stats.py` |
+| gold 漂移: fact / 节级 | — | fact 3 (q39 / q117 / q120); 节级 **2** (q126、q76) | `probes/kb_rehearsal_factcheck.py`、`kb_rehearsal_secmatch.py`、`kb_rehearsal_gold_chunk_check.py`、`kb_rehearsal_heading_vs_gold.py` |
+| 新 KB 下 pytest 的 KB 相关失败 | 0 (对照组 2936 passed) | **18** (计数 4 / PC 6 / R4 8) | 预演报告复跑命令 |
+| 覆盖率扫描: 缺失行 | 306 | 302 (PC 4 → 3, SS 8 → 0; 没有新丢的正文, 新出现的缺失行是指针行、分组标题行或原有缺失行改了措辞) | `probes/kb_rehearsal_coverage.py` |
+| 超过 8191 token 的 chunk: terminology / 其他 | 18 / 0 | 18 / 0 (其他类最大: MB `§6.3.5.7.3` 7878, CP `Example 6` 7296) | `probes/kb_rehearsal_gold_chunk_check.py` 第 ③ 段 |
+
+### 6. 提交顺序 (更新 v3 第 6 条; 第 1、2 步已完成)
+1. ~~修 `test_p2_seam_characterization` 日期依赖~~、~~CT 解析 / PC 切块 / R4 合进 main 并部署~~ (线上 `2b24d53`)。
+2. (仅做法 B / C) q76 的 gold 提前合进 main, 部署一次 (本机那条节级 gold 存在性测试会红, 提交说明里写明)。
+3. pedia 打 `kb-*` tag (KB 树哈希应为 `63f85777…`) → kb-sync 构建候选并过闸。预计: 做法 A 回退 1 题 (q76) PASS; 做法 B / C 回退 0。
+4. 本地「KB 更新」一次提交: submodule 指针 + `data/meta/meta.yaml` + 本节第 3 条的 18 个测试锚点 + 第 2 条的 gold (做法 A: 五处; 做法 B: 四处 + 删 q76 的旧标题成员; 做法 C: 四处) + 第 4 条的 README。本机先跑 pytest、两条检索闸、`gold_semantics_diff`、`lint_gold`, 再 push。
+
+审查: 本节与预演报告一并由 `oh-my-claudecode:critic` 审查 (PASS-with-fixes, `kb_rehearsal_477bac3_review.md`); 抽查约 15 个数字全部对得上, 意见已并入上文。

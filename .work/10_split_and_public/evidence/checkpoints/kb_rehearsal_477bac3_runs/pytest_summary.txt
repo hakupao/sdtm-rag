@@ -1,0 +1,73 @@
+2936 passed, 61 skipped, 3 deselected, 9 warnings in 65.44s (0:01:05)
+=== new KB (未改锚点)
+FAILED tests/test_base.py::test_find_mermaid_blocks_ta_returns_20
+FAILED tests/test_build_neo4j.py::test_node_counts
+FAILED tests/test_build_neo4j.py::test_variable_model_only_split
+FAILED tests/test_build_neo4j.py::test_edge_counts
+FAILED tests/test_build_neo4j.py::test_class_and_chapter_nodes
+FAILED tests/test_build_neo4j.py::test_defhome_edge_shape
+FAILED tests/test_chapters.py::test_ch02_splits_by_h2
+FAILED tests/test_chapters.py::test_ch04_produces_47_chunks
+FAILED tests/test_chapters.py::test_large_chapter_still_splits_by_h3
+FAILED tests/test_examples.py::test_pc_examples_produces_14_chunks
+FAILED tests/test_examples.py::test_pc_examples_all_have_sub_label_method
+FAILED tests/test_examples.py::test_pc_examples_sub_labels_are_valid_methods
+FAILED tests/test_examples.py::test_pc_examples_all_have_example_index
+FAILED tests/test_examples.py::test_pc_examples_example_indices_range_1_to_4
+FAILED tests/test_examples.py::test_pc_examples_all_have_cdisc_section_id
+FAILED tests/test_meta_store.py::test_model_defhome_map
+FAILED tests/test_reconcile_neo4j.py::test_expected_counts_match_golden_anchors
+FAILED tests/test_structured_lookup.py::TestConceptDefinitionChannel::test_defhome_epoch
+18 failed, 2918 passed, 61 skipped, 3 deselected, 9 warnings in 73.10s (0:01:13)
+=== 失败信息
+ test_find_mermaid_blocks_ta_returns_20  || E       assert 24 == 20
+ test_node_counts  || E       AssertionError: assert 1546 == 1541
+ test_variable_model_only_split  || E       assert (1523 == 1523 and 23 == 18)
+ test_variable_model_only_split  || E        +  and   23 = <built-in method count of list object at 0x122a1f840>(True)
+ test_edge_counts  || E       AssertionError: assert 75 == 62
+ test_class_and_chapter_nodes  || E       AssertionError: assert {'model/02_ob..._datasets.md'} == {'model/02_ob..._datasets.md'}
+ test_class_and_chapter_nodes  || E         
+ test_class_and_chapter_nodes  || E         Extra items in the left set:
+ test_class_and_chapter_nodes  || E         'model/04_associated_persons.md'
+ test_class_and_chapter_nodes  || E         Use -v to get more diff
+ test_defhome_edge_shape  || E       AssertionError: assert 'model/04_ass...ed_persons.md' == 'model/06_rel...p_datasets.md'
+ test_defhome_edge_shape  || E         
+ test_defhome_edge_shape  || E         - model/06_relationship_datasets.md
+ test_defhome_edge_shape  || E         + model/04_associated_persons.md
+ test_ch02_splits_by_h2  || E       AssertionError: assert 8 == 9
+ test_ch04_produces_47_chunks  || E       AssertionError: assert 45 == 47
+ test_large_chapter_still_splits_by_h3  || E       AssertionError: assert 45 == 47
+ test_pc_examples_produces_14_chunks  || E       AssertionError: assert 15 == 14
+ test_pc_examples_all_have_sub_label_method  || E           AssertionError: assert None is not None
+ test_pc_examples_sub_labels_are_valid_methods  || E           AssertionError: Unexpected sub_label: None
+ test_pc_examples_sub_labels_are_valid_methods  || E           assert None in {'Method A', 'Method B', 'Method C', 'Method D'}
+ test_pc_examples_all_have_example_index  || E           AssertionError: assert None is not None
+ test_pc_examples_example_indices_range_1_to_4  || E           TypeError: '<=' not supported between instances of 'int' and 'NoneType'
+ test_pc_examples_all_have_cdisc_section_id  || E           AssertionError: Expected §6.3.5.9.3, got None
+ test_pc_examples_all_have_cdisc_section_id  || E           assert None == '§6.3.5.9.3'
+ test_model_defhome_map  || E       AssertionError: assert 'model/02_obs...on_classes.md' == 'model/03_spe...se_domains.md'
+ test_model_defhome_map  || E         
+ test_model_defhome_map  || E         - model/03_special_purpose_domains.md
+ test_model_defhome_map  || E         + model/02_observation_classes.md
+ test_expected_counts_match_golden_anchors  || E       AssertionError: assert {'Class': 8, ...pter': 5, ...} == {'Class': 8, ...pter': 4, ...}
+ test_expected_counts_match_golden_anchors  || E         
+ test_expected_counts_match_golden_anchors  || E         Omitting 3 identical items, use -vv to show
+ test_expected_counts_match_golden_anchors  || E         Differing items:
+ test_expected_counts_match_golden_anchors  || E         {'Variable': 1546} != {'Variable': 1541}
+ test_expected_counts_match_golden_anchors  || E         {'ModelChapter': 5} != {'ModelChapter': 4}
+ test_expected_counts_match_golden_anchors  || E         Use -v to get more diff
+ TestConceptDefinitionChannel.test_defhome_epoch  || E       AssertionError: assert 'model/02_obs...on_classes.md' == 'model/03_spe...se_domains.md'
+ TestConceptDefinitionChannel.test_defhome_epoch  || E         
+ TestConceptDefinitionChannel.test_defhome_epoch  || E         - model/03_special_purpose_domains.md
+ TestConceptDefinitionChannel.test_defhome_epoch  || E         + model/02_observation_classes.md
+=== new KB + 清单锚点 (scratch 副本)
+2936 passed, 61 skipped, 3 deselected, 9 warnings in 79.03s (0:01:19)
+
+=== 有索引: 新 KB + 锚点 + 候选 chroma + goldnext 题集
+2941 passed, 56 skipped, 3 deselected, 9 warnings in 59.73s
+=== 节级 gold 存在性测试 (tests/test_section_gold_exists.py)
+旧 KB 索引 + 原题集: 2 passed
+旧 KB 索引 + q76dual 题集: 1 failed (q76: …#6.6 Associated Persons Relationships (APRELSUB)$)
+旧 KB 索引 + goldnext 题集: 1 failed (同上)
+新 KB 索引 + 原题集: 1 failed (q76: …Related Subjects (APRELSUB)$; q126: …#Subject Elements (SE)$)
+新 KB 索引 + goldnext 题集: 通过 (含在上面 2941 passed 里)
