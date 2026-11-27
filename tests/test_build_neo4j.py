@@ -47,7 +47,7 @@ def test_edge_counts(graph):
     assert len(e["HAS_VARIABLE"]) == 1917
     assert len(e["USES_CT"]) == 542        # 唯一 (var, ct) 对, 跨域 union
     assert len(e["IN_CLASS"]) == 63
-    assert len(e["DEFHOME"]) == 59         # 偏差 D4: 全量 59, 不静默丢 18
+    assert len(e["DEFHOME"]) == 62         # 偏差 D4: 全量 62 (R4), 不静默丢 18 个 model-only
     assert len(e["RELATED_TO"]) == 52
 
 # ── 语义抽点 (跨域分歧 / 逐域权威值 / advisory 保真) ──────────────────────
@@ -82,7 +82,7 @@ def test_class_and_chapter_nodes(graph):
 def test_defhome_edge_shape(graph):
     rows = {r["var"]: r["chapter"] for r in graph["edges"]["DEFHOME"]}
     assert rows["APID"] == "model/06_relationship_datasets.md"
-    assert len(rows) == 59
+    assert len(rows) == 62
 
 def test_load_meta_missing_key_fails_loud(tmp_path):
     bad = tmp_path / "meta.yaml"

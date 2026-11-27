@@ -21086,6 +21086,7 @@ model_defhome:
   ARMCD: model/03_special_purpose_domains.md
   ARMNRS: model/03_special_purpose_domains.md
   COUNTRY: model/03_special_purpose_domains.md
+  DOMAIN: model/02_observation_classes.md
   DTHDTC: model/03_special_purpose_domains.md
   DTHFL: model/03_special_purpose_domains.md
   EPOCH: model/03_special_purpose_domains.md
@@ -21102,6 +21103,7 @@ model_defhome:
   MIDSTYPE: model/03_special_purpose_domains.md
   NHOID: model/02_observation_classes.md
   PARENT: model/06_relationship_datasets.md
+  POOLID: model/02_observation_classes.md
   QEVAL: model/06_relationship_datasets.md
   QLABEL: model/06_relationship_datasets.md
   QNAM: model/06_relationship_datasets.md
@@ -21136,3 +21138,4 @@ model_defhome:
   TTDUR: model/05_study_level_data.md
   TTENRL: model/05_study_level_data.md
   TTSTRL: model/05_study_level_data.md
+  USUBJID: model/02_observation_classes.md

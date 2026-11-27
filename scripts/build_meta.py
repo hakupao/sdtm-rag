@@ -136,14 +136,39 @@ def _relations_curated(kb_root: Path, domain: str) -> list[dict]:
     return out
 
 
+_NUMBERED_HEADING_RE = re.compile(r"^#{1,6}\s+(\d+)(?:\.\d+)*\s")
+
+
+def _model_chapter_file(model_dir: Path, prefix: str, chapter: str) -> str:
+    """kb-relative path of the single model/<prefix>_*.md whose first numbered
+    heading is SDTM §<chapter>[.x]. R4 keys on these file↔section roles, so a
+    renumbered/renamed model file must fail the build, not silently remap."""
+    hits = sorted(model_dir.glob(f"{prefix}_*.md"))
+    if len(hits) != 1:
+        raise ValueError(f"model_defhome: expected one model/{prefix}_*.md, found {len(hits)}")
+    for line in hits[0].read_text(encoding="utf-8").splitlines():
+        m = _NUMBERED_HEADING_RE.match(line)
+        if m:
+            if m.group(1) != chapter:
+                raise ValueError(f"model_defhome: {hits[0].name} first numbered heading is "
+                                 f"§{m.group(1)}, expected §{chapter} ({line.strip()!r})")
+            return f"model/{hits[0].name}"
+    raise ValueError(f"model_defhome: {hits[0].name} has no numbered heading")
+
+
 def _model_defhome(kb_root: Path) -> dict[str, str]:
-    """var -> model/*.md definition home. The 6-col definition table
-    `| # | VAR | Label | Type | Role | Notes |` is isolated by len(inner)==6
-    (the 5-col usage table's last cell is Role, not Notes). Keep only vars whose
-    Notes-bearing 6-col rows live in EXACTLY ONE file; drop generic '--' vars."""
+    """var -> model/*.md definition home (rule R4, by SDTM section role).
+    Definition rows = 6-col `| # | VAR | Label | Type | Role | Notes |` with
+    non-empty Notes, isolated by len(inner)==6 (the 5-col usage table's last
+    cell is Role, not Notes). Per var, over the files holding such rows:
+      1. model/02 (§3.1 general-class variables) among them -> model/02;
+      2. else if >1 file, drop model/06 (§6 relationship datasets only list
+         identifiers defined elsewhere as columns); a var only in 06 stays 06;
+      3. exactly one file left -> that file; otherwise dropped.
+    Generic '--' vars are excluded."""
     model_dir = kb_root / "model"
-    if not model_dir.exists():
-        return {}
+    general = _model_chapter_file(model_dir, "02", "3")
+    relation = _model_chapter_file(model_dir, "06", "6")
     tmp: dict[str, set[str]] = defaultdict(set)
     for f in sorted(model_dir.glob("*.md")):
         rel = f.relative_to(kb_root).as_posix()
@@ -162,11 +187,17 @@ def _model_defhome(kb_root: Path) -> dict[str, str]:
             if not notes:
                 continue
             tmp[var].add(rel)
-    return {
-        var: next(iter(files))
-        for var, files in sorted(tmp.items())
-        if len(files) == 1 and not var.startswith("--")
-    }
+    out: dict[str, str] = {}
+    for var, files in sorted(tmp.items()):
+        if var.startswith("--"):
+            continue
+        if general in files:
+            out[var] = general
+            continue
+        cands = files - {relation} if len(files) > 1 else files
+        if len(cands) == 1:
+            out[var] = next(iter(cands))
+    return out
 
 
 _CL_HEADING_RE = re.compile(r"^##\s+(.+?)\s*\(([Cc]\d+)\)")
