@@ -236,7 +236,8 @@
     "Q3_override": "2026-11-26 用户: 公开站全部用 Anthropic key, 模型选便宜的 → 免费题 = Claude Haiku 5.5 ($0.10/$0.50), 内部组与 fallback 同",
     "3.3": "公开 chroma 只含 sdtm_kb_v1 4329; 140q 与基线逐题一致",
     "M3": "2026-11-27 主人本人裁定 (非代裁): 公开站部署 = 先用临时容器验, 通过后再换正式容器 (原话「先用临时容器验，通过后再换正式容器」); 3.4 实现要求与 D2 衔接点见 checkpoints/p3_step3.2_compose.md「M3 裁定」",
-    "M3_suggestion_pending": "协调方建议 (主人未裁定): 首次上线用 Cloudflare Access 只放行主人本人经隧道验一次 (真实访客 IP / 限速 / WAF), 验完再放开"
+    "M3_suggestion_pending": "协调方建议 (主人未裁定): 首次上线用 Cloudflare Access 只放行主人本人经隧道验一次 (真实访客 IP / 限速 / WAF), 验完再放开",
+    "gold_4_revisions": "2026-11-27 主人本人裁定 (非代裁): q39 加新来源 domains/FA/assumptions.md 进 expected_sources (AND; 先在 pedia 定稿新 KB 上重跑 140q 确认能召回, 召回不到退回不动并上报); q117 fact → 'should be unique for every record'; q120 fact → 'individual subjects included in a pool'; q126 删掉 any-of 成员 model/03#Subject Elements (SE)$。随「KB 更新」提交落地, 现在不改 eval。详见 checkpoints/kb_upgrade_bundle_checklist.md v5"
   },
   "decisions_2026_11_27_delegated": {
     "source": "2026-11-27 主人把选择题委托给协调 bot「sdtm开发」(原话:「之前那些选项，你可以替我分析后决定嘛。我听从你的建议」); 以下为 bot 受托代裁, 非主人逐条裁定",

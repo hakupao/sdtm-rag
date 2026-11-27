@@ -181,3 +181,25 @@ pedia 即将解冻并一次性改 KB: 约 40 行值 / 措辞裁定里的一部�
 - 本清单和预演里的**全部数字** (§C 表每一行、§1 计数锚点、§2 / R4 锚点、PC 块数、30 个 KB 相关失败的分类) 和 **gold 对照** (fact 3 处、节级 1 处、v2 §A 的表 A / 表 B 对照) 只对指纹 `bf33bab…` 成立, 要在 pedia 打 tag 后的新指纹上**全部重跑**, 以重跑结果为准。
 - **标题按 PDF 改名可能让之前没见过的节级 gold 失效**: 重跑时节级 gold 必须用 `probes/kb_rehearsal_secdump.py` + `kb_rehearsal_secmatch.py` 在新 KB 上全量重算, 不能只核对本清单已列的 4 处。
 - Mermaid 统一渲染会改变 `find_mermaid_blocks` 计数 (`test_base.py` TA 24 这一锚点) 与含 Mermaid 的 chunk 文本; CRF 符号与 KB note 前缀会改变 chunk 正文, fact 级核对 (`probes/kb_rehearsal_factcheck.py`、`gold_vs_moved.py`) 也要重跑。
+
+## v5 更新: §3 gold 修订已裁定 (2026-11-27, 主人本人在待办项上选定, 非 bot 代裁; 与上文 §3 冲突处以本节为准)
+**本轮仍不改 `eval/test_set_v3.yml`**, 这些改动随「KB 更新」那次提交落地 (v3 第 6 条第 5 步)。
+
+| 题 | 主人的问题 → 原话 | 裁定后的改法 |
+|---|---|---|
+| q39 `:434-437` | 「要点 FAOBJ 所在的叙述从 model/02 移到了 FA 域文件, 标准来源怎么办?」→「加上新位置」 | 做法 (b): 把 `domains/FA/assumptions.md` **加进 `expected_sources` (AND)**, 保留原有两条。附带条件 (选项里写明, 主人选时看到了): 这是收紧, 要先在**新 KB 上重跑 140 题**确认检索得到它; **检索不到就退回做法 (a) (不动)**, 并把「内容搬家后检索不到」记成一条发现上报 |
+| q117 `:1457` fact | 「三处按建议值改, 可以吗?」→「可以」 | `first 6 columns (STUDYID...QNAM) should be unique` → `should be unique for every record` |
+| q120 `:1500` fact | 同上 | `Defines which subjects belong to each pool` → `individual subjects included in a pool` |
+| q126 `:1572` any-of 成员 | 同上 | **删掉** `model/03_special_purpose_domains.md#Subject Elements (SE)$` 这个成员 (不改成 `#3.2.3 Subject Summary Domains$`); 同组 `domains/SE/assumptions.md` 保留 |
+
+### q39 用 AND (`expected_sources`) 的理由
+- `check_source_recall` 的语义: `expected_sources` 每条都要命中 (AND); `expected_sources_any` 是一个 OR 组, 整组算一个计分单位 (`eval/run_eval.py:146` 起)。
+- 用法纪律第 1 条: OR 组的**每个成员必须独立覆盖全部 expected_facts**。新 KB 下 `model/02` 不再含 FAOBJ (含 "Findings About" 5 处), `domains/FA/assumptions.md` 两条 fact 都含 ("Findings About" 26 处、FAOBJ 4 处)。所以 `[model/02, FA/assumptions]` 不能组成 OR 组; 若为了放 OR 组而把 model/02 拿出来, 又丢掉了题目后半句「与标准 Findings 类有何不同」的来源。
+- q39 现在没有 any-of 组。只放 FA 一个成员的 any-of 组在评分上与 AND 等价 (多一个计分单位、必须命中), 但不符合 any-of「多个候选任一即可」的用途, 不采用。
+- 后果: q39 由 2 个计分单位变成 3 个, 新增的 FA 没被召回时, q39 的 source_recall 由 1.0 降到 0.667, 这就是要先在新 KB 上实测的原因。
+
+### 新指纹上重跑时追加 (补 v4 第 3 条)
+- **q39**: pedia 定稿 (解冻后改过一轮 KB) 打 tag 后, 在新 KB 上用**改过的 q39 gold** 重跑 140 题 retrieval 闸, 看 `domains/FA/assumptions.md` 能否被召回。召回到 → 走 (b); 召回不到 → 退回 (a) (q39 不动), 并上报「FA 叙述搬家后检索不到」这条发现。
+- **q120**: 核对 pedia 定稿后 `model/06_relationship_datasets.md` 的 POOLDEF 原文仍含 `individual subjects included in a pool` (`00a2e93` 下原句是 "This dataset identifies individual subjects included in a pool of subjects…"); 若措辞又变, 按新原文改 fact, 并重新请主人确认。
+- q117 / q126: 同样在新 KB 上用 `probes/kb_rehearsal_factcheck.py`、`kb_rehearsal_secmatch.py` 复核 (q117 的新 fact 在新旧 KB 都存在; q126 删成员后同组 `domains/SE/assumptions.md` 仍应可命中)。
+- 改 gold 前后按 CLAUDE.md 跑 `python -m eval.tests_support.gold_semantics_diff` 与 `eval/lint_gold.py`。
