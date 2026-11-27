@@ -102,3 +102,56 @@ pedia 还会按用户裁定改 KB (至少观察项 ⑥ REFID / SPEC 的 Notes、
 - §2 的 `_model_defhome` 锚点按 R0 写; `model_defhome_rule_options.md` v2 已把推荐改为 R4, R4 下的锚点见该文件 v2 节「R4 下的锚点」。用户裁定 E1 后, 二选一。
 - §0 PC chunker 一行: 「修法需同时兼容旧结构」的具体方案见上面 §B; 修复时机依赖观察项 ⑦。
 - §3 q126: pedia 表 A3 / 表 B 确认 SE 节改为 `### 3.2.3.1 Subject Elements`, 位于 `## 3.2.3 Subject Summary Domains` 下; 建议值不变。
+
+## v3 修订 (2026-11-27, 独立审查后; 与上文冲突处以本节为准)
+审查: `kb_upgrade_bundle_checklist_review.md` (`oh-my-claudecode:verifier`, PASS-with-fixes)。
+
+### 1. 硬约束: 改变 chunk / meta 产物的代码必须在 kb-sync 构建候选之前进 main (H2)
+- 线上的 chroma **和 meta 都来自 kb-sync 候选**: 候选的 `ingest` / `build_meta` 用的是 kb-sync 运行时 main 上的代码 (`deploy/kbsync/kbsync.py:369-385`, 候选镜像由 main checkout 构建); 部署时 `swap()` 把 `chroma_cand_*` / `meta_cand_*` 整个换成生产的 `chroma/` / `meta/` (`:241-257`)。仓库里提交的 `data/meta/meta.yaml` 只供 CI 和测试, **不是**线上数据。
+- 所以 CT 解析修复、PC chunker 修复、`_model_defhome` 规则改动, 只要会改变 chunk 或 meta, 都必须在 **pedia 打 tag、kb-sync 构建候选之前** 合进 main。上文 §5 第 3 步「本地 KB 更新一次提交」里只能放测试锚点、gold、submodule 指针和与候选一致的 meta.yaml, 不能放这类代码。
+- 如果代码晚于候选构建才合: 该指纹已是 gated, kb-sync 对它 no-op, 不会重建; 部署会换入用旧代码建的数据, 代码与数据静默不一致。补救: 先把已过闸的 `chroma_cand_<fp12>` / `meta_cand_<fp12>` 移走 (按规则 B 改名归档, 不删), 或让 pedia 重新打 tag, 再跑 kb-sync。
+- 对 `_model_defhome` 的含义: 「R4 + 随 KB 提交」这个组合排除。可选的只有「R4 提前合并 (接受旧 KB 下 +3 条)」或「R0 + 随 KB 只改锚点」。`model_defhome_rule_options.md` 的 E2 已同步。
+- 对 PC chunker 的含义: 修复代码要先合; 它在旧 KB 下必须让原有测试全过 (见第 3 条), 新 KB 下的测试期望随 KB 提交。若 pedia 对观察项 ⑦ 的裁定在 tag 前改了 PC 结构, 代码按第 2 条的分派规则本来就兼容, 只需重跑验证。
+
+### 2. PC 切块方案改为按 H2 分派 (替换 §B 第 1-3 条; H1 / M2)
+- **分派**: 逐个 H2 判定。H2 范围内含 `#### Method` → 嵌套模式 (每个 H4 一块, 保持现行 `example_index` / `sub_label`); 否则整个 H2 一块 (就是现在平铺分支的行为)。
+  - S1 (旧 KB): 只有 `## §6.3.5.9.3`, 其中有 Method → 与现行完全相同, 14 块。
+  - S2 (现 KB): `## PC – Examples` 无 H4 → 1 块 (PC 自己的 Example 1 有了块); `## §6.3.5.9.3` 照旧 14 块 → 共 15 块。
+  - S3 (若改成平铺): 退化为平铺。
+  - 其他 9 个「H2 下挂 H3、无 H4」的 examples 文件 (CP / FA / MB / PP / RELREC / RS / TA / TE / TV) 不进嵌套模式, 输出不变。v2 里「每个 H3 内判定」的写法会把它们拆开 (如 `test_ta_examples_produces_8_chunks` 会坏、PP 的 `### Method A —` 被拆), 已作废。
+- **节号**: 现有数据**给不出 §6.3.5.9.1**: KB 里 `6.3.5.9.1` 零命中, meta 没有节号映射, PC `assumptions.md` 第一个带 § 的标题恰是挂错的 `§6.3.5.9.3`。「向上最近带 § 的标题」还会让 EX / TU 的 `## Example N` 误继承 §6.1.3.3 / §6.3.12.3。所以: 每块只取**本 H2 自己**的 `§` 编号, 没有就是 None (与其他域现状一致); S2 的 Example 1 块 `cdisc_section_id = None`, 在测试里写明。要给它 §6.3.5.9.1, 只能硬编码一张小映射或请 pedia 在 PC 文件里提供, 列为待裁定。`cdisc_section_id` 目前只在 chunker 与测试里使用, server 不消费, 影响限于元数据。
+- **验证**: 对新旧两版 KB 的**全部** `domains/*/examples.md`, 比较修复前后的 chunk (全字段 diff)。旧 KB 必须 0 差; 新 KB 只允许 PC 新增 1 块。再跑覆盖率扫描 (`probes/kb_rehearsal_coverage.py`), PC 的缺失行数应回到旧 KB 的水平。S1 下 H3 导语约 4 行没进 chunk, 这是现状, 不是回归。
+
+### 3. PC 测试期望逐条 (替换 §B 第 4 条; M1)
+`tests/test_examples.py`, 只能随 KB 升级提交 (旧 KB 下这些测试原样必须通过):
+| 测试 | 新 KB (S2) 下 |
+|---|---|
+| `:75 test_pc_examples_produces_14_chunks` | → 15 |
+| `:80 test_pc_examples_all_have_sub_label_method` | 改为只约束合并例的块 (Example 1 块没有 Method) |
+| `:87 test_pc_examples_sub_labels_are_valid_methods` | 同上 |
+| `:94 test_pc_examples_all_have_example_index` / `:100 …range_1_to_4` | 看实现给 Example 1 块的 `example_index`: 按 H3 取值是 1 (范围测试仍过); 按 H2 标题解析是 None (`all_have_example_index` 失败, 要改) |
+| `:108 test_pc_examples_all_have_cdisc_section_id` | 合并例块 == §6.3.5.9.3; Example 1 块 == None (或用户裁定的值) |
+| `:116 test_pc_examples_example_4_has_only_method_a_and_d` | 不变 |
+
+### 4. §C 末行更正 (M3)
+「embedding 上限 8191, 超过会让 ingest 出问题」是错的: `scripts/ingest.py:230-301` 对超限文本截断并打 WARNING, 不会失败。新旧 KB 各已有 18 个 terminology chunk 超过 8191 (最大 19975, 是既有情况)。改为监控: **非 terminology 的 chunk 中超过 8191 的个数** (现为 0; 最大是 MB `§6.3.5.7.3` 7878, 旧 KB 8087; CP `Example 6` 由旧 KB 的 <5784 涨到 7296)。出现新增时检查是否被截断。
+
+### 5. §A 补充 (L1)
+审查者另做了 chunk 正文比对, 补上了方法 2「只看 fact」的局限。节级 gold 命中 chunk 正文有变化、但 fact 全在的:
+- q38 `ch04#4.1.6` (只是 URL 括注);
+- q39 `ch08#8.6.3`;
+- q19 / q91 `DS/spec#DSDECOD`、`DS/assumptions#item_3`;
+- q76 `model/06#6.6` (重写, APID 表仍在);
+- q115 `ch08#8.4.1`、`SUPPQUAL/assumptions#overview`;
+- q117 `ch04#4.5.4`;
+- q10 `RS/assumptions.md#item_4$` 由 1 个 chunk 变成 2 个 (新增 QRS 文字, fact 仍在)。
+
+q126 的两个 any-of 成员在新旧 KB 下都不单独覆盖全部 facts (`actually passed through` 只在 `SE/assumptions`), 是既有问题, 不是这次引入的。**结论不变: 除已知 4 处外没有新的 gold 问题。**
+
+### 6. 修订后的提交顺序 (替换 §5)
+1. 先修 `test_p2_seam_characterization` 的日期依赖 (另一会话), 否则任何推 main 都卡在 CI 测试步。
+2. 合进 main (推 main = 构建 + 部署私有站), **全部在 pedia 打 tag 之前**: CT 解析修复; PC chunker 修复 (旧 KB 下 0 差); 若选 R4, 也在这一步提前合 (旧 KB 下 meta +3 条, 接受该行为变化)。部署后这些代码进入线上镜像, 也就是 kb-sync 的基线镜像。
+3. pedia 打 `kb-*` tag (若观察项 ⑥ / ⑦ 已按裁定改过 KB, 先按新指纹重跑预演与 §C 的数字)。
+4. kb-sync 构建候选: 候选镜像由 main checkout 构建, 已含第 2 步的代码, 候选的 chroma 与 meta 都按新代码生成; 题集是 main 上的旧 gold (闸结论不依赖 §3 的 gold 修订, 见 §5 原第 2 条)。
+5. 本地「KB 更新」一次提交: submodule 指针 + 与候选一致的 `data/meta/meta.yaml` (本机用同一份 main 代码重跑 `build_meta`) + §1 / §2 / 本节第 3 条的测试锚点 + §3 gold。推 main → CI 测试步用新 submodule 跑 pytest (锚点必须在这次提交里, 否则测试步失败、不部署) → 部署时换入过闸候选。
+6. 部署后新 gold 进入线上镜像, 成为下一次 kb-sync 的基线题集。

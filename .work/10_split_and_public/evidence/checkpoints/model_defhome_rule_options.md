@@ -142,7 +142,7 @@ R4 下的锚点 (替换上文 §3 的 R0 列; 数字以实现后重跑为准):
 
 ### 待裁定 (替换 v2 的 E1-E4)
 - **E1** 选规则: R4 (推荐, 按本节第 1 条修正后) / R0 / R2 / R4n / 其他。
-- **E2** R4 的落地时机: 放进「随 KB 升级」批 (推荐) 还是提前合并 (旧 KB 下 +3 条)。
+- **E2** R4 的落地时机 (清单审查 H2 后更正): 线上 meta 来自 kb-sync 候选, 用的是候选构建时 main 上的 `build_meta`, 所以「R4 + 随 KB 升级批提交」会让线上 meta 仍按旧规则生成, 这个组合**排除**。可选: (a) R4 在 pedia 打 tag 前提前合并, 接受旧 KB 下 +3 条 (DOMAIN / USUBJID / POOLID → 02) 的行为变化 (选 R4 时推荐); (b) 改选 R0, 随 KB 只改锚点。见 `kb_upgrade_bundle_checklist.md` v3 第 1 条。
 - **E3** Notes 为空的定义行: REFID / SPEC (model/06) 和 STUDYID / SPDEVID (model/02 §3.1.4) 都进不了映射。可选: 接受; 等 pedia 处理 ⑥ (只能找回 REFID / SPEC); 或者换一条比 R4n 更窄的规则。
 - **E4** 是否请 pedia 把「model 文件编号 ↔ SDTM 章节」写进下游格式约定 (第 7 条的机器兜底照做)。
 - **E5** 6 列隔离金丝雀换成 ETCD (推荐) 还是 ARMCD。
