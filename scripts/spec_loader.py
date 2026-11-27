@@ -21,7 +21,7 @@ class VariableSpec:
     order: int
     label: str
     var_type: str  # "Char" or "Num"
-    controlled_terms: str  # C-code, "MedDRA", "ISO 8601 ...", or ""
+    controlled_terms: str  # "[(SHORT) ]Cnnnnn[; ...]", "*", domain code, "MedDRA", "ISO 8601 ...", or ""
     role: str
     core: str  # "Req", "Exp", "Perm"
     cdisc_notes: str = ""

@@ -6,7 +6,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from scripts.build_meta import _split_ct
+from scripts.build_meta import _split_ct, _variables
 from scripts.spec_loader import SpecLoader, ct_code_of
 from server.validator import validate
 
@@ -37,11 +37,30 @@ def test_split_ct_both_formats():
     assert _split_ct("(NCOMPLT) C66727; (PROTMLST) C114118; (OTHEVENT) C150811") == (
         ["C66727", "C114118", "C150811"], [])
     assert _split_ct("C85494; C128684") == (["C85494", "C128684"], [])
-    # tokens that are not codes stay verbatim in ct_dict (current behaviour)
     assert _split_ct("MedDRA") == ([], ["MedDRA"])
-    assert _split_ct("*") == ([], ["*"])
-    assert _split_ct("AE") == ([], ["AE"])
+    assert _split_ct("ISO 8601 duration") == ([], ["ISO 8601 duration"])
     assert _split_ct("") == ([], [])
+    # '*' is an open-CT marker, never a dictionary token
+    assert _split_ct("*") == ([], [])
+    # domain code is dropped only when it is THIS variable's literal
+    assert _split_ct("AE", domain_literal="AE") == ([], [])
+    assert _split_ct("AE") == ([], ["AE"])
+    assert _split_ct("VS", domain_literal="AE") == ([], ["VS"])
+    assert _split_ct("MedDRA", domain_literal="AE") == ([], ["MedDRA"])
+
+
+def test_variables_drop_star_and_domain_literal(tmp_path):
+    (tmp_path / "domains" / "XX").mkdir(parents=True)
+    (tmp_path / "domains" / "XX" / "spec.md").write_text(_SPEC.format(sev="(AESEV) C66769")
+        + "\n### XXTERM\n- **Order:** 5\n- **Controlled Terms:** MedDRA\n"
+        + "\n### XXOTHER\n- **Order:** 6\n- **Controlled Terms:** XX\n", encoding="utf-8")
+    vs = {v["name"]: v for v in _variables(SpecLoader(tmp_path).domains["XX"])}
+    assert (vs["XXSEV"]["ct_codes"], vs["XXSEV"]["ct_dict"]) == (["C66769"], [])
+    assert vs["XXCAT"]["ct_dict"] == []            # '*'
+    assert vs["DOMAIN"]["ct_dict"] == []           # literal domain code
+    assert vs["XXTERM"]["ct_dict"] == ["MedDRA"]   # real dictionary token kept
+    assert vs["XXOTHER"]["ct_dict"] == ["XX"]      # same text, not DOMAIN -> kept
+    assert vs["XXMULTI"]["ct_codes"] == ["C66769", "C66742"]
 
 
 _SPEC = """# XX — Test Events
