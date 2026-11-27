@@ -1,9 +1,9 @@
 {
   "project": "10_split_and_public",
   "tier": 3,
-  "status": "P3_3.1_DONE",
-  "current_step": "P3 进行中: 3.1 容量 PASS (不扩 VM, evidence/checkpoints/p3_step3.1_capacity.md); Q1=bojiang.org (Cloudflare)",
-  "next_step": "3.2 compose 参数化 (项目名/容器名/端口/数据目录/.env 按实例; 公开实例只绑 127.0.0.1, 不起 ui; workflow docker inspect 去硬编码) — 在分支上写, 不推 main; 1.9 正例仍等 pedia 发版",
+  "status": "P3_3.3_DONE",
+  "current_step": "P3: 3.1/3.2/3.3 完成 (3.2 在分支 p3 未合并; 3.3 公开数据根 + .env 已在 VM, 公开容器验收后已 stop)",
+  "next_step": "等 rag main 修复合并 (p2_seam 日期 / CT 解析 / PC chunker / R4, 均在 pedia tag 前) → pedia 解冻改 KB 并打 kb-* tag → 新指纹上重跑预演与 kb_upgrade_bundle_checklist.md 全部数字和 gold 对照 → kb-sync 私有正例 → 本地「KB 更新」一次提交 → 排公开腿实现 (D1-D8) | 3.4 前: 公开站独立 Anthropic key、开 SDTM_RAG_PUBLIC_DEPLOY | 原有: 合并 p3 → main (触发私有部署, 先确认) → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 定验收窗口方案 (M3) + TRUSTED_PROXIES 改 cloudflared 固定地址",
   "completed": [
     {
       "step": "recon",
@@ -162,6 +162,41 @@
       "evidence": [
         "checkpoints/p2_deploy.md"
       ]
+    },
+    {
+      "date": "2026-11-27",
+      "step": "1.9-prep",
+      "status": "REHEARSAL_GATE_FAIL_ROOT_CAUSED",
+      "evidence": [
+        "checkpoints/kb_rehearsal_bf33bab.md",
+        "failures/kb_rehearsal_bf33bab_attempt_1.md",
+        "checkpoints/p3_public_kb_update_design.md"
+      ],
+      "note": "pedia 本地 KB bf33bab (00a2e93) 预演: 6 题回退 FAIL; 根因 B 仓 build_meta CT 码正则不认 pedia 44fb042 的 '(短名) Cnnnnn' 写法 (meta ct_codes 588→0); 反事实修解析 → 逐题 0 差; 修复在旧 KB 下 meta.yaml 逐字节不变。未经独立审查 (规则 D 待补); 补: 新 KB 下 pytest 30 个 KB 相关失败 (CT 解析 / model_defhome 多文件剔除 EPOCH 等 / 计数锚点), CI 测试步会拦; fact 级 gold 漂移 3 + 节级 1 (q126 any-of 成员), 未改 gold"
+    },
+    {
+      "date": "2026-11-27",
+      "step": "1.9-prep-review",
+      "status": "REVIEWED_PASS_WITH_FIXES_APPLIED",
+      "evidence": [
+        "checkpoints/kb_rehearsal_bf33bab_review.md",
+        "checkpoints/p3_public_kb_update_design_review.md",
+        "checkpoints/model_defhome_rule_options.md",
+        "checkpoints/kb_upgrade_bundle_checklist.md"
+      ],
+      "note": "预演审查 critic / 设计审查 security-reviewer 均 PASS-with-fixes 已修订; pytest 分类更正 ①16/②9/③5; PC examples chunker 丢 45 行 (新 PC 结构); test_p2_seam_characterization 日期依赖 2026-11-27 起失败 → CI 测试步挡住一切推 main (含 p3 合并)"
+    },
+    {
+      "date": "2026-11-27",
+      "step": "1.9-prep-pedia-reply",
+      "status": "REVIEWED_PASS_WITH_FIXES_APPLIED",
+      "evidence": [
+        "checkpoints/model_defhome_rule_options.md (v2/v3)",
+        "checkpoints/model_defhome_rule_options_review.md",
+        "checkpoints/kb_upgrade_bundle_checklist.md (v2/v3)",
+        "checkpoints/kb_upgrade_bundle_checklist_review.md"
+      ],
+      "note": "按 pedia t4_downstream_notes 更新: defhome 推荐 R0→R4 (PDF 定义出处; architect 审查); 清单 v3 (verifier 审查): gold 对照表 A/B 无新问题; PC 切块改按 H2 分派; 硬约束=改 chunk/meta 的代码须在 kb-sync 建候选前进 main (线上 meta 来自候选), R4+随KB 组合排除"
     }
   ],
   "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)",
@@ -172,6 +207,44 @@
     "主会话: deepseek-v4-pro 按 $1.32/$3.96 每 1M (P3 前对照官方价格页核实)"
   ],
   "decisions_p3": {
-    "Q1": "公开站域名 = Cloudflare 上的 bojiang.org (2026-11-26 用户裁定)"
+    "Q1": "公开站域名 = Cloudflare 上的 bojiang.org (2026-11-26 用户裁定)",
+    "3.2": "私有 compose.yml 不动, 公开实例独立 compose.public.yml (写死档位/路径, 不发布端口) + workflow deploy_public job (vars 门控, 失败停机)",
+    "open": [
+      "3.4 前定: 验收窗口 (先临时容器验 / cloudflared 验后再指) — 审查 M3",
+      "公开 chroma 的 KB 更新流程: 设计 v0.2 + 2026-11-27 受托代裁 D1-D8 (见 decisions_2026_11_27_delegated); 实现待 rag main 修复合并后排"
+    ],
+    "Q3_override": "2026-11-26 用户: 公开站全部用 Anthropic key, 模型选便宜的 → 免费题 = Claude Haiku 5.5 ($0.10/$0.50), 内部组与 fallback 同",
+    "3.3": "公开 chroma 只含 sdtm_kb_v1 4329; 140q 与基线逐题一致"
+  },
+  "decisions_2026_11_27_delegated": {
+    "source": "2026-11-27 主人把选择题委托给协调 bot「sdtm开发」(原话:「之前那些选项，你可以替我分析后决定嘛。我听从你的建议」); 以下为 bot 受托代裁, 非主人逐条裁定",
+    "public_kb_update_design": {
+      "D1": "公开闸失败 → 公开站保持旧镜像+旧数据, 只告警, 不阻断私有部署; 接受公开 chroma 落后期间公开部署被跳过",
+      "D2": "换入后验收失败 → 退回数据后停机; 原本停止的保持停止",
+      "D3": "1.9 正例先只验私有; 公开腿实现后补建补验, 不挡 pedia 发版",
+      "D4": "沿用 SDTM_RAG_PUBLIC_DEPLOY, 演练或 3.4 前再开, 现在不开",
+      "D6": "A1 (复制后重置)",
+      "D7": "失败归档原地保留",
+      "D8": "两条腿两个 job",
+      "status": "未实现; 等 rag main 上的修复合并后再排"
+    },
+    "model_defhome": {
+      "E1": "R4",
+      "E2": "pedia tag 前提前合并, 接受旧 KB +3 条",
+      "E3": "接受 REFID/SPEC/STUDYID/SPDEVID 不进映射",
+      "E4": "请 pedia 写进下游约定 (协调 bot 转达)",
+      "E5": "ETCD",
+      "E6": "保留",
+      "status": "另一会话在子工作区实现, 分支叠在 hakupao/fix-ct-cell-format 上"
+    },
+    "anthropic_key": "公开站与私有站分开 (公开站单独 key), 3.4 前落地",
+    "ct_followups_not_now": [
+      "* 标志位",
+      "多 codelist 逐码校验",
+      "短名核对"
+    ],
+    "pedia_pc_examples": "pedia 不调整 (照 PDF, 结构 S2); 新增 Example 1 块 cdisc_section_id 保持 None",
+    "pedia_model06_notes": "观察项 ⑥ 这次不改; 将来改前先通知本仓",
+    "pedia_unfreeze": "pedia 将解冻一次性改 KB (约 40 行值/措辞、标题按 PDF 改名、CRF 符号 58 处、Mermaid 统一渲染、KB note 前缀); 所有数字与 gold 对照须在新指纹上重跑"
   }
 }

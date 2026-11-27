@@ -28,3 +28,9 @@
 {"ts":"2026-11-25T00:00:00+09:00","step":"R1","event":"step_done","agent":"main","verdict":"PASS","note":"R1 gates rerun by orchestrator after session break; reviewer PASS-with-fixes applied"}
 {"ts": "2026-11-25T22:00:00+09:00", "step": 1.8, "event": "step_done", "agent": "main", "verdict": "PASS-with-fixes→fixed", "note": "reviewer code-reviewer, fixer executor, main re-verified mutation"}
 {"ts": "2026-11-26T21:55:00+09:00", "step": "3.1", "event": "step_done", "agent": "main", "verdict": "PASS", "note": "VM 8GiB avail 4994M; 不扩容; Q1=bojiang.org"}
+{"ts": "2026-11-26T23:00:00+09:00", "step": "3.2", "event": "step_done", "agent": "main", "verdict": "PASS-with-fixes→fixed", "note": "reviewer oh-my-claudecode:code-reviewer opus; branch p3"}
+{"ts": "2026-11-26T22:40:00+09:00", "step": "3.3", "event": "step_done", "agent": "main", "verdict": "PASS", "note": "attempt 2; attempt 1 = TRUSTED_PROXIES 缺失拒启动 (设计内)"}
+{"ts": "2026-11-27T10:10:00+09:00", "step": "1.9-prep", "event": "rehearsal", "agent": "main", "verdict": "FAIL(root-caused)", "note": "6 回退=build_meta CT 解析; 反事实 0 差; 公开 KB 更新设计 v0.1 待裁"}
+{"ts": "2026-11-27T11:30:00+09:00", "step": "1.9-prep-review", "event": "review", "agent": "oh-my-claudecode:critic + oh-my-claudecode:security-reviewer", "verdict": "PASS-with-fixes→fixed", "note": "p2_seam 日期依赖挡 CI; PC chunker 丢内容; defhome 方案 R0 推荐"}
+{"ts": "2026-11-27T13:00:00+09:00", "step": "1.9-prep-pedia-reply", "event": "review", "agent": "oh-my-claudecode:architect + oh-my-claudecode:verifier", "verdict": "PASS-with-fixes→fixed", "note": "defhome R4; 清单 v3 硬约束 (代码先于候选)"}
+{"ts": "2026-11-27T14:00:00+09:00", "step": "1.9-prep-decisions", "event": "decisions_logged", "agent": "main", "verdict": "DELEGATED", "note": "协调 bot 受托代裁 D1-D8 / E1-E6 等登记"}

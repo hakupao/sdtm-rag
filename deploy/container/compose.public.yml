@@ -1,0 +1,39 @@
+# 公开实例 (P3)。与私有实例 compose.yml 完全分开: 项目名 / 容器名 / 数据根 / .env / 网络都不同, 只起 api。
+# 失效安全: 档位、路径、绑定地址全部写死在本文件, 不从变量取 (漏设变量也不会落回私有数据或私有档)。
+#   - SDTM_RAG_INSTANCE=public 写在 environment: 真实环境变量优先于 .env 同名键 (load_dotenv 不覆盖);
+#     .env 里写大小写变体 (如 sdtm_rag_instance=private) 与之冲突 → server/config.py 拒启动。
+#     public 档启动自检 (server/instance.check_startup) 拦 study 数据/开关。
+#   - 不发布宿主端口 (局域网/mini 均不可达); 外网入口只有同网络的 cloudflared (3.4)。
+#     运维冒烟用 docker exec sdtm-rag-public-api python -c "...urlopen('http://127.0.0.1:8000/...')"。
+#   - 数据根: CDISC-only chroma (3.3 建), 不含 data/study。
+name: sdtm-rag-public
+services:
+  api:
+    image: 192.168.100.58/bojiang/sdtm-rag:${IMAGE_TAG:?需要 IMAGE_TAG}
+    container_name: sdtm-rag-public-api
+    restart: unless-stopped
+    environment:
+      SDTM_RAG_INSTANCE: public
+    volumes:
+      - type: bind
+        source: /Volumes/DevSSD/deploy-data/sdtm-rag-public/data
+        target: /app/data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/sdtm-rag-public/.env
+        target: /app/.env
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [public]
+    mem_limit: 1536m
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+networks:
+  public:
+    name: sdtm-rag-public

@@ -54,6 +54,8 @@ jobs:
     # 只部署 main：手动运行时选了其他分支就不执行（避免部署未合并的工作流和 compose）
     if: gitea.ref == 'refs/heads/main'
     timeout-minutes: 60
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       # submodule 是公开 GitHub 仓 (https), 无需凭据; .gitmodules 设了 shallow = true
       - uses: actions/checkout@v4
@@ -239,6 +241,100 @@ jobs:
           export APP_DIR
           IMAGE_TAG="$PREV" docker compose -f deploy/container/compose.yml up -d
           echo "已退回镜像 $PREV (挂载目录 $APP_DIR)；注意 .env 若已为新镜像改过，需按 deploy/README「回滚」还原"
+
+      - name: 退出镜像仓库
+        if: always()
+        run: docker logout "$REGISTRY" || true
+
+  # 公开实例 (P3, deploy/container/compose.public.yml)。独立 job: 私有部署成功后才跑, 失败只影响公开实例,
+  # 不触发私有 job 的退回步骤。默认关闭: 仓库变量 SDTM_RAG_PUBLIC_DEPLOY=true 才启用 (3.3 公开数据根建好后)。
+  # 失败一律停掉公开实例 (失效安全: 公开站宁可下线, 也不以未验证的档位/数据对外), 不自动退回旧镜像。
+  deploy_public:
+    needs: deploy
+    if: gitea.ref == 'refs/heads/main' && vars.SDTM_RAG_PUBLIC_DEPLOY == 'true' && (gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PUBLIC_DATA_ROOT: /Volumes/DevSSD/deploy-data/sdtm-rag-public/data
+      COMPOSE_PUBLIC: deploy/container/compose.public.yml
+      TAG: ${{ needs.deploy.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 登录镜像仓库
+        env:
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          [ -n "$REGISTRY_TOKEN" ] || { echo "缺少仓库密钥 REGISTRY_TOKEN"; exit 1; }
+          echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "${{ gitea.actor }}" --password-stdin
+
+      # 只读: 此时公开实例未改动
+      - name: 公开实例预检
+        id: pre
+        run: |
+          printf '%s' "$TAG" | grep -Eqx '[0-9a-f]{40}' || { echo "标签必须是 40 位小写 commit SHA"; exit 1; }
+          IMG="$IMAGE:$TAG"
+          docker pull "$IMG"
+          # P2 之前的镜像不认识 SDTM_RAG_INSTANCE, 会以私有档全功能对外 → 拒绝 (回滚旧 tag 时也走这里)
+          docker run --rm --entrypoint python "$IMG" -c "import server.instance" \
+            || { echo "镜像不含 server.instance (P2 前的版本)，不能作公开实例"; exit 1; }
+          docker run --rm --entrypoint python -e SDTM_RAG_INSTANCE=public "$IMG" -c \
+            "import sys; from server.config import Settings; sys.exit(0 if Settings().instance == 'public' else 'tier != public')" \
+            || { echo "镜像在 SDTM_RAG_INSTANCE=public 下解析出的档位不是 public"; exit 1; }
+          WD=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMG")
+          [ "$WD" = /app ] || { echo "镜像 WorkingDir=$WD，compose.public.yml 只支持 /app"; exit 1; }
+          FP=$(python3 deploy/kbsync/kbsync.py image-fp --image "$IMG")
+          CHROMA_V=$(python3 deploy/kbsync/kbsync.py chromadb-version --image "$IMG")
+          OUT=$(python3 deploy/kbsync/kbsync.py --via "$IMG" predeploy-check --data-root "$PUBLIC_DATA_ROOT" \
+            --target-fp "$FP" --chromadb-version "$CHROMA_V")
+          echo "$OUT"
+          DECISION=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["decision"])')
+          # 公开 chroma 的 KB 更新流程未定 (见 .work/10_split_and_public/_progress.json); 指纹不一致就不部署
+          # 只告警不失败: 否则私有 KB 升级后每次 run 都红, 真失败被淹没。公开实例保持旧镜像
+          if [ "$DECISION" != same ]; then
+            echo "::warning::公开 chroma 与镜像 KB 指纹不一致 ($DECISION)，跳过公开实例部署 (公开实例未改动)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 部署公开实例
+        id: deploy
+        if: steps.pre.outputs.skip != 'true'
+        run: |
+          echo "started=true" >> "$GITHUB_OUTPUT"
+          IMAGE_TAG="$TAG" docker compose -f "$COMPOSE_PUBLIC" up -d
+          docker inspect sdtm-rag-public-api --format '{{.Name}} 运行镜像：{{.Config.Image}}'
+
+      # 公开实例不发布宿主端口 → 用容器健康状态 + docker exec 验
+      - name: 公开实例验收 (健康 / 档位 / 内部接口关闭 / 索引新鲜度)
+        if: steps.pre.outputs.skip != 'true'
+        run: |
+          for i in $(seq 1 60); do
+            st=$(docker inspect -f '{{.State.Health.Status}}' sdtm-rag-public-api 2>/dev/null || true)
+            [ "$st" = healthy ] && break
+            sleep 3
+          done
+          [ "$st" = healthy ] || { echo "公开实例未就绪 ($st)"; docker logs --tail 80 sdtm-rag-public-api; exit 1; }
+          docker exec sdtm-rag-public-api python -c '
+          import json, sys, urllib.request, urllib.error
+          base = "http://127.0.0.1:8000"
+          info = json.load(urllib.request.urlopen(base + "/api/info", timeout=5))
+          if info.get("tier") != "public":
+              sys.exit("tier != public")
+          try:
+              urllib.request.urlopen(base + "/openapi.json", timeout=5)
+              sys.exit("/openapi.json 未关闭")
+          except urllib.error.HTTPError as e:
+              if e.code != 404:
+                  sys.exit(f"/openapi.json 返回 {e.code}")
+          print("tier=public, /openapi.json 404")
+          '
+          docker exec sdtm-rag-public-api python -m scripts.check_index_freshness
+
+      - name: 失败时停掉公开实例
+        if: (failure() || cancelled()) && steps.deploy.outputs.started == 'true'
+        run: |
+          IMAGE_TAG=x docker compose -f "$COMPOSE_PUBLIC" stop || true
+          echo "公开实例已停止 (公开站下线, 私有实例不受影响)；排查后手动重新部署"
 
       - name: 退出镜像仓库
         if: always()

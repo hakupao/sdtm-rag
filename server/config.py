@@ -6,6 +6,7 @@ App settings use SDTM_RAG_ prefix.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -16,6 +17,18 @@ from pydantic_settings import BaseSettings
 _SDTM_RAG_ROOT = Path(__file__).resolve().parent.parent
 
 load_dotenv(_SDTM_RAG_ROOT / ".env")
+
+
+def _check_instance_env(environ) -> None:
+    """P3.2: pydantic-settings matches env names case-insensitively, so a `.env` line like
+    `sdtm_rag_instance=private` lands beside compose's `SDTM_RAG_INSTANCE=public` (load_dotenv only
+    skips exact-name keys) and can silently win. Refuse any conflicting case variants."""
+    vals = {k: v for k, v in environ.items() if k.lower() == "sdtm_rag_instance"}
+    if len(set(vals.values())) > 1:
+        raise RuntimeError(f"conflicting SDTM_RAG_INSTANCE case variants in environment: {sorted(vals)}")
+
+
+_check_instance_env(os.environ)
 
 
 class SelectableModel(BaseModel):

@@ -18,7 +18,7 @@ ssh bojiang.local 'export PATH=/opt/homebrew/bin:$PATH LIMA_HOME=/Volumes/DevSSD
 | VM 内存 | total 7913M, used 2919M, **available 4994M**; swap 4095M 已用 783M |
 | sdtm-rag-api | 478 MiB / 上限 1.5 GiB, CPU 10% |
 | sdtm-rag-ui | 56 MiB / 512 MiB |
-| 同机其他 | 19 个容器 (sdts-production 550M, n8n 264M, homarr 223M …), 合计实用约 2.3 GiB |
+| 同机其他 | 19 个容器 (sdts-production 550M, n8n 264M, homarr 223M …), 合计实用约 1.6 GiB (含 sdtm-rag 两容器全部 21 个约 2.1 GiB) |
 
 ## 判定
 
