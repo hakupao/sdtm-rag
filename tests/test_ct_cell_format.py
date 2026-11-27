@@ -42,6 +42,8 @@ def test_split_ct_both_formats():
     assert _split_ct("") == ([], [])
     # '*' is an open-CT marker, never a dictionary token
     assert _split_ct("*") == ([], [])
+    assert _split_ct("ISO * x") == ([], ["ISO * x"])      # only a bare "*" token
+    assert _split_ct("(NY) C66742; *") == (["C66742"], [])
     # domain code is dropped only when it is THIS variable's literal
     assert _split_ct("AE", domain_literal="AE") == ([], [])
     assert _split_ct("AE") == ([], ["AE"])
