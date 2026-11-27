@@ -1,7 +1,7 @@
 # KB 发版预演 (第二次): pedia 定稿 KB `d46f8af` 入库 + CDISC 140 题闸 (2026-11-27)
 
 **结论: 闸 PASS, 但余量为零。** 140 题里只有 q76 一题回退 (1.0 → 0.5), 原因是 gold 漂移: 这轮 pedia 把 `model/06` 的 6.6 节标题按 PDF 改了名, q76 的节级 gold 用 `$` 精确匹配旧标题, 文件本身仍排在检索第 2 位。闸允许回退 ≤ 1、满分题数 ≥ 基线 − 1, 现在两项都正好踩在线上。
-新 KB 下 pytest 失败 18 个, 全部是清单里「随 KB 升级才改」的锚点; 把清单锚点套到临时副本后 0 失败。本机有索引时另有 1 条节级 gold 存在性测试报 q76、q126, 靠 gold 修订消除。没有需要改代码才能过的问题。
+新 KB 下 pytest 失败 18 个, 全部是清单里「随 KB 升级才改」的锚点; 把清单锚点套到临时副本后 0 失败。本机有索引时另有 1 条节级 gold 存在性测试报 q76、q126, 靠 gold 修订消除。没有需要改代码才能过的问题。另有 54 条依赖本机研究数据的测试在预演里跑不了 (研究数据不能拷出), 其中 1 条依赖 KB 产物, 留到本机「KB 更新」时首跑 (见「没有在新 KB 下跑到的测试」)。
 q39 加 `domains/FA/assumptions.md` 作必须命中的来源: 实测能召回 (15 席里排第 4, 候选树 5 趟一致), 裁定 (b) 维持。
 ✅ 已独立审查 (`oh-my-claudecode:critic`, PASS-with-fixes, 见 `kb_rehearsal_477bac3_review.md`); 审查意见已并入正文, 处置见文末「独立审查」。
 
@@ -113,6 +113,7 @@ for k in old:$O new:$P; do SDTM_RAG_KB_ROOT_OVERRIDE=${k#*:} $PY $PR/kb_rehearsa
 | **B 双标题过渡** | 把 q76 的 `model/06` 条目改成 any-of 组 `[旧标题$, 新标题$]`, 合进 main | 回退 0、满分 138 | ① `eval/` 在部署路径过滤里, 这次提交会触发一次只改题集的部署; ② 属于放宽 gold, 按 `check_source_recall` 的用法纪律要由非受益方裁定; ③ **本机 `tests/test_section_gold_exists.py::test_every_section_gold_exists_in_index` 会变红** (它要求每条节级 gold 在当前索引里存在, 而新标题成员在旧 KB 索引里不存在; 已实测)。CI 没有索引会跳过这条测试, 不挡部署, 但本机 push 前的 pytest 是红的, 要在提交说明里写明; ④ KB 升级后要把旧标题成员删掉 |
 | **C 提前只换新标题** | 把 q76 的 gold 直接换成新标题, 合进 main | 回退 0、满分 137 → 138 (基线 q76 = 0.5, 候选 = 1.0) | ① 同 B 的 ①③ (本机同一条测试变红, 直到 KB 升级); ② 升级前线上题集的 q76 是 0.5, 这一题在闸里不再有保护作用; ③ 不算放宽 gold |
 
+做法 B / C 的主要代价是多一次部署。如果这次只改题集的提交带 `[skip ci]` (不部署), 闸同样是 0 回退: kb-sync 的候选镜像由 main checkout 构建, 用的是新 gold; 基线用线上镜像里的旧 gold, 旧 KB 下 q76 = 1.0 (`cand_q76dual.json`、`cand_goldnext_r1.json` 对原始 `baseline.json` 的回退都是空)。但 `eval/` 在部署路径过滤里, 对它用 `[skip ci]` 会让线上镜像的题集与 main 不一致, 能不能这样做需要裁定。
 做法 C 的数字由 `base_goldnext.json` 与 `cand_goldnext_r1.json` 推出 (各题的得分只取决于本题的 gold, 这两份里 q76 用的就是新标题), 没有单独跑。
 本报告只给出各做法的实测结果, 未改 `eval/`。三种做法里只有 A 能让本机测试在升级前后一直是绿的。
 
@@ -128,7 +129,7 @@ for k in old:$O new:$P; do SDTM_RAG_KB_ROOT_OVERRIDE=${k#*:} $PY $PR/kb_rehearsa
 | q76 双标题 any-of (做法 B) | 新 KB | 1.0 (2/2) | 1.0 (命中新标题成员) | 无 | 138 / 0.9917 |
 
 - **q39**: `domains/FA/assumptions.md` 在新 KB 候选的 15 席检索结果里排第 4 (top5 = PC/spec, ch08, SS/spec, **FA/assumptions**, BS/spec), 候选树 5 趟都一样; 原有两条来源 (`model/02` 第 10 席、`ch08#8.6.3…` 第 2 席) 也都命中。审查者导出了每一席的 chunk: 召回的是 `domains/FA/assumptions.md` 的 `item_3` 块 (chunk id `…#3`), 正文含 `§6.4.3 Variables Unique to Findings About` 与 FAOBJ, 也就是从 `model/02` 搬过来的那段内容。q39 这条 gold 是路径级的 (该文件任一 chunk 命中即算); FA 文件里有两个都叫 `item_3` 的块, 所以不建议把它改成节级 gold。**裁定 (b) 维持, 不用退回 (a)。** 在旧 KB 上加这一条同样 3/3 命中, 所以这条修订不挑 KB 版本。
-- **q76 新标题**只在新 KB 成立, 必须和 submodule 升级放在同一次提交 (或用做法 B 的双标题过渡)。
+- **q76 新标题**只在新 KB 的索引里存在。按做法 A, 它和 submodule 升级放在同一次提交; 做法 B / C 是提前改, 代价见上节的表。
 - **q126** 删掉 `model/03…#Subject Elements (SE)$` 成员后仍是 0.5: 同组 `domains/SE/assumptions.md` 命中, 未命中的是 `domains/TE/spec.md` (既有情况)。
 - q117 / q120 改的是 fact, 不参与 retrieval 闸。
 
@@ -182,6 +183,20 @@ for k in old:$O new:$P; do SDTM_RAG_KB_ROOT_OVERRIDE=${k#*:} $PY $PR/kb_rehearsa
 | | `test_structured_lookup::TestConceptDefinitionChannel::test_defhome_epoch` | 同上 | 同上 |
 
 一个失败的测试只报第一条不成立的断言, 后面的断言被挡住。为了确认清单没有漏项, 用 `probes/kb_rehearsal_apply_anchors.py` 把清单的全部锚点打到临时副本 (每处替换先断言旧串出现次数、写完回读), 重跑后 0 失败。脚本只允许对临时目录运行。
+
+### 没有在新 KB 下跑到的测试 (54 条依赖本机研究数据 + 2 条依赖 playwright)
+预演的代码树里没有 `data/study/` (红线: 研究数据只留在 gitignored 目录, 不拷进临时目录, 也不软链), 所以带 `local_data` 标记的测试全部跳过。上面「0 失败」「没有清单之外的失败」只对实际跑到的 2941 条成立。主仓本机是 2995 passed / 2 skipped (`p3_merge_deploy.md`), 差的 54 条按文件分流如下 (依据: 各文件里有没有读 KB 根、`meta.yaml` / `MetaStore`、CDISC 索引; 命令见本节末):
+
+| 文件 (跳过条数) | 是否依赖 KB 产物 |
+|---|---|
+| `test_catalog_workflow_pools.py` (9)、`test_parse_workflow_sheets.py` (7)、`test_run_routing_eval.py` (2)、`test_u3_gold_redline.py` (9) | 否: 文件里没有任何 KB / meta / CDISC 索引的引用, 只读研究侧数据 |
+| `test_main_study_lookup_wiring.py` (11)、`test_main_study_docs_wiring.py` (8)、`test_main_signal_wiring.py` (3)、`test_docs_engine_parity.py` (3) | 否: 跑的是启动接线, `RAGEngine` / `SpecLoader` / `MetaStore` 都被替身换掉, 不读 KB 内容 |
+| `test_federation_api.py::test_study_kb_root_default_holds_ragengine_required_files` (1) | 否: 只检查研究侧 KB 根目录里的两个文件 |
+| **`test_validate_study_endpoint.py::test_create_app_boots_through_lifespan` (1)** | **是**: 走真实的完整启动 (真 chroma、真 KB、真 meta, 加研究侧引擎), 断言 `/api/health` 200 且图引擎域数 > 0 |
+
+- 唯一依赖 KB 产物的那条 **没有在新 KB 下原样验证**, 本机做「KB 更新」时首跑。
+- 替代验证 (只覆盖 CDISC 一侧): 在「候选 chroma + 候选 meta + 新 KB」的临时树里关掉研究侧功能, 走同一个 `create_app()` 完整启动 (`probes/kb_rehearsal_boot_smoke.py`): `/api/health` 200, `chunk_count` 4333, `index_fresh` True, 图引擎 63 个域, `model_defhome` 75 条, EPOCH → `model/02`。研究侧引擎不读 CDISC KB, 所以原测试在新 KB 下失败的可能性低, 但这是推断, 不是实测。
+- 命令: `grep "^SKIPPED" <带 -rs 的 pytest 日志>` 得到文件清单; 对每个文件 `grep -c 'kb_root\|knowledge_base\|meta_path\|MetaStore\|meta\.yaml\|sdtm_kb_v1\|model_defhome\|ct_codes\|RAGEngine' tests/<文件>` 并看替身 (`monkeypatch.setattr(main_mod, "RAGEngine", …)`); 启动冒烟: `cd $S/ci5 && SDTM_RAG_KB_ROOT_OVERRIDE=$P SDTM_RAG_FEDERATION_ENABLED=false SDTM_RAG_DOSSIER_ENABLED=false $PY $PR/kb_rehearsal_boot_smoke.py`。
 
 ## 重算的数字
 

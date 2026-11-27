@@ -230,7 +230,7 @@
         "checkpoints/kb_upgrade_bundle_checklist.md (v6)",
         "subagent_prompts/review_kb_rehearsal_477bac3.md"
       ],
-      "note": "pedia 定稿 KB d46f8af (指纹 477bac3ce565, 树哈希 63f85777) + main efefb7a 代码 (= 线上 2b24d53) 预演: 4333 chunks; 140 题闸 PASS, 回退 1 题 q76 (model/06 6.6 节标题改名 → 节级 gold 漂移, 文件仍排第 2), 满分 137, avg 0.9881, 余量 0; 新 KB pytest 18 failed (计数 4 / PC 6 / R4 8), 全在清单内, 套锚点后 0 failed; R4 映射 75 条 (较 00a2e93 +TSVALCD/TSVCDREF/TSVCDVER); q39 加 FA 来源实测可召回 (第 4 席) → 裁定 b 维持; q117/q120 新 fact 逐字存在; gold 新发现 = q76 (待裁定做法 A/B); 本机有索引时新 KB 下另有 test_section_gold_exists 报 q76/q126 (靠 gold 修订消除; 锚点 + gold 五处全改 + 候选索引 = 2941 passed / 0 failed); 独立审查 oh-my-claudecode:critic PASS-with-fixes (MAJOR 2 / MINOR 7 全部已修订: 做法 B 的本机测试代价、补复跑命令与 q76dual 变体、加做法 C)"
+      "note": "pedia 定稿 KB d46f8af (指纹 477bac3ce565, 树哈希 63f85777) + main efefb7a 代码 (= 线上 2b24d53) 预演: 4333 chunks; 140 题闸 PASS, 回退 1 题 q76 (model/06 6.6 节标题改名 → 节级 gold 漂移, 文件仍排第 2), 满分 137, avg 0.9881, 余量 0; 新 KB pytest 18 failed (计数 4 / PC 6 / R4 8), 全在清单内, 套锚点后 0 failed; R4 映射 75 条 (较 00a2e93 +TSVALCD/TSVCDREF/TSVCDVER); q39 加 FA 来源实测可召回 (第 4 席) → 裁定 b 维持; q117/q120 新 fact 逐字存在; gold 新发现 = q76 (待裁定做法 A/B); 本机有索引时新 KB 下另有 test_section_gold_exists 报 q76/q126 (靠 gold 修订消除; 锚点 + gold 五处全改 + 候选索引 = 2941 passed / 0 failed); 独立审查 oh-my-claudecode:critic PASS-with-fixes (MAJOR 2 / MINOR 7 全部已修订: 做法 B 的本机测试代价、补复跑命令与 q76dual 变体、加做法 C); 54 条 local_data 测试预演里跑不了, 其中仅 test_create_app_boots_through_lifespan 依赖 KB 产物 → 本机 KB 更新时首跑 (CDISC 侧启动冒烟已过)"
     }
   ],
   "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)",

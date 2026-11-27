@@ -216,6 +216,8 @@ pedia 打 tag 时若 KB 树哈希不是 `63f857774a42cfaa71798705ad40ab51bc5e378
   - 做法 A = q76 随「KB 更新」提交改成新标题, kb-sync 按 1 题回退过闸 (余量 0); 本机测试全程是绿的。
   - 做法 B = pedia 打 tag 前先把 q76 这条改成新旧双标题的 any-of 组 (新旧 KB 都 1.0, 闸 0 回退)。代价: 多一次只改题集的部署; 属于放宽 gold, 需非受益方裁定; 升级后删掉旧标题成员; **本机 `test_section_gold_exists.py::test_every_section_gold_exists_in_index` 在升级前会变红** (新标题成员在旧 KB 索引里不存在; CI 无索引会跳过, 不挡部署)。这是本清单开头「只在新 KB 下成立的改动不提前合」原则的一个例外, 选 B 就要接受它。
   - 做法 C = 打 tag 前直接把 q76 换成新标题 (闸 0 回退, 基线 q76 = 0.5)。不算放宽 gold, 但本机同一条测试同样变红, 且升级前 q76 在闸里不起保护作用。
+- 预演里有 54 条依赖本机研究数据的测试跑不了, 其中只有 `test_validate_study_endpoint.py::test_create_app_boots_through_lifespan` 依赖 KB 产物 (真实完整启动); 它**未在新 KB 下原样验证**, 本机「KB 更新」时首跑 (CDISC 一侧的启动冒烟已过, 见预演报告「没有在新 KB 下跑到的测试」)。下面的「0 失败」只对预演实际跑到的 2941 条成立。
+- 做法 B / C 若用 `[skip ci]` 提交 (不部署), kb-sync 闸同样 0 回退, 但 `eval/` 改动能否 `[skip ci]` 需要裁定。
 - 本机有索引时, 新 KB 下还会多 1 个失败 (不在下面 18 个里): `test_section_gold_exists.py::test_every_section_gold_exists_in_index` 报 q76、q126 两条节级 gold 在索引里不存在。它靠第 2 条的 gold 修订消除, 所以「KB 更新」提交里 q76、q126 的 gold 修订是本机 pytest 通过的必要条件。
 
 ### 2. `eval/test_set_v3.yml` gold 修订 (替换 v5 的表; 共 5 处)
