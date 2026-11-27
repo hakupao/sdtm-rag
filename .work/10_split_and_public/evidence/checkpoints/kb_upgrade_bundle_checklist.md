@@ -57,3 +57,48 @@ pedia 如果在 `00a2e93` 之后再改 KB, 打 tag 后要按新指纹重跑预�
 3. **本地「KB 更新」一次提交**: submodule 指针 + meta.yaml + §1 / §2 测试锚点 + §3 gold。推 main → CI 测试步用新 submodule 跑 pytest (所以 §1 / §2 必须在这次提交里, 否则测试步失败、部署中止) → 构建 → 换入过闸候选 chroma。
 4. 这次部署后, 新 gold 才进入线上镜像, 成为下一次 kb-sync 的基线题集。
 - 只改 `tests/` 的提交不触发 CI (路径过滤不含 `tests/`), 本清单的测试改动必须本机跑过再推。
+
+## v2 更新 (2026-11-27, 依据 pedia 答复 `sdtm-pedia/.work/10_tier_b_repair/evidence/checkpoints/t4_downstream_notes.md`; 与上文冲突处以本节为准)
+
+### A. gold 与 pedia 节变动清单的对照 (只读, 未改 eval)
+- **结论: 除已知的 fact 3 处 (q39 / q117 / q120) 和节级 1 处 (q126) 外, 没有别的 gold 引用被移走或改名的节。**
+- 方法 1 (节级, 覆盖表 B 全部改名): 用新旧 KB 的 chunk section 全集按 `eval.run_eval` 的 `路径#节[$]` 语义重算每条 gold (`probes/kb_rehearsal_secdump.py` + `kb_rehearsal_secmatch.py`, 预演时已跑, 审查者用 `source_matches` 复核): 只有 q126 失效。表 B 里 ch04 / ch08 / model/0x 的改名都没有被节级 gold 引用 (例如 q38 引用的 `4.1.6 Additional Guidance on Dataset Naming` 与 q39 引用的 `8.6.3 Guidelines …` 两版都在)。
+- 方法 2 (路径级, 覆盖表 A 的 16 组跨文件移动): 对每条 gold 路径落在表 A 旧位置文件 (46 处) 或表 B 改名文件 (49 处) 的引用, 逐**单个 gold 文件**比较新旧 KB 下该文件含该题多少条 fact (`probes/gold_vs_moved.py`, 用法见文件头; 文件之间加了分隔符, 避免跨文件拼出假命中)。只标出 3 处, 即已知的 q39 (`model/02` 少了 FAOBJ, 表 A1)、q117 (`ch08` 省略号, S-TYPO, 不属节变动)、q120 (`model/06` 重写, 表 B model/06 行)。
+- 路径级 gold 引用 EC / SC / MB / CP / GF / IS / CO / MS / PP 文件的共 6 处, 全是 `spec.md` 或 `assumptions.md` 中未被移走的部分; 没有 gold 引用表 A 里被删的示例副本 (EC examples、MB 顶层副本、SC Specification、CP / GF / IS 的示例附录)。
+- 局限: 方法 2 只能看到 fact 的变化; 某个 gold 文件的「主题内容」被移走、但该题 fact 恰好还在的情况它看不到。140 题 retrieval 闸没有出现 CT 以外的回退, 作为旁证。
+
+### B. PC examples 切块修复方案 (不实现; **依赖 pedia 对观察项 ⑦ 的裁定**)
+pedia 的说法: `## PC – Examples` 照 PDF (p269) 不带节号, 节号应从所属域节继承 (PC 自己的例属于 §6.3.5.9.1); 旧 KB 把 PC Example 1 挂在 `## §6.3.5.9.3` 下是挂错了。pedia 把「PC 示例层级与其他域不一致」记为观察项 ⑦, 等用户裁定, 所以打 tag 前 PC 结构还可能变 (例如改成和其他域一样的 `## Example N` 平铺, 或保持现状)。
+
+可能出现的三种结构:
+- S1 旧 KB: 只有 `## §6.3.5.9.3 …` → `### Example 1..4` → `#### Method A-D`;
+- S2 现 KB: `## PC – Examples` → `### Example 1` (无 H4), 再 `## §6.3.5.9.3 …` → `### Example 1..4` → `#### Method A-D`;
+- S3 观察项 ⑦ 若改成与其他域一致: `## Example N` 平铺 + 合并例 (形态未定)。
+
+方案 (对三种结构都成立, 按「节」而不是「文件」分派):
+1. **分派**: 现在是按整个文件判定「H4 嵌套模式」(≥2 个 H4 且有 `Method ` 开头) 后, 只为 H4 出块。改为在每个 H3 范围内判定: 该 H3 下有 H4 → 每个 H4 一块 (保持现行 Method 粒度与 `example_index` / `sub_label`); 没有 H4 → 整个 H3 一块; H2 下没有 H3 的正文 (如导语) → 一块。这样 S2 的 PC Example 1 有了自己的块, S1 的输出不变, S3 退化为按 H2 / H3 平铺。
+2. **节号**: 每块取「向上最近的、带 `§` 编号的 H2 / H3」; 没有带编号的祖先标题 (S2 的 `PC – Examples`, 以及其他域的 `## Example N`) 时, 从所属域的节号继承: 读同域 `assumptions.md` 第一个形如 `## 6.3.5.9 …` / `## §6.x …` 的标题, 或由 meta 的「域 → 节号」映射得到。注意: PC 的 `assumptions.md` 第一个编号标题是 `## 6.3.5.9 Pharmacokinetics Domains` (PC 与 PP 共用的父节), 不是 §6.3.5.9.1, 所以「域 → 节号」要能区分父节与本域节, 实现时先确认数据源能否给出 §6.3.5.9.1。
+3. **兼容性**: S1 下每块的 § 祖先都是 `## §6.3.5.9.3`, 输出与现行逐字段相同 (实现时用旧 KB 跑 `test_examples.py` 与全量 chunk 比对验证)。其他域目前 `cdisc_section_id` 普遍为 None (AE / TU / PP 等), 第 2 条的「从域继承」如果对所有域生效, 会改变全部 examples chunk 的元数据, 影响面需要单独评估, 可以先只在「文件里至少有一个带 § 的标题」时启用。
+4. **测试期望**: `test_pc_examples_all_have_cdisc_section_id` (全部 == §6.3.5.9.3) 在 S2 下要拆成两条: 合并例 Method 块 == §6.3.5.9.3; PC 自己的 Example 1 块 == 继承值 (§6.3.5.9.1 或用户认可的值)。块数 14 → 15。
+5. **依赖**: 观察项 ⑦ 若在打 tag 前改了结构, 第 1-2 条的规则不用变, 只需重跑覆盖率扫描 (`probes/kb_rehearsal_coverage.py`) 和第 4 条的期望。因此建议 **PC 修复等 pedia 对 ⑦ 裁定后再实现**, 或者先实现方案 1-3 (对 S1 / S2 都成立), 期望值随 tag 定。
+
+### C. pedia 解冻改 KB 后要在新指纹上重跑的数字
+pedia 还会按用户裁定改 KB (至少观察项 ⑥ REFID / SPEC 的 Notes、⑦ PC 层级), 指纹会变。打 tag 后以 tag 的指纹重跑, 下表的数字全部以重跑为准:
+
+| 数字 | 本清单 / 预演里的值 (指纹 `bf33bab…`) | 重跑方法 |
+|---|---|---|
+| 140 题闸: 逐题回退、满分题数、avg | 6 / 132 / 0.9702 (修 CT 后 0 / 138 / 0.9917) | `kb_rehearsal_bf33bab.md` 复跑命令 (约 $0.05 embedding) |
+| chunk 总数与各类数 | 4332 (chapter 87 / assumptions 487 / examples 200 / model 32 …) | ingest 日志 |
+| 计数锚点: TA Mermaid、ch02 H2 数、ch04 chunk 数 | 24 / 8 / 45 | §1 各测试; 或 `scripts.chunkers` 直接跑 |
+| PC 块数与节号 | 14 块, 节号 None (修后预期 15 块) | §B 第 4 条 |
+| `model_defhome` 映射与 neo4j 计数 | R0 64 / R4 72; ModelChapter 5; Variable 1544; model_only 21 | `probes/defhome_rules.py`; `tests/test_build_neo4j.py` / `test_reconcile_neo4j.py` 重跑 |
+| meta: ct_codes / ct_dict / `*` / DOMAIN 单元格 | 588 / 952 (修 CT 前) / 129 / 59 | `build_meta` 后统计 |
+| fact 级与节级 gold 漂移 | fact 3 / 节级 1 | `probes/kb_rehearsal_factcheck.py`、`kb_rehearsal_secmatch.py`、`gold_vs_moved.py` |
+| 新 KB 下 pytest 的 KB 相关失败数 | 30 (① 16 / ② 9 / ③ 5) | `kb_rehearsal_bf33bab.md` v2 修订第 4 条 |
+| 覆盖率扫描: 丢内容的文件 | 只有 PC (4 → 47 行) | `probes/kb_rehearsal_coverage.py` |
+| 最大 chunk token 数 | MB `§6.3.5.7.3` 7878 (旧 KB 8087), CP Example 6 7296 | 覆盖率扫描同法统计; **embedding 上限 8191**, 超过会让 ingest 出问题, pedia 补内容后要首先看这一项 |
+
+### D. 对上文的修正
+- §2 的 `_model_defhome` 锚点按 R0 写; `model_defhome_rule_options.md` v2 已把推荐改为 R4, R4 下的锚点见该文件 v2 节「R4 下的锚点」。用户裁定 E1 后, 二选一。
+- §0 PC chunker 一行: 「修法需同时兼容旧结构」的具体方案见上面 §B; 修复时机依赖观察项 ⑦。
+- §3 q126: pedia 表 A3 / 表 B 确认 SE 节改为 `### 3.2.3.1 Subject Elements`, 位于 `## 3.2.3 Subject Summary Domains` 下; 建议值不变。

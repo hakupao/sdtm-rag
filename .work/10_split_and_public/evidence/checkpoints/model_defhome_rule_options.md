@@ -67,3 +67,64 @@ R3 让 VISIT 等核心变量变成多文件冲突, 还把 30 个 DM/SE/SV/SM 变
 - **E1** 选 R0 / R1 / R2 (或别的规则)。若看重「EPOCH 是什么」这类问题的确定性补位, R2 更完整, 代价是 schema 改动和精度略降。
 - **E2** REFID / SPEC 因 Notes 为空而丢: 接受 (推荐, 与 PDF 一致), 还是另定「无 Notes 的定义表也算」(R3 已证明全局放宽不可行, 只能做更窄的规则)。
 - **E3** EPOCH 金丝雀 (6 列隔离不变量) 在 R0 下需要换一个变量, 是否接受由实现时现查挑选。
+
+## v2 更新 (2026-11-27, 依据 pedia 答复 `sdtm-pedia/.work/10_tier_b_repair/evidence/checkpoints/t4_downstream_notes.md` 第 5 点; 与上文冲突处以本节为准)
+
+### pedia 给出的新事实
+1. model 文件 6 列表的**第 6 列 (Notes / Key Notes) 是 KB 自写的**, 不是 PDF 的 Definition (PDF 的 Definition / Notes / C-code 等 7 列按 pedia 用户规则不收)。所以现规则里「Notes 非空」这个判别条件是 KB 排版特征, 不是 PDF 语义。
+2. 按 SDTM v2.0 PDF, 这些变量本来就出现在多张表里: TAETORD / EPOCH / MIDS 的**通用定义**在 §3.1.5 Timing Variables for All Classes (`model/02`); §3.2.3 (`model/03`) 和 §5.1.1.2 (`model/05`, 5 列) 是数据集内用法。APID 的定义表在 §4 (`model/04`); `model/06` 的 RELREC / SUPP-- / POOLDEF / APRELSUB 里它只是关系数据集的列。REFID / SPEC 只在 §6.7 RELSPEC (`model/06`)。
+3. `REFID` 与 `--REFID`、`SPEC` 与 `--SPEC` 是不同变量。pedia 猜预演可能去掉了 `--` 前缀。**已核实: 没有。** `_model_defhome` 和本文件实算都排除 `--` 开头的变量名 (`build_meta.py` 末尾 `not var.startswith("--")`); REFID / SPEC 丢失的原因只有一个: `model/06:177-178` 那两行 Notes 为空 (旧 KB 放的是 C-code `C82531` / `C70713`, B-model06 重写后清空)。上文 §1 已写「不是多文件问题」, 与此一致。pedia 把这点记成观察项 ⑥ (与 model/03 SE 表仍在 Notes 放 C-code 的做法不一致), 解冻后可能改。
+4. 旧 KB 规则能用, 是因为旧 model/02 时间变量表只有 5 列 (缺 Role), 6 列行恰好只在 model/03; 不是规则本身对。
+
+### 新增模式级规则 R4「按 PDF 定义出处归属」
+规则 (只依赖 model 文件的章节分工, 不点名任何变量):
+1. 变量的 6 列行出现在 `model/02` (SDTM §3.1 一般观测类的通用变量表) → 归 02;
+2. 否则把 `model/06` (关系数据集, 只把标识变量当列) 从候选里去掉;
+3. 剩下恰好一个文件 → 归它; 否则丢弃。
+
+R4n = R4 + 不要求 Notes 非空 (依据第 1 条: Notes 是 KB 自写列)。
+
+实算 (脚本 `evidence/probes/defhome_rules.py`, 只读; `python defhome_rules.py <旧KB> <新KB>`):
+
+| 变量 | 旧 KB 现规则 | 新 KB R0 | 新 KB **R4** | 新 KB R4n | PDF 定义出处 (pedia) |
+|---|---|---|---|---|---|
+| EPOCH / TAETORD / MIDS | 03 | 丢 | **02** | 02 | §3.1.5 → model/02 ✓ |
+| APID | 06 | 丢 | **04** | 04 | §4 → model/04 ✓ |
+| REFID / SPEC | 06 | 丢 | 丢 (Notes 空) | 06 | §6.7 → model/06 (R4n ✓) |
+| VISIT / VISITNUM / VISITDY 等新增 8 个 | — | 02 | 02 | 02 | §3.1.5 ✓ |
+| RSUBJID / RDEVID / SREL | — | 04 | 04 | 04 | §4 ✓ |
+| USUBJID / POOLID / DOMAIN | 丢 | 丢 | **02** | 02 | §3.1.4 Identifiers for All Classes ✓ |
+| RPHASE | 丢 | 丢 | 02 | 02 | §3.1.5 |
+| RPATHCD / RSTGCD / RSTAGE (03 + 05) | 丢 | 丢 | 丢 | 丢 | 只有数据集内用法, 无通用定义 → 丢弃合理 |
+| RDOMAIN (q73 / q83 依赖) | 06 | 06 | 06 | 06 | — |
+| 映射总数 | 59 | 64 | **72** | 107 | |
+| 旧 KB 下相对现状的变化 | — | 0 | **+3** (DOMAIN / USUBJID / POOLID → 02) | +39 (另加 STUDYID、SPDEVID 和 34 个 DM / SE / SV / SM 变量 → 03) | |
+
+- R4 在新 KB 上与 pedia 给的 PDF 出处**逐项一致**; R1 (专章优先于 02) 方向恰好相反 (把通用定义让给了数据集内用法), 所以原来指出的「R1 把 USUBJID 归错」根源也在这里。
+- R4n 能找回 REFID / SPEC, 但同时把 34 个 DM / SE / SV / SM 专属变量拉进来 (它们的定义确实在 §3.2, 归 03 本身不算错), 概念定义通道的触发面扩大近一半, 行为变化大。
+- **140 题影响: 所有规则都是零。** 140 题里匹配 `_DEFVERB_RE` 的只有 q73 / q83 (RDOMAIN, 所有规则都 → 06) 和 q33 (RELSPEC, 不是映射里的变量)。复跑: 在 B 仓根 `.venv/bin/python .work/10_split_and_public/evidence/probes/defverb_hits.py` (输出 q33 RELSPEC / q73 RDOMAIN / q83 RDOMAIN)。
+- 概念定义通道的回答变化 (闸外): R4 下 "what does EPOCH / TAETORD / MIDS represent" 补 model/02 (通用定义, 旧行为补的是 model/03 的 SE / DM 语境); "what does APID identify" 补 model/04; "what does USUBJID / DOMAIN / POOLID identify" 从「不补」变成补 model/02。
+
+### 推荐变化: R0 → **R4**
+理由:
+1. pedia 的答复说明现规则在旧 KB 上能用是排版巧合, 新 KB 下的 6 个丢失不是「歧义」, 而是规则没按 PDF 的章节分工判断。R4 用的是章节分工本身, 和 PDF 出处逐项一致, 也是模式级规则 (不点名任何变量)。
+2. 改动小: 只改 `_model_defhome` 的归属判定, 输出仍是「变量 → 单个文件」, meta.yaml schema 不变, `meta_store` / `structured_lookup` / `graph_engine` / `build_neo4j` 不用改。
+3. 代价: ① 推翻原设计「多文件即丢」, `test_defhome_map_hygiene` 里 DOMAIN / USUBJID / POOLID 必须不在映射的断言要改 (语义从「歧义丢弃」变成「按出处归属」); ② **旧 KB 下 meta.yaml 会变 (+3 条)**, 所以 R4 不能作为「对生产零影响」的修复提前合, 要么放进「随 KB 升级」那一批, 要么提前合并接受这 3 条行为变化 (USUBJID 等的定义问题开始补 model/02); ③ 规则依赖 model 文件编号与 SDTM 章节的对应 (02 = §3.1, 04 = §4, 06 = §6), pedia 若重排 model 文件要先通知 (建议并入 pedia 答复里「下游格式约定」的变更约定)。
+4. REFID / SPEC 暂不追: 是否找回取决于 pedia 对观察项 ⑥ 的处理 (若把 C-code 放回 Notes, R4 自动找回); 不为两个变量引入 R4n 的大范围变化。
+
+R4 下的锚点 (替换上文 §3 的 R0 列; 数字以实现后重跑为准):
+| 测试 | R4 下 |
+|---|---|
+| `tests/test_build_meta.py:152-157` | `EPOCH in mdh` 保留; `DOMAIN not in mdh`、`USUBJID not in mdh` 两条改为 `== model/02…` (或删去, 改测「数据集内用法不胜过 02」) |
+| `tests/test_structured_lookup.py:209-215` EPOCH 金丝雀 | 期望值 model/03 → model/02; 6 列隔离不变量仍成立 (EPOCH 在 `model/05:64` 有 5 列用法行, 被 len==6 排除) |
+| `tests/test_structured_lookup.py:217-225` hygiene | DOMAIN / USUBJID / POOLID 改为 → 02; 「多文件丢弃」的守卫改用 RPATHCD / RSTGCD / RSTAGE (03 + 05, 无 02) |
+| `tests/test_meta_store.py:181` | `m["EPOCH"]` → model/02 |
+| `tests/test_build_neo4j.py:50,85` / `test_reconcile_neo4j.py:18` | DEFHOME 59 → 72 |
+| `tests/test_build_neo4j.py:84` | `rows["APID"]` → model/04 |
+| `tests/test_build_neo4j.py:27,30,34,77-80` / `test_reconcile_neo4j.py:16` | ModelChapter 4 → 5 (加 model/04); Variable / model_only 计数按重跑结果 |
+
+### 待裁定 (替换上文 E1-E3)
+- **E1** 选规则: R4 (推荐) / R0 / R2 / R4n / 其他。
+- **E2** R4 的落地时机: 放进「随 KB 升级」批 (推荐, 旧 KB 生产行为完全不变), 还是提前合并并接受旧 KB 下 +3 条 (DOMAIN / USUBJID / POOLID → 02)。
+- **E3** REFID / SPEC: 等 pedia 对观察项 ⑥ 的裁定 (推荐), 还是现在就用 R4n 或更窄的规则找回。
+- **E4** 是否请 pedia 把「model 文件编号 ↔ SDTM 章节」也写进下游格式约定。
