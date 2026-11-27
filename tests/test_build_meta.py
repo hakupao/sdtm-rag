@@ -151,10 +151,15 @@ def test_yaml_roundtrip_stable(tmp_path, kb_root):
 
 def test_model_defhome(meta):
     mdh = meta["model_defhome"]
-    assert mdh["RDOMAIN"] == "model/06_relationship_datasets.md"
-    assert "EPOCH" in mdh                       # 单 home 变量在
-    assert "DOMAIN" not in mdh                  # 跨多文件 -> 丢弃
-    assert "USUBJID" not in mdh
+    # 规则 R4 (实时构建, 对 build_meta 的变异可见; 合成分支见 test_model_defhome_r4.py)
+    assert mdh["RDOMAIN"] == "model/06_relationship_datasets.md"  # 只在 06 -> 仍归 06
+    assert "EPOCH" in mdh
+    for v in ("DOMAIN", "USUBJID", "POOLID"):    # 02 (§3.1) 优先于专章 / 06
+        assert mdh[v] == "model/02_observation_classes.md", v
+    # 6 列隔离金丝雀: ETCD 6 列行只在 03, 05 里是 5 列用法行; 放宽 len==6 -> {03,05} -> 丢
+    assert mdh["ETCD"] == "model/03_special_purpose_domains.md"
+    for v in ("RPATHCD", "RSTGCD", "RSTAGE"):    # 03+05, 无 02 -> 多文件丢弃
+        assert v not in mdh, v
     assert not any(k.startswith("--") for k in mdh)  # 排除 -- 前缀
 
 

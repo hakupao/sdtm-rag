@@ -197,7 +197,7 @@ class TestLongnameMapHygiene:
 
 class TestConceptDefinitionChannel:
     """Variable asked about with a strict definitional-verb shape routes to its
-    model/*.md definition-home file. Pattern-level (59-var def-home map), gated so
+    model/*.md definition-home file. Pattern-level (meta model_defhome map), gated so
     it never fires on distribution/attribute/terminology asks naming the same var."""
 
     def test_defhome_canary_rdomain(self, lookup):
@@ -206,11 +206,15 @@ class TestConceptDefinitionChannel:
         assert lookup.var_to_model_defhome.get("RDOMAIN") == \
             "model/06_relationship_datasets.md"
 
-    def test_defhome_canary_epoch_six_col_isolation(self, lookup):
-        # Second canary (Rule D LOW): EPOCH, like RDOMAIN, has a 6-col definition row
-        # (model/03) AND a competing 5-col usage row elsewhere; it stays single-home
-        # ONLY because the len==6 filter excludes the usage table. Guards the 6-col
-        # isolation invariant beyond RDOMAIN alone.
+    def test_defhome_canary_etcd_six_col_isolation(self, lookup):
+        # Second canary: ETCD has its 6-col definition row only in model/03 and 5-col
+        # usage rows in model/05; it stays single-home ONLY because the len==6 filter
+        # excludes the usage table (relaxed -> {03, 05} -> dropped under R4). EPOCH no
+        # longer guards this: under R4 a model/02 row wins regardless of the filter.
+        assert lookup.var_to_model_defhome.get("ETCD") == \
+            "model/03_special_purpose_domains.md"
+
+    def test_defhome_epoch(self, lookup):
         assert lookup.var_to_model_defhome.get("EPOCH") == \
             "model/03_special_purpose_domains.md"
 
@@ -219,10 +223,13 @@ class TestConceptDefinitionChannel:
         assert len(m) >= 50, "def-home map unexpectedly small (KB parse drift?)"
         # every value is a model/*.md file
         assert all(v.startswith("model/") and v.endswith(".md") for v in m.values())
-        # conservative guards: no generic '--' vars; cross-file ambiguous vars dropped
+        # R4 guards: no generic '--' vars; a model/02 (§3.1) definition wins over
+        # dataset-level rows; multi-file vars without 02 (after dropping 06) are dropped
         assert not any(k.startswith("--") for k in m)
-        for ambiguous in ("DOMAIN", "USUBJID", "POOLID"):
-            assert ambiguous not in m, f"{ambiguous} has Notes in >1 model file -> must be dropped"
+        for general in ("DOMAIN", "USUBJID", "POOLID"):
+            assert m.get(general) == "model/02_observation_classes.md", general
+        for ambiguous in ("RPATHCD", "RSTGCD", "RSTAGE"):
+            assert ambiguous not in m, f"{ambiguous} has Notes in 03+05 (no 02) -> must be dropped"
 
     def test_q73_union_adds_model_defhome(self, lookup):
         # q73 also trips the distribution anchor (-> VARIABLE_INDEX); the new channel

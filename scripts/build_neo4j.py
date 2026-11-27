@@ -10,7 +10,7 @@ Graph model (spec 2026-07-08 §3 + plan deviations D1-D4, data-grounded):
   Edges: HAS_VARIABLE(1917, per-domain role/type/core on the edge) /
          USES_CT(542 cross-domain union, `domains` list property for
          per-domain precision — C119013/FOCID lesson) / IN_CLASS(63) /
-         DEFHOME(59, Variable->ModelChapter) / RELATED_TO(52, advisory)
+         DEFHOME(62, Variable->ModelChapter) / RELATED_TO(52, advisory)
 
 Production isolation (spec hard constraint): NEVER import this module from
 server/ — the neo4j driver lives in the dev extra only. The extract layer
@@ -86,9 +86,9 @@ def extract_graph(meta: dict) -> Graph:
     class_nodes = [{"name": name, "n_domains": n}
                    for name, n in sorted(class_count.items())]
 
-    # Deviation D3/D4: defhome targets are model chapter files; 18 of the 59
+    # Deviation D3/D4: defhome targets are model chapter files; 18 of the 62
     # variables are model-level only (no IG domain) — materialize them as
-    # Variable nodes flagged model_only so all 59 DEFHOME edges exist.
+    # Variable nodes flagged model_only so every DEFHOME edge exists.
     chapter_nodes = [{"path": p} for p in sorted(set(meta["model_defhome"].values()))]
     defhome = [{"var": var, "chapter": chap}
                for var, chap in sorted(meta["model_defhome"].items())]

@@ -29,6 +29,12 @@ chapters/ 或 model/, 题面不点名域, 现有 S1/s3 通道 (域/变量/CT 码
   5 列 usage 表 [末列是 Role 非 Notes]); 非空 Notes 是次级过滤。保留条件: Notes 行只在
   **唯一**一个 model 文件 (剔 DOMAIN/USUBJID/POOLID 等跨文件歧义) + 排除 `--` 前缀。
   产出 **59 条** def-home, RDOMAIN→model/06。
+  > **修订 (2026-11-27, 规则 R4)**: 「多文件即丢 (宁缺毋滥)」改为按 SDTM 章节分工归属:
+  > 有 model/02 (§3.1 通用变量表) 定义行 → 02; 否则多文件时剔除 model/06 (§6 关系数据集,
+  > 只把别处定义的标识变量列为列), 只在 06 的仍归 06; 剩唯一才收, 否则丢。另加构建期兜底:
+  > model/02 / 06 缺失或首个编号标题不再是 §3 / §6 → build_meta 报错。旧 KB (kb-2026.11.25)
+  > 下 62 条 (+DOMAIN / USUBJID / POOLID → 02); EPOCH 金丝雀换 ETCD。依据与审查见
+  > `docs/evidence/checkpoints/model_defhome_r4.md`。
 - **RESOLVE**: 严格定义动词锚 `_DEFVERB_RE` = `what does/is [the] <VAR> [variable]
   (do|identify|define|mean|represent|capture)`。`<VAR>` 大小写敏感 (大写, 同
   `_QUERY_VAR_TOKEN_RE`), 周围散文用 scoped `(?i:...)`。命中且 var 在 def-home 映射 →
