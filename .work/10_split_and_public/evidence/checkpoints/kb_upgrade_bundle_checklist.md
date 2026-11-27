@@ -212,22 +212,24 @@ pedia 打 tag 时若 KB 树哈希不是 `63f857774a42cfaa71798705ad40ab51bc5e378
 ### 1. 闸与新发现
 - 140 题闸: **PASS, 回退 1 题 (q76), 满分 137, avg 0.9881**。上限是回退 ≤ 1、满分 ≥ 137, 余量为零。
 - **新增一条节级 gold 漂移: q76** `model/06_relationship_datasets.md#6.6 Associated Persons Related Subjects (APRELSUB)$` → 新标题是 `6.6 Associated Persons Relationships (APRELSUB)`。它参与 retrieval 闸 (上面那 1 题回退就是它)。v3 第 6 条第 4 步「闸结论不依赖 gold 修订」改为: 闸仍 PASS, 但唯一的容错名额被 q76 占用。
-- 待裁定 (实测与对比表见预演报告「对 kb-sync 与提交顺序的含义」):
-  - 做法 A = q76 随「KB 更新」提交改成新标题, kb-sync 按 1 题回退过闸 (余量 0); 本机测试全程是绿的。
-  - 做法 B = pedia 打 tag 前先把 q76 这条改成新旧双标题的 any-of 组 (新旧 KB 都 1.0, 闸 0 回退)。代价: 多一次只改题集的部署; 属于放宽 gold, 需非受益方裁定; 升级后删掉旧标题成员; **本机 `test_section_gold_exists.py::test_every_section_gold_exists_in_index` 在升级前会变红** (新标题成员在旧 KB 索引里不存在; CI 无索引会跳过, 不挡部署)。这是本清单开头「只在新 KB 下成立的改动不提前合」原则的一个例外, 选 B 就要接受它。
-  - 做法 C = 打 tag 前直接把 q76 换成新标题 (闸 0 回退, 基线 q76 = 0.5)。不算放宽 gold, 但本机同一条测试同样变红, 且升级前 q76 在闸里不起保护作用。
+- **裁定 (2026-11-27, 主人本人在待办项上选定, 非 bot 代裁)**: 问题「q76 的旧节标题, 在 pedia 打 tag 之前怎么处理?」→ 主人原话:「先不动，随 KB 升级那次提交一起改」。即**做法 A**: 打 tag 前不改 `eval/`; q76 的 gold 归入「随 KB 升级一起提交」那一批。
+- **事先约定的补救办法** (协调方的建议, 主人看过选项说明): 如果 kb-sync 因为另有一题波动而没过闸, 生产不变 (候选按规则 B 改名归档为 `*_failed_*`)。届时改用做法 B (q76 的 `model/06` 条目改成新旧双标题的 any-of 组, 任一标题命中即可), 合进 main 后重新触发 kb-sync (失败过的指纹不算已过闸, 会重新构建候选)。**做之前先向协调方汇报, 由协调方去问主人, 不要自行启用。** 启用时一并请示: 这次只改题集的提交是部署还是带 `[skip ci]`; 并在提交说明里写明本机 `test_section_gold_exists.py::test_every_section_gold_exists_in_index` 在升级前会红。
+- 当时列出的三种做法 (实测与对比表见预演报告「对 kb-sync 与提交顺序的含义」), 留作记录:
+  - **做法 A (已选)** = q76 随「KB 更新」提交改成新标题, kb-sync 按 1 题回退过闸 (余量 0); 本机测试全程是绿的。
+  - 做法 B (未选; 仅作上面的补救办法) = pedia 打 tag 前先把 q76 这条改成新旧双标题的 any-of 组 (新旧 KB 都 1.0, 闸 0 回退)。代价: 多一次只改题集的部署; 属于放宽 gold, 需非受益方裁定; 升级后删掉旧标题成员; **本机 `test_section_gold_exists.py::test_every_section_gold_exists_in_index` 在升级前会变红** (新标题成员在旧 KB 索引里不存在; CI 无索引会跳过, 不挡部署)。这是本清单开头「只在新 KB 下成立的改动不提前合」原则的一个例外, 选 B 就要接受它。
+  - 做法 C (未选) = 打 tag 前直接把 q76 换成新标题 (闸 0 回退, 基线 q76 = 0.5)。不算放宽 gold, 但本机同一条测试同样变红, 且升级前 q76 在闸里不起保护作用。
 - 预演里有 54 条依赖本机研究数据的测试跑不了, 其中只有 `test_validate_study_endpoint.py::test_create_app_boots_through_lifespan` 依赖 KB 产物 (真实完整启动); 它**未在新 KB 下原样验证**, 本机「KB 更新」时首跑 (CDISC 一侧的启动冒烟已过, 见预演报告「没有在新 KB 下跑到的测试」)。下面的「0 失败」只对预演实际跑到的 2941 条成立。
-- 做法 B / C 若用 `[skip ci]` 提交 (不部署), kb-sync 闸同样 0 回退, 但 `eval/` 改动能否 `[skip ci]` 需要裁定。
+- 做法 B / C 若用 `[skip ci]` 提交 (不部署), kb-sync 闸同样 0 回退, 但 `eval/` 改动能否 `[skip ci]` 需要裁定 (只在启用补救办法时才用得上)。
 - 本机有索引时, 新 KB 下还会多 1 个失败 (不在下面 18 个里): `test_section_gold_exists.py::test_every_section_gold_exists_in_index` 报 q76、q126 两条节级 gold 在索引里不存在。它靠第 2 条的 gold 修订消除, 所以「KB 更新」提交里 q76、q126 的 gold 修订是本机 pytest 通过的必要条件。
 
-### 2. `eval/test_set_v3.yml` gold 修订 (替换 v5 的表; 共 5 处)
+### 2. `eval/test_set_v3.yml` gold 修订 (替换 v5 的表; 共 5 处, 都已裁定, 全部随「KB 升级」那次提交落地)
 | 题 | 改法 | 新 KB 上的核对 |
 |---|---|---|
 | q39 | `expected_sources` 加 `domains/FA/assumptions.md` (裁定 b, AND) | **实测能召回**: 15 席里排第 4, 候选树 5 趟一致, q39 = 1.0 (3/3)。裁定维持, 不退回 (a)。旧 KB 下加这一条同样 3/3 |
 | q117 fact | → `should be unique for every record` | 逐字存在于 `chapters/ch08_relationships.md` ("…first 6 columns (STUDYID…QNAM) should be unique for every record.") |
 | q120 fact | → `individual subjects included in a pool` | 逐字存在于 `model/06_relationship_datasets.md` 6.3 节 ("This dataset identifies individual subjects included in a pool of subjects…") |
 | q126 any-of | 删成员 `model/03…#Subject Elements (SE)$` | 删后同组 `domains/SE/assumptions.md` 命中, q126 仍 0.5 (未命中的是 `domains/TE/spec.md`, 既有情况) |
-| **q76 (新增, 未裁定)** | `…#6.6 Associated Persons Related Subjects (APRELSUB)$` → `…#6.6 Associated Persons Relationships (APRELSUB)$` | 新标题只在新 KB 成立: 新 KB 下 q76 = 1.0, 旧 KB 下 0.5。必须与 submodule 升级同一次提交 (或按做法 B 先放双标题) |
+| **q76 (本轮新增; 主人 2026-11-27 裁定, 原话「先不动，随 KB 升级那次提交一起改」)** | `model/06_relationship_datasets.md#6.6 Associated Persons Related Subjects (APRELSUB)$` → `model/06_relationship_datasets.md#6.6 Associated Persons Relationships (APRELSUB)$` | 新标题只在新 KB 成立: 新 KB 下 q76 = 1.0, 旧 KB 下 0.5。按裁定与 submodule 升级放在同一次提交, 打 tag 前不动 |
 
 五处全改后, 新 KB 候选对原基线 0 回退、满分 138、avg 0.9917。改 gold 的提交要跑 `python -m eval.tests_support.gold_semantics_diff` 与 `eval/lint_gold.py` (本轮没有改 `eval/`, 未跑)。
 节级 gold 49 条全量重算 + pedia 两份标题变动清单交叉核对: 失效的只有 q126 (已知) 和 q76 (新增)。fact 级 466 条: 丢失的仍是 q39 / q117 / q120 三条。
@@ -292,8 +294,8 @@ R4 映射 8 个 (替换 v1 §2 与 `model_defhome_rule_options.md`「R4 下的�
 
 ### 6. 提交顺序 (更新 v3 第 6 条; 第 1、2 步已完成)
 1. ~~修 `test_p2_seam_characterization` 日期依赖~~、~~CT 解析 / PC 切块 / R4 合进 main 并部署~~ (线上 `2b24d53`)。
-2. (仅做法 B / C) q76 的 gold 提前合进 main, 部署一次 (本机那条节级 gold 存在性测试会红, 提交说明里写明)。
-3. pedia 打 `kb-*` tag (KB 树哈希应为 `63f85777…`) → kb-sync 构建候选并过闸。预计: 做法 A 回退 1 题 (q76) PASS; 做法 B / C 回退 0。
-4. 本地「KB 更新」一次提交: submodule 指针 + `data/meta/meta.yaml` + 本节第 3 条的 18 个测试锚点 + 第 2 条的 gold (做法 A: 五处; 做法 B: 四处 + 删 q76 的旧标题成员; 做法 C: 四处) + 第 4 条的 README。本机先跑 pytest、两条检索闸、`gold_semantics_diff`、`lint_gold`, 再 push。
+2. 打 tag 前不改 `eval/` (q76 按裁定走做法 A)。
+3. pedia 打 `kb-*` tag (KB 树哈希应为 `63f85777…`) → kb-sync 构建候选并过闸。**预计按「回退 1 题 (q76)、满分 137、avg 0.9881」过闸, 余量为零** (上限: 回退 ≤ 1、满分 ≥ 137)。若因另有一题波动没过: 生产不变, 按第 1 条的补救办法先向协调方汇报, 不自行启用做法 B。
+4. 本地「KB 更新」一次提交: submodule 指针 + `data/meta/meta.yaml` + 本节第 3 条的 18 个测试锚点 + 第 2 条的 gold 五处 (含 q76 换新标题; 若中途启用过补救办法, 则是另外四处 + 删掉 q76 的旧标题成员) + 第 4 条的 README。本机先跑 pytest、两条检索闸、`gold_semantics_diff`、`lint_gold`, 再 push。
 
 审查: 本节与预演报告一并由 `oh-my-claudecode:critic` 审查 (PASS-with-fixes, `kb_rehearsal_477bac3_review.md`); 抽查约 15 个数字全部对得上, 意见已并入上文。
