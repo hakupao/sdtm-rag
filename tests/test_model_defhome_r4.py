@@ -49,12 +49,12 @@ def test_r4_branches(tmp_path):
         "03": [def_row("GEN"), def_row("SOLO03"), def_row("AMBIG"), def_row("EMPTY02"),
                def_row("REST"), def_row("USE5")],
         "04": [def_row("APX")],
-        "05": [def_row("AMBIG"), use_row("USE5"), def_row("REST")],
-        "06": [def_row("GENREL"), def_row("APX"), def_row("ONLY06"), def_row("REST"),
+        "05": [def_row("AMBIG"), use_row("USE5"), def_row("REST"), def_row("GEN")],
+        "06": [def_row("GEN"), def_row("GENREL"), def_row("APX"), def_row("ONLY06"), def_row("REST"),
                def_row("--GENERIC"), def_row("NONOTE", notes="")],
     })
     m = _model_defhome(kb)
-    assert m["GEN"] == G              # 1. 02 wins over a dataset-level chapter
+    assert m["GEN"] == G              # 1. 02 wins over 03+05+06
     assert m["GENREL"] == G           # 1. 02 wins over 06
     assert m["APX"] == AP             # 2. multi-file -> drop 06 -> single left
     assert m["ONLY06"] == REL         # 2. only in 06 -> stays 06
@@ -69,7 +69,7 @@ def test_r4_branches(tmp_path):
 
 
 def test_r4_chapter_02_is_new_kb_layout(tmp_path):
-    # new KB: model/02 opens with "## 3 Study Subject Data" (old: "## 3.1.1 ...")
+    # new KB: model/02 opens with "## 3 Study Subject Data" (old: "## 3.1.1 ..."); both pass §3.1
     kb = make_kb(tmp_path, {"02": [def_row("X")]}, head={"02_observation_classes.md": "## 3 Study Subject Data"})
     assert _model_defhome(kb) == {"X": G}
 
@@ -77,7 +77,8 @@ def test_r4_chapter_02_is_new_kb_layout(tmp_path):
 @pytest.mark.parametrize("head, match", [
     ({"02_observation_classes.md": None}, r"model/02_\*\.md, found 0"),
     ({"06_relationship_datasets.md": None}, r"model/06_\*\.md, found 0"),
-    ({"02_observation_classes.md": "## 4.1 Moved"}, r"§4, expected §3"),
+    ({"02_observation_classes.md": "## 4.1 Moved"}, r"§4.1, expected §3.1"),
+    ({"02_observation_classes.md": "## 3.2 Special-purpose Domains"}, r"§3.2, expected §3.1"),
     ({"06_relationship_datasets.md": "## 7 Moved"}, r"§7, expected §6"),
     ({"02_observation_classes.md": "## The General Observation Classes"}, "no numbered heading"),
 ])

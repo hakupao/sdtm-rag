@@ -136,12 +136,13 @@ def _relations_curated(kb_root: Path, domain: str) -> list[dict]:
     return out
 
 
-_NUMBERED_HEADING_RE = re.compile(r"^#{1,6}\s+(\d+)(?:\.\d+)*\s")
+_NUMBERED_HEADING_RE = re.compile(r"^#{1,6}\s+(\d+(?:\.\d+)*)\s")
 
 
-def _model_chapter_file(model_dir: Path, prefix: str, chapter: str) -> str:
+def _model_chapter_file(model_dir: Path, prefix: str, section: str) -> str:
     """kb-relative path of the single model/<prefix>_*.md whose first numbered
-    heading is SDTM §<chapter>[.x]. R4 keys on these file↔section roles, so a
+    heading is an ancestor or descendant of SDTM §<section> (e.g. §3.1 accepts
+    3 / 3.1 / 3.1.1, rejects 3.2). R4 keys on these file↔section roles, so a
     renumbered/renamed model file must fail the build, not silently remap."""
     hits = sorted(model_dir.glob(f"{prefix}_*.md"))
     if len(hits) != 1:
@@ -149,9 +150,11 @@ def _model_chapter_file(model_dir: Path, prefix: str, chapter: str) -> str:
     for line in hits[0].read_text(encoding="utf-8").splitlines():
         m = _NUMBERED_HEADING_RE.match(line)
         if m:
-            if m.group(1) != chapter:
+            got, want = m.group(1).split("."), section.split(".")
+            n = min(len(got), len(want))
+            if got[:n] != want[:n]:
                 raise ValueError(f"model_defhome: {hits[0].name} first numbered heading is "
-                                 f"§{m.group(1)}, expected §{chapter} ({line.strip()!r})")
+                                 f"§{m.group(1)}, expected §{section} ({line.strip()!r})")
             return f"model/{hits[0].name}"
     raise ValueError(f"model_defhome: {hits[0].name} has no numbered heading")
 
@@ -167,7 +170,7 @@ def _model_defhome(kb_root: Path) -> dict[str, str]:
       3. exactly one file left -> that file; otherwise dropped.
     Generic '--' vars are excluded."""
     model_dir = kb_root / "model"
-    general = _model_chapter_file(model_dir, "02", "3")
+    general = _model_chapter_file(model_dir, "02", "3.1")
     relation = _model_chapter_file(model_dir, "06", "6")
     tmp: dict[str, set[str]] = defaultdict(set)
     for f in sorted(model_dir.glob("*.md")):
