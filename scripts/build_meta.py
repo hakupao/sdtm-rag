@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from scripts.spec_loader import SpecLoader
+from scripts.spec_loader import SpecLoader, ct_code_of
 
 # A domain "counts toward the 63" iff it has a spec.md (the authoritative
 # 63 in knowledge_base/INDEX.md are exactly the dirs WITH spec.md — this
@@ -40,26 +40,31 @@ def _domain_label(kb_root: Path, domain: str) -> str:
 
 # ── Stubs for Task 2-6 (filled in per task) ──────────────────────────────
 
-_CT_CODE_RE = re.compile(r"^C\d+$")
-
-
-def _split_ct(controlled_terms: str) -> tuple[list[str], list[str]]:
+def _split_ct(controlled_terms: str, domain_literal: str | None = None) -> tuple[list[str], list[str]]:
     """Split a spec.md 'Controlled Terms' field into (C-codes, dict-tokens).
-    Values are '; '-separated: a token is a CDISC C-code (^C\\d+$) or an
-    external-dictionary/format token (MedDRA, LOINC, ISO 8601 ..., etc.)."""
+    Values are '; '-separated: a token is a CDISC C-code ('C66769' or
+    '(AESEV) C66769', stored bare) or an external dictionary/format token
+    (MedDRA, LOINC, ISO 8601 ...) kept verbatim. Not dictionary tokens, so
+    dropped (KB contract, pedia t4_downstream_notes): '*' = "may be subject
+    to CT, no CDISC codelist yet" (SDTMIG 4.3.1), and `domain_literal` = the
+    DOMAIN variable's literal domain code."""
     ct_codes: list[str] = []
     ct_dict: list[str] = []
     for tok in (t.strip() for t in controlled_terms.split(";")):
-        if not tok:
+        if not tok or tok == "*" or tok == domain_literal:
             continue
-        (ct_codes if _CT_CODE_RE.match(tok) else ct_dict).append(tok)
+        code = ct_code_of(tok)
+        if code:
+            ct_codes.append(code)
+        else:
+            ct_dict.append(tok)
     return ct_codes, ct_dict
 
 
 def _variables(ds) -> list[dict]:
     out: list[dict] = []
     for v in ds.variables:
-        ct_codes, ct_dict = _split_ct(v.controlled_terms)
+        ct_codes, ct_dict = _split_ct(v.controlled_terms, ds.domain if v.name == "DOMAIN" else None)
         out.append(
             {
                 "name": v.name,

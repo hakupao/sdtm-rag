@@ -21,7 +21,7 @@ class VariableSpec:
     order: int
     label: str
     var_type: str  # "Char" or "Num"
-    controlled_terms: str  # C-code, "MedDRA", "ISO 8601 ...", or ""
+    controlled_terms: str  # "[(SHORT) ]Cnnnnn[; ...]", "*", domain code, "MedDRA", "ISO 8601 ...", or ""
     role: str
     core: str  # "Req", "Exp", "Perm"
     cdisc_notes: str = ""
@@ -66,7 +66,16 @@ class Codelist:
     submission_values: list[str]
 
 
-_CT_CODE_RE = re.compile(r"^C\d+$")
+# One CT cell token: a bare NCI C-code ("C66769", KB <= kb-2026.11.25) or
+# codelist short name + code ("(AESEV) C66769", KB S-CT batch). A cell with
+# several codelists joins tokens with "; " and is NOT one code.
+_CT_CODE_RE = re.compile(r"(?:\([A-Z0-9_]+\)\s*)?(C\d+)")
+
+
+def ct_code_of(token: str) -> str | None:
+    """Bare C-code of a single CT token in either format, else None."""
+    m = _CT_CODE_RE.fullmatch(token.strip())
+    return m.group(1) if m else None
 
 
 class SpecLoader:
@@ -99,7 +108,7 @@ class SpecLoader:
         return sorted(self.domains.keys())
 
     def is_ct_code(self, ct_ref: str) -> bool:
-        return bool(_CT_CODE_RE.match(ct_ref.strip()))
+        return ct_code_of(ct_ref) is not None
 
     # ── Spec parsing ─────────────────────────────────────────────────────
 

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from scripts.spec_loader import DomainSpec, SpecLoader
+from scripts.spec_loader import DomainSpec, SpecLoader, ct_code_of
 
 
 @dataclass
@@ -203,12 +203,14 @@ def _check_ct(
         if not ct_ref or v.name not in present:
             continue
 
-        if not loader.is_ct_code(ct_ref):
+        code = ct_code_of(ct_ref)
+        if code is None:
             if ct_ref.upper() == "MEDDRA":
                 result.findings.append(
                     Finding("INFO", "CT", v.name, f"'{v.name}' uses MedDRA coding (external dictionary, not validated).")
                 )
             continue
+        ct_ref = code  # bare code: lookup + messages identical across KB cell formats
 
         codelist = loader.get_codelist(ct_ref)
         if codelist is None:
