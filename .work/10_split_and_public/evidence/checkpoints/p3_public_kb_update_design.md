@@ -76,3 +76,28 @@ A1 的额外成本: 每次 KB 发版多一次入库 (~$0.05, ~95 s) + 一次 140
 - **D3 1.9 正例的节奏**: pedia 可能在 A1 实现前打 tag。(a) 正例先只验私有; A1 上线后由 kb-sync 补建公开候选, 再由一次部署 (push 或手动 dispatch) 换入并补验 (推荐, 不挡 pedia 发版); (b) 等 A1 实现后两实例一起演练。
 - **D4 演练前置**: `SDTM_RAG_PUBLIC_DEPLOY` 未开, 公开容器 stopped。公开 swap 演练需要 (a) 先开变量 (deploy_public 会 `up -d` 起公开容器, 不发布端口、无隧道, 不对外); 或 (b) kb-sync 公开腿用独立变量 (如 `SDTM_RAG_PUBLIC_KBSYNC`) 先跑候选, 换入等 3.4 前再开。
 - **D5 修复顺序** (来自预演): B 仓的修复 (CT 写法解析、`_model_defhome` 多文件归属规则、KB 计数锚点测试; 见 `kb_rehearsal_bf33bab.md`), 是否在 pedia 打 tag **之前**先合进 main 并部署 (CT 解析补丁已验证在旧 KB 下 meta.yaml 逐字节不变; `_model_defhome` 的新规则要另外验证)。推荐是。另外 `_model_defhome` 的规则本身也要用户裁定: 变量在多个 model 文件都有定义行时, 归到哪个文件。
+
+## v0.2 修订 (2026-11-27, 独立审查后; 与上文冲突处以本节为准)
+审查: `p3_public_kb_update_design_review.md` (`oh-my-claudecode:security-reviewer`, PASS-with-fixes)。顶部「未经独立审查」一句作废。
+
+1. **红线不变量写明**: 公开 chroma 的唯一来源 = 公开数据根自身 (prepare / swap / restore 只在同一数据根内复制和改名); 实现时加测试: kbsync 没有任何子命令同时接受两个数据根。chroma 删除不回收空间在 A1 也存在, 但残留只可能是旧版 CDISC, 不碰红线; `--kb-only` 只查逻辑集合, 物理隔离靠上面这条不变量。
+2. **`--kb-only` 改为两层** (替换 §3.2): (a) `candidate` 编排里, 候选 eval 之后、gate 之前, 用候选镜像读候选副本的集合, 必须恰为 `{sdtm_kb_v1}`, 否则 `fail --reason kb_only_violation` 归档 (不能放进 gate: gate 走 `--via`, 兄弟容器调不了 docker, 且 gate PASS 后标记已写); (b) `deploy-swap --kb-only` 对守卫副本上的**线上 chroma 与换入源**都断言 `non_kb == {}` —— 这是主闸, 也覆盖 `chroma_prev_*` 换入源和「公开线上已被污染 / 数据根指错」。
+3. **失败路径补状态** (补充 §3.3 / §3.5):
+   - 预检记录 `prev_image` 与 `prev_running` (公开容器当前就是 stopped)。数据退回后容器回到 `prev_running`: 原本停止就保持停止, 绝不因「退回」把公开站拉起。
+   - 一切退回动作先查 `journal-state`: 0 继续; 2 / 3 停机, 人工处理。
+   - job 取消 / 超时: 只停公开容器, 不碰数据; 残留 journal 由下次 `journal_pending` 拦住。`timeout-minutes` 实现时按守卫副本复制 + 集合摘要的实测时间重估。
+   - restore 失败: journal 保留 → 下次 deploy_public 与 kb-sync 公开腿都 `journal_pending` 失败; 两条腿分 job (见 5), 私有腿不受牵连。
+   - 允许的组合态: 私有 swap 成功 + 公开失败 → 私有 = 新镜像 + 新 chroma, 公开 = 旧数据 + (停机或旧镜像, 按 D2)。
+4. **路径一致性断言** (新增): deploy_public 预检和 kb-sync 公开腿都断言 `PUBLIC_DATA_ROOT` / `ENV_FILE` 与 `docker compose -f compose.public.yml config` 解析出的挂载源一致, 且公开根 ≠ 私有根; 不一致即失败。误用私有 `.env` 不涉红线 (挂载的仍是公开根), 属成本隔离。
+5. **两条腿 = 两个 job** (替换 §3.1「实现时选」): `public` job `needs: private` + `if: always()`, 私有腿失败不挡公开腿; 候选镜像构建条件改为「任一腿 changed」, 构建与删除放独立 job / 步骤, 删除加 `always()`。
+6. **§4 更正**: 部署路径过滤 (`sdtm-rag.yml:10-25`) 含 `scripts/**` 与 `.gitea/workflows/sdtm-rag.yml`, **不含** `deploy/kbsync/**` 和 `kb-sync.yml`。`kbsync.py` 从 checkout 运行、不在镜像里, 改了不需部署, 下次 workflow 运行即生效; 只改 `tests/` 不跑 CI, 必须本机跑。所以: CT 解析修复 (`scripts/`) 推 main 会部署; A1 里改 `sdtm-rag.yml` 的部分会部署, 只改 `kb-sync.yml` / `kbsync.py` 的部分不会。
+7. **A2 否决理由调整主次**: 主理由 = 引入私有根 → 公开根的数据通道, 破坏单一来源不变量; sqlite / WAL / segment 残留 (与 chromadb 版本有关) 为次要理由。
+8. **新增方案 A1'**: 公开候选从**空目录全新入库** (基线在复制出的旧副本上跑, 候选写新目录), 物理文件只有一版 KB, 不会因多次重置越积越大。embedding 成本与 A1 相同 (ingest 本来就整集合重算)。见 D6。
+9. **meta/ 来源** (补 §3.2): 公开根 `meta/` 只由 P3.3 的 `build_meta` 生成; `implicit_relations.json` server 不读; prepare 只在同根内复制 → 安全。
+10. **§4 文件清单补**: `tests/test_deploy_public_compose.py` (`test_public_job_gated_and_separate` 检查 deploy_public 结构, 须同步改); 一致性断言与两 job 隔离的测试; `kb-sync.yml` / `kbsync.py` 文件头注释 (现写只服务私有根); `docs/PROGRESS.md`; `_progress.json` `decisions_p3.open`。
+
+### 新增待裁定点
+- **D2 补充子问题**: 公开站部署前就是停止状态时, 失败后「退回」= 保持停止 (本节第 3 条的默认), 还是视为「退回到旧镜像并启动」?
+- **D6** 公开候选: 复制公开 chroma 后重置 (A1, 与私有腿同一代码路径) vs 空目录全新入库 (A1', 物理上更干净, 但候选构建与私有腿分叉)。
+- **D7** 公开根里的 `chroma_failed_*` / `chroma_prev_*` / `kbsync_eval` 都在公开容器挂载范围内: 原地保留 (与私有一致), 还是移到公开容器挂载之外的归档目录、失败归档保留几份?
+- **D8** 两条腿的隔离: 本节第 5 条的两 job 方案是否接受 (推荐), 或保持单 job 串行 (失败互相牵连)。
