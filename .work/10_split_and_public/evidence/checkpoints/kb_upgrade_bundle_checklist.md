@@ -155,3 +155,29 @@ q126 的两个 any-of 成员在新旧 KB 下都不单独覆盖全部 facts (`act
 4. kb-sync 构建候选: 候选镜像由 main checkout 构建, 已含第 2 步的代码, 候选的 chroma 与 meta 都按新代码生成; 题集是 main 上的旧 gold (闸结论不依赖 §3 的 gold 修订, 见 §5 原第 2 条)。
 5. 本地「KB 更新」一次提交: submodule 指针 + 与候选一致的 `data/meta/meta.yaml` (本机用同一份 main 代码重跑 `build_meta`) + §1 / §2 / 本节第 3 条的测试锚点 + §3 gold。推 main → CI 测试步用新 submodule 跑 pytest (锚点必须在这次提交里, 否则测试步失败、不部署) → 部署时换入过闸候选。
 6. 部署后新 gold 进入线上镜像, 成为下一次 kb-sync 的基线题集。
+
+## v4 更新 (2026-11-27, 裁定登记后; 与上文冲突处以本节为准)
+裁定来源: 2026-11-27 主人把清单上的选择题委托给协调 bot「sdtm开发」(原话:「之前那些选项，你可以替我分析后决定嘛。我听从你的建议」)。以下是 **bot 受托代裁**, 不是主人逐条裁定。
+
+### 1. 裁定对本清单的影响
+- `_model_defhome` = **R4 + 提前合并** (见 `model_defhome_rule_options.md` 裁定登记): §2 的 R0 锚点作废, 以该文件 v2 / v3 的 R4 锚点为准 (EPOCH → model/02、隔离金丝雀 ETCD、hygiene 守卫改用 RPATHCD / RSTGCD / RSTAGE、DEFHOME 72、APID → model/04)。R4 代码在 pedia 打 tag **之前**进 main (v3 第 6 条第 2 步), 测试锚点里只依赖新 KB 的部分随 KB 提交。
+- pedia 的 PC 示例结构: pedia 这次**不调整**, 保持照 PDF (即结构 S2)。新增 Example 1 块的 `cdisc_section_id` 保持 None (不硬编码 §6.3.5.9.1)。§B / v3 第 2 条里「依赖观察项 ⑦」的前提已解除。
+- pedia 的 model/06 Notes 列 (观察项 ⑥) 这次不改, 将来改之前先通知本仓。
+- CT 解析里没做的三件事 (`*` 标志位、多 codelist 逐码校验、短名核对) 本次都不做, 记为后续。
+- 公开站 / 私有站 Anthropic key 分开 (公开站单独一个 key), 落地在 3.4 之前 (不属本清单, 记录备查)。
+
+### 2. PC 测试期望更正: 6 条, 不是 5 条 (更正 v3 第 3 条)
+依据: PC 切块修复会话报告 `/Users/bojiangzhang/.orca/bots/sdtm/reports/REPORT_pc_examples_chunker.md` (只读)。新 KB 下 Example 1 块的 `example_index` 是 None, 所以 `test_pc_examples_example_indices_range_1_to_4` 也会失败 (`1 <= None` 抛 TypeError)。v3 第 3 条表里写「按 H3 取值是 1, 范围测试仍过」不成立, 作废。随 KB 升级要改的 `tests/test_examples.py` PC 测试共 6 条:
+1. `:75 test_pc_examples_produces_14_chunks` → 15;
+2. `:80 test_pc_examples_all_have_sub_label_method` → 只约束合并例的 14 块;
+3. `:87 test_pc_examples_sub_labels_are_valid_methods` → 同上;
+4. `:94 test_pc_examples_all_have_example_index` → 同上 (Example 1 块为 None);
+5. `:100 test_pc_examples_example_indices_range_1_to_4` → 同上;
+6. `:108 test_pc_examples_all_have_cdisc_section_id` → 合并例块 == §6.3.5.9.3, Example 1 块 == None。
+`:116 test_pc_examples_example_4_has_only_method_a_and_d` 不变。
+
+### 3. pedia 解冻后一次性改 KB: 所有数字和 gold 对照都要在新指纹上重跑
+pedia 即将解冻并一次性改 KB: 约 40 行值 / 措辞裁定里的一部分、标题按 PDF 改名、CRF 符号 58 处、Mermaid 统一渲染、KB note 前缀口径。因此:
+- 本清单和预演里的**全部数字** (§C 表每一行、§1 计数锚点、§2 / R4 锚点、PC 块数、30 个 KB 相关失败的分类) 和 **gold 对照** (fact 3 处、节级 1 处、v2 §A 的表 A / 表 B 对照) 只对指纹 `bf33bab…` 成立, 要在 pedia 打 tag 后的新指纹上**全部重跑**, 以重跑结果为准。
+- **标题按 PDF 改名可能让之前没见过的节级 gold 失效**: 重跑时节级 gold 必须用 `probes/kb_rehearsal_secdump.py` + `kb_rehearsal_secmatch.py` 在新 KB 上全量重算, 不能只核对本清单已列的 4 处。
+- Mermaid 统一渲染会改变 `find_mermaid_blocks` 计数 (`test_base.py` TA 24 这一锚点) 与含 Mermaid 的 chunk 文本; CRF 符号与 KB note 前缀会改变 chunk 正文, fact 级核对 (`probes/kb_rehearsal_factcheck.py`、`gold_vs_moved.py`) 也要重跑。

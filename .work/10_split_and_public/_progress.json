@@ -3,7 +3,7 @@
   "tier": 3,
   "status": "P3_3.3_DONE",
   "current_step": "P3: 3.1/3.2/3.3 完成 (3.2 在分支 p3 未合并; 3.3 公开数据根 + .env 已在 VM, 公开容器验收后已 stop)",
-  "next_step": "⚠ 先修 tests/test_p2_seam_characterization 日期依赖 (否则 p3 合并与任何推 main 在 CI 测试步失败) | 用户裁: 设计 D1-D8 (p3_public_kb_update_design.md) + model_defhome E1-E6 (model_defhome_rule_options.md v3, 推荐 R4 且须在 pedia tag 前提前合) | 另一会话: CT 解析 + PC examples chunker 向后兼容修复 → 推 main | pedia 打 kb-* tag → kb-sync 正例 → 本地「KB 更新」按 kb_upgrade_bundle_checklist.md 一次提交 | 原有: 合并 p3 → main (触发私有部署, 先确认) + 开 SDTM_RAG_PUBLIC_DEPLOY → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 定验收窗口方案 (M3) + TRUSTED_PROXIES 改 cloudflared 固定地址",
+  "next_step": "等 rag main 修复合并 (p2_seam 日期 / CT 解析 / PC chunker / R4, 均在 pedia tag 前) → pedia 解冻改 KB 并打 kb-* tag → 新指纹上重跑预演与 kb_upgrade_bundle_checklist.md 全部数字和 gold 对照 → kb-sync 私有正例 → 本地「KB 更新」一次提交 → 排公开腿实现 (D1-D8) | 3.4 前: 公开站独立 Anthropic key、开 SDTM_RAG_PUBLIC_DEPLOY | 原有: 合并 p3 → main (触发私有部署, 先确认) → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 定验收窗口方案 (M3) + TRUSTED_PROXIES 改 cloudflared 固定地址",
   "completed": [
     {
       "step": "recon",
@@ -211,9 +211,40 @@
     "3.2": "私有 compose.yml 不动, 公开实例独立 compose.public.yml (写死档位/路径, 不发布端口) + workflow deploy_public job (vars 门控, 失败停机)",
     "open": [
       "3.4 前定: 验收窗口 (先临时容器验 / cloudflared 验后再指) — 审查 M3",
-      "公开 chroma 的 KB 更新流程: 设计 v0.2 (checkpoints/p3_public_kb_update_design.md, security-reviewer 审查 PASS-with-fixes 已修订), 推荐 A1; 待用户裁 D1-D8 后实现; 现指纹不一致只告警跳过"
+      "公开 chroma 的 KB 更新流程: 设计 v0.2 + 2026-11-27 受托代裁 D1-D8 (见 decisions_2026_11_27_delegated); 实现待 rag main 修复合并后排"
     ],
     "Q3_override": "2026-11-26 用户: 公开站全部用 Anthropic key, 模型选便宜的 → 免费题 = Claude Haiku 5.5 ($0.10/$0.50), 内部组与 fallback 同",
     "3.3": "公开 chroma 只含 sdtm_kb_v1 4329; 140q 与基线逐题一致"
+  },
+  "decisions_2026_11_27_delegated": {
+    "source": "2026-11-27 主人把选择题委托给协调 bot「sdtm开发」(原话:「之前那些选项，你可以替我分析后决定嘛。我听从你的建议」); 以下为 bot 受托代裁, 非主人逐条裁定",
+    "public_kb_update_design": {
+      "D1": "公开闸失败 → 公开站保持旧镜像+旧数据, 只告警, 不阻断私有部署; 接受公开 chroma 落后期间公开部署被跳过",
+      "D2": "换入后验收失败 → 退回数据后停机; 原本停止的保持停止",
+      "D3": "1.9 正例先只验私有; 公开腿实现后补建补验, 不挡 pedia 发版",
+      "D4": "沿用 SDTM_RAG_PUBLIC_DEPLOY, 演练或 3.4 前再开, 现在不开",
+      "D6": "A1 (复制后重置)",
+      "D7": "失败归档原地保留",
+      "D8": "两条腿两个 job",
+      "status": "未实现; 等 rag main 上的修复合并后再排"
+    },
+    "model_defhome": {
+      "E1": "R4",
+      "E2": "pedia tag 前提前合并, 接受旧 KB +3 条",
+      "E3": "接受 REFID/SPEC/STUDYID/SPDEVID 不进映射",
+      "E4": "请 pedia 写进下游约定 (协调 bot 转达)",
+      "E5": "ETCD",
+      "E6": "保留",
+      "status": "另一会话在子工作区实现, 分支叠在 hakupao/fix-ct-cell-format 上"
+    },
+    "anthropic_key": "公开站与私有站分开 (公开站单独 key), 3.4 前落地",
+    "ct_followups_not_now": [
+      "* 标志位",
+      "多 codelist 逐码校验",
+      "短名核对"
+    ],
+    "pedia_pc_examples": "pedia 不调整 (照 PDF, 结构 S2); 新增 Example 1 块 cdisc_section_id 保持 None",
+    "pedia_model06_notes": "观察项 ⑥ 这次不改; 将来改前先通知本仓",
+    "pedia_unfreeze": "pedia 将解冻一次性改 KB (约 40 行值/措辞、标题按 PDF 改名、CRF 符号 58 处、Mermaid 统一渲染、KB note 前缀); 所有数字与 gold 对照须在新指纹上重跑"
   }
 }
