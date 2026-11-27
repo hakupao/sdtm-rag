@@ -167,7 +167,7 @@ q126 的两个 any-of 成员在新旧 KB 下都不单独覆盖全部 facts (`act
 - 公开站 / 私有站 Anthropic key 分开 (公开站单独一个 key), 落地在 3.4 之前 (不属本清单, 记录备查)。
 
 ### 2. PC 测试期望更正: 6 条, 不是 5 条 (更正 v3 第 3 条)
-依据: PC 切块修复会话报告 `/Users/bojiangzhang/.orca/bots/sdtm/reports/REPORT_pc_examples_chunker.md` (只读)。新 KB 下 Example 1 块的 `example_index` 是 None, 所以 `test_pc_examples_example_indices_range_1_to_4` 也会失败 (`1 <= None` 抛 TypeError)。v3 第 3 条表里写「按 H3 取值是 1, 范围测试仍过」不成立, 作废。随 KB 升级要改的 `tests/test_examples.py` PC 测试共 6 条:
+依据: PC 切块修复会话报告 `pc_examples_chunker_report.md` (同目录)。新 KB 下 Example 1 块的 `example_index` 是 None, 所以 `test_pc_examples_example_indices_range_1_to_4` 也会失败 (`1 <= None` 抛 TypeError)。v3 第 3 条表里写「按 H3 取值是 1, 范围测试仍过」不成立, 作废。随 KB 升级要改的 `tests/test_examples.py` PC 测试共 6 条:
 1. `:75 test_pc_examples_produces_14_chunks` → 15;
 2. `:80 test_pc_examples_all_have_sub_label_method` → 只约束合并例的 14 块;
 3. `:87 test_pc_examples_sub_labels_are_valid_methods` → 同上;
