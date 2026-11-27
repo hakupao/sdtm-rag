@@ -463,14 +463,14 @@ def test_synthetic_no_h2_nested_methods_still_chunked(tmp_path):
 def test_synthetic_methods_before_first_h2_then_flat_h2(tmp_path):
     f = tmp_path / "domains" / "PC" / "examples.md"
     f.parent.mkdir(parents=True)
-    body = "# PC\n\n### Example 3\n\n#### Method A (x)\n\na\n\n" + _S2_FLAT_H2
+    body = "# PC\n\n### Example 3\n\n#### Method A (x)\n\na\n\n## §9.9 Flat\n\nflat\n"
     f.write_text(body, encoding="utf-8")
     chunks = ExamplesChunker(tmp_path).chunk(f)
     assert [(c.section, c.example_index, c.sub_label, c.cdisc_section_id) for c in chunks] == [
-        ("Method A (x)", 3, "Method A", None),
-        ("PC – Examples", None, None, None),
+        ("Method A (x)", 3, "Method A", None),  # pre-H2 block: no § inherited from next H2
+        ("§9.9 Flat", None, None, "§9.9"),
     ]
-    assert "PC – Examples" not in chunks[0].text
+    assert "§9.9" not in chunks[0].text
     _assert_layout(chunks, body, pos=body.index("#### Method A"))
 
 
