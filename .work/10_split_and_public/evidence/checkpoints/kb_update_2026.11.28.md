@@ -131,7 +131,7 @@
 ## 发现 (都没有在本次处理, 记入 `todo_later`)
 1. **先例测试端口脚本的 top5 比较是空比较。** `step_1.9_testport_36499a7.sh`、`p3_merge_seg{1,2}_testport_*.sh` 里用 `r.get("top5") or r.get("retrieved_sources")` 取检索列表, 而评测结果的键是 `top5_sources`, 两边取到的都是 `None`。所以前三次上线记录的「逐题 0 差」实际只比了 `source_recall` (规则 6 成因 A: 抽取端取空)。recall 层面的结论不受影响。这次的脚本已改用 `top5_sources` (`r["…"]` 取值, 键不存在会直接报错)。我第一趟跑的也是错键版本, 改正后重跑了一趟, 上文数字取自第二趟。
    - 改正后看到的真实情况: CDISC 新旧 KB 之间 top5 有 71 题不同 (与预演相同, KB 内容变化后的正常重排); study 新旧之间 3 题不同。
-   - study 的对照实验 (本机, 输出只在 gitignored 的 `data/study/st01/eval/runs/kb_update_20261128_{pre,post}/`): 8 趟 (升级前 1 趟、升级后 3 趟、只换回旧 chroma 1 趟、只换回旧 KB 1 趟、新旧都换回 2 趟) 的 recall 逐题全同; `top5_sources` 两两之间有 0–5 题不同, **配置完全相同的两趟之间就有 4 题不同**, 差异不跟 chroma 也不跟 KB 走, 出现过差异的共 6 题。域码扩写器 (它读 CDISC 的 meta 与 KB) 对 51 题追加的后缀新旧完全相同, 已排除。机制没有再往下查 (疑似 query embedding 的微小波动经 RRF 融合放大), 留作后续。
+   - study 的对照实验 (本机, 输出只在 gitignored 的 `data/study/st01/eval/runs/kb_update_20261128_{pre,post}/`): 8 趟 (升级前 1 趟、升级后 3 趟、只换回旧 chroma 1 趟、只换回旧 KB 1 趟、新旧都换回 2 趟) 的 recall 逐题全同; `top5_sources` 两两之间有 0–5 题不同, **配置完全相同的两趟之间就有 4 题不同**, 差异不跟 chroma 也不跟 KB 走, 出现过差异的共 6 题。域码扩写器 (它读 CDISC 的 meta 与 KB) 对 51 题追加的后缀新旧完全相同, 已排除。机制没有再往下查 (疑似 query embedding 的微小波动经 RRF 融合放大), 留作后续。对照实验用的旧索引副本与 study 评测日志 (含题目文本) 放在会话临时目录, 做完已删除; 评测结果 JSON 留在上面那两个 gitignored 目录。
 2. `eval/tests_support/gold_semantics_diff.py` 拆仓后直接跑会失败: `load_old_impl` 在 `cwd=ROOT.parent` 下执行 `git show`, 那里已不是 git 仓库。绕过办法见复跑命令; 修法是把 `cwd` 改成 `ROOT`。
 3. `scripts/build_neo4j.py` 文件头与 DEFHOME 注释里的 1541 / 18 / 62 过期 (现为 1546 / 23 / 75)。
 4. kb-sync 的闸这次余量为零地通过。gold 5 处修订已随本次部署进入线上镜像, 下一次 kb-sync 的基线题集就是新 gold (基线满分 138, q76 不再占用容错名额)。
@@ -163,6 +163,39 @@ $PY -m eval.run_eval data/study/st01/eval/test_set_study_v2.yml --retrieval-only
 git archive e26db1d tests eval/test_set_v3.yml | tar -x -C <临时树>
 $PY -I .work/10_split_and_public/evidence/probes/kb_rehearsal_apply_anchors.py <临时树>; diff -r <临时树>/tests tests
 $PY -I .work/10_split_and_public/evidence/probes/kb_rehearsal_gold_variants.py <临时树>/eval/test_set_v3.yml <输出目录>; diff <输出目录>/test_set_v3_goldnext.yml eval/test_set_v3.yml
+# 「发现」第 1 条的对照实验 (本机; study 输出只放 gitignored 的 data/study/st01/eval/runs/<tag>/, 做完删掉临时副本)
+OLDC=<临时目录>/chroma_old_copy; cp -c -R data/chroma_backup_20261127T162542Z $OLDC        # 升级前索引的副本 (含 study 集合, 不要留在临时目录)
+OLDK=<临时目录>/kb_old; mkdir -p $OLDK; git -C vendor/sdtm-pedia archive 78193989f384661512f1d98defbf54db44b2bdeb knowledge_base | tar -x -C $OLDK
+ST() { $PY -m eval.run_eval data/study/st01/eval/test_set_study_v2.yml --retrieval-only --hybrid --study-lookup --collection study_st01 \
+  --kb-root data/study/st01/cards --output data/study/st01/eval/runs/<tag>/$1.json; }
+ST study48; ST study48_r2; ST study48_r3                                                    # 升级后同配置 3 趟
+SDTM_RAG_CHROMA_DIR_OVERRIDE=$OLDC ST factor_oldchroma_newkb                               # 只换回旧索引
+SDTM_RAG_KB_ROOT_OVERRIDE=$OLDK/knowledge_base ST factor_newchroma_oldkb                   # 只换回旧 KB
+for i in 1 2; do SDTM_RAG_CHROMA_DIR_OVERRIDE=$OLDC SDTM_RAG_KB_ROOT_OVERRIDE=$OLDK/knowledge_base ST ctl_old_old_r$i; done   # 新旧都换回, 同配置 2 趟
+# 比较: 每份结果按题取 source_recall 与 top5_sources, 两两数不同的题数 (升级前那一趟 = 升级 submodule 之前用同一条命令跑的)
+$PY - <<'PYEOF'
+import json, itertools, glob
+R = {p.split('/')[-1][:-5]: {x['id']: x for x in json.load(open(p))['results']} for p in sorted(glob.glob('data/study/st01/eval/runs/<tag>/*.json'))}
+for a, b in itertools.combinations(R, 2):
+    print(a, b, 'recall 不同', sum(R[a][q]['source_recall'] != R[b][q]['source_recall'] for q in R[a]), 'top5_sources 不同', sum(R[a][q]['top5_sources'] != R[b][q]['top5_sources'] for q in R[a]))
+PYEOF
+# 域码扩写器后缀比对 (新旧 meta × 新旧 KB; 只比追加的 CDISC 域名后缀, 不打印题目)
+git show e26db1d:data/meta/meta.yaml > <临时目录>/meta_old.yaml
+$PY - <<'PYEOF'
+from pathlib import Path
+from server.meta_store import MetaStore
+from server.structured_lookup import StructuredLookup
+from server.domain_expand import DomainExpander
+from server.config import settings
+from eval.run_eval import load_test_set
+qs = {q['id']: q['question'] for q in load_test_set('data/study/st01/eval/test_set_study_v2.yml')}
+def ex(meta, kb):
+    st = MetaStore(Path(meta)); e = DomainExpander(st, StructuredLookup(Path(kb), st))
+    return {i: e.expand(q)[len(q):] for i, q in qs.items()}
+new = ex(settings.meta_path, settings.kb_root)
+for name, m, k in (('旧 meta + 新 KB', '<临时目录>/meta_old.yaml', settings.kb_root), ('旧 meta + 旧 KB', '<临时目录>/meta_old.yaml', '<临时目录>/kb_old/knowledge_base'), ('新 meta + 旧 KB', settings.meta_path, '<临时目录>/kb_old/knowledge_base')):
+    print(name, '后缀不同的题:', [i for i, s in ex(m, k).items() if s != new[i]])      # 实测三组都是 []
+PYEOF
 # 测试端口 / 快照 (在 VM 内执行)
 cat .work/10_split_and_public/evidence/checkpoints/kb_update_testport_f798709.sh | ssh <mini 主机> 'export PATH=/opt/homebrew/bin:$PATH LIMA_HOME=/Volumes/DevSSD/lima; limactl shell deploy -- bash -s'
 cat .work/10_split_and_public/evidence/checkpoints/kb_update_snapshot.sh         | ssh <mini 主机> '…同上…'
