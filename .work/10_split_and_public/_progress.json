@@ -1,9 +1,9 @@
 {
   "project": "10_split_and_public",
   "tier": 3,
-  "status": "P3_3.3_DONE_MERGED_MAIN_SEG1",
-  "current_step": "P3: 3.1/3.2/3.3 完成; p3 已合 main 并上线私有站 0673fee (第一段, 2026-11-27); 3.3 公开数据根 + .env 已在 VM, 公开容器保持停止; 第二段合并待指示",
-  "next_step": "第二段合并 (fix-ct-cell-format → fix-pc-examples-chunker → defhome-r4, --no-ff [skip ci], 只构建→测试端口→部署; 待协调方指示, 均须在 pedia tag 前) → 等 pedia 解冻改 KB 并打 kb-* tag → 新指纹上重跑预演与 kb_upgrade_bundle_checklist.md 全部数字和 gold 对照 → kb-sync 私有正例 → 本地「KB 更新」一次提交 → 排公开腿实现 (D1-D8) | 3.4 前: 公开站独立 Anthropic key、开 SDTM_RAG_PUBLIC_DEPLOY → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 定验收窗口方案 (M3) + TRUSTED_PROXIES 改 cloudflared 固定地址",
+  "status": "P3_3.3_DONE_MERGED_MAIN_SEG2",
+  "current_step": "P3: 3.1/3.2/3.3 完成; p3 + 4 个修复分支已分两段合 main 并上线私有站 (0673fee → 2b24d53, 2026-11-27); 3.3 公开数据根 + .env 已在 VM, 公开容器保持停止",
+  "next_step": "等 pedia 解冻改 KB 并打 kb-* tag (kb-sync 基线镜像=线上 2b24d53, 已含 CT 解析 / PC chunker / R4) → 新指纹上重跑预演与 kb_upgrade_bundle_checklist.md 全部数字和 gold 对照 → kb-sync 私有正例 → 本地「KB 更新」一次提交 (submodule + meta.yaml + 测试锚点含 PC 6 条 + gold) → 排公开腿实现 (D1-D8) | 3.4 前: 公开站独立 Anthropic key、开 SDTM_RAG_PUBLIC_DEPLOY → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 定验收窗口方案 (M3) + TRUSTED_PROXIES 改 cloudflared 固定地址",
   "completed": [
     {
       "step": "recon",
@@ -207,6 +207,17 @@
         "checkpoints/p3_merge_seg1_testport_0673fee.sh"
       ],
       "note": "p3 + fix-p2-seam-date --no-ff [skip ci] 合 main (0673fee), 双推; 只构建 run 199 → 测试端口 CDISC 140/study 51 逐题 0 差 → 部署 run 200, 线上 0673fee, 同指纹不换数据, deploy_public skipped"
+    },
+    {
+      "date": "2026-11-27",
+      "step": "P3-merge-seg2",
+      "status": "PASS",
+      "evidence": [
+        "checkpoints/p3_merge_deploy.md",
+        "checkpoints/p3_merge_seg2_testport_2b24d53.sh",
+        "checkpoints/p3_merge_seg2_snapshot.sh"
+      ],
+      "note": "fix-ct-cell-format / fix-pc-examples-chunker / defhome-r4 --no-ff [skip ci] 合 main (2b24d53); 只构建 run 202 → 测试端口 0 差 + validate 冒烟同 → 部署 run 203, 线上 2b24d53, same 不换数据, 线上 meta 仍旧规则; deploy_public skipped"
     }
   ],
   "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)",
