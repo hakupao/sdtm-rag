@@ -28,7 +28,7 @@ A1 的额外成本: 每次 KB 发版多一次入库 (~$0.05, ~95 s) + 一次 140
 - 把现有单 job 参数化为 `instance ∈ {private, public}` (两个 job 或 matrix + `max-parallel: 1`, 实现时选更简单的写法), 每条腿自带:
   `DATA_ROOT`、`ENV_FILE`、`CONTAINER` (`sdtm-rag-api` / `sdtm-rag-public-api`)。
 - 公开腿门控: 公开数据根存在 (detect 前 `--via` 检查) 且 `vars.SDTM_RAG_PUBLIC_DEPLOY == 'true'` (或单独变量, 见 §5 D4)。
-- 两条腿各自 `detect` (比各自 stamp): 私有 same、公开 changed 也能单独补建 → 公开落后时每日自愈。
+- 两条腿各自 `detect` (比各自 stamp): 私有 same、公开 changed 也能单独补建。⚠ kb-sync 只**建候选**, 换入只发生在部署工作流里: 公开落后时, 要等下一次部署 (任意 push 到 main, 或手动 dispatch 一次 `sdtm-rag` 并把 tag 设为当前线上 SHA) 才会换入。实现时可以加一个「只跑 deploy_public」的 dispatch 入口, 免得为了换公开数据而重部署私有站 (算在 D3 里)。
 - **公开腿基线镜像**: 公开容器存在 (含 stopped) 用其镜像, 否则用私有线上镜像。基线只在候选副本上跑, chromadb 迁移只碰副本。
 - 候选镜像: 两条腿共用同一 `sdtm-rag-kbcand:<fp12>`, 只 build 一次, 两条腿都结束后再删。
 
@@ -73,6 +73,6 @@ A1 的额外成本: 每次 KB 发版多一次入库 (~$0.05, ~95 s) + 一次 140
 - **D1 公开闸失败的处理**: 推荐「公开保持旧镜像 + 旧数据, 只告警, 不阻断私有部署」; 备选「公开闸失败也让整次部署失败」。
   附带问题: 现状是公开 chroma 一落后, **所有**公开部署 (含纯代码 / 安全修复) 都被跳过, 直到补建候选。是否接受? 备选: 允许代码修复照常上公开站、chroma 暂时落后 (与私有「不匹配即失败」不一致, 需单独授权)。
 - **D2 swap 后验收失败**: (a) 退回数据后停机 (现 3.2「失败一律停机」原则, 最保守); (b) 退回数据 + 退回旧镜像继续对外 (可用性好, 但要写和私有 job 同样复杂的退回逻辑)。
-- **D3 1.9 正例的节奏**: pedia 可能在 A1 实现前打 tag。(a) 正例先只验私有, 公开等 A1 上线后由 kb-sync 自愈补建、补验 (推荐, 不挡 pedia 发版); (b) 等 A1 实现后两实例一起演练。
+- **D3 1.9 正例的节奏**: pedia 可能在 A1 实现前打 tag。(a) 正例先只验私有; A1 上线后由 kb-sync 补建公开候选, 再由一次部署 (push 或手动 dispatch) 换入并补验 (推荐, 不挡 pedia 发版); (b) 等 A1 实现后两实例一起演练。
 - **D4 演练前置**: `SDTM_RAG_PUBLIC_DEPLOY` 未开, 公开容器 stopped。公开 swap 演练需要 (a) 先开变量 (deploy_public 会 `up -d` 起公开容器, 不发布端口、无隧道, 不对外); 或 (b) kb-sync 公开腿用独立变量 (如 `SDTM_RAG_PUBLIC_KBSYNC`) 先跑候选, 换入等 3.4 前再开。
-- **D5 修复顺序** (来自预演): B 仓 `build_meta` / `spec_loader` 兼容新旧 CT 写法的修复, 是否在 pedia 打 tag **之前**先合进 main 并部署 (已验证旧 KB 下 meta.yaml 逐字节不变)。推荐是。
+- **D5 修复顺序** (来自预演): B 仓的修复 (CT 写法解析、`_model_defhome` 多文件归属规则、KB 计数锚点测试; 见 `kb_rehearsal_bf33bab.md`), 是否在 pedia 打 tag **之前**先合进 main 并部署 (CT 解析补丁已验证在旧 KB 下 meta.yaml 逐字节不变; `_model_defhome` 的新规则要另外验证)。推荐是。另外 `_model_defhome` 的规则本身也要用户裁定: 变量在多个 model 文件都有定义行时, 归到哪个文件。
