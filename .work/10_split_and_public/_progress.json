@@ -3,7 +3,7 @@
   "tier": 3,
   "status": "P3_3.3_DONE",
   "current_step": "P3: 3.1/3.2/3.3 完成 (3.2 在分支 p3 未合并; 3.3 公开数据根 + .env 已在 VM, 公开容器验收后已 stop)",
-  "next_step": "合并 p3 → main (触发私有部署, 先确认) + 开 SDTM_RAG_PUBLIC_DEPLOY → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 定验收窗口方案 (M3) + TRUSTED_PROXIES 改 cloudflared 固定地址",
+  "next_step": "用户裁 p3_public_kb_update_design.md §5 D1-D5 → (D5) B 仓修 scripts/build_meta._split_ct + spec_loader.is_ct_code 兼容 '(短名) Cnnnnn' (单测+变异验证, 推 main 即部署) → pedia 打 kb-* tag → kb-sync 正例; 并行: 合并 p3 → main + 3.4",
   "completed": [
     {
       "step": "recon",
@@ -162,6 +162,17 @@
       "evidence": [
         "checkpoints/p2_deploy.md"
       ]
+    },
+    {
+      "date": "2026-11-27",
+      "step": "1.9-prep",
+      "status": "REHEARSAL_GATE_FAIL_ROOT_CAUSED",
+      "evidence": [
+        "checkpoints/kb_rehearsal_bf33bab.md",
+        "failures/kb_rehearsal_bf33bab_attempt_1.md",
+        "checkpoints/p3_public_kb_update_design.md"
+      ],
+      "note": "pedia 本地 KB bf33bab (00a2e93) 预演: 6 题回退 FAIL; 根因 B 仓 build_meta CT 码正则不认 pedia 44fb042 的 '(短名) Cnnnnn' 写法 (meta ct_codes 588→0); 反事实修解析 → 逐题 0 差; 修复在旧 KB 下 meta.yaml 逐字节不变。未经独立审查 (规则 D 待补)"
     }
   ],
   "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)",
@@ -176,7 +187,7 @@
     "3.2": "私有 compose.yml 不动, 公开实例独立 compose.public.yml (写死档位/路径, 不发布端口) + workflow deploy_public job (vars 门控, 失败停机)",
     "open": [
       "3.4 前定: 验收窗口 (先临时容器验 / cloudflared 验后再指) — 审查 M3",
-      "公开 chroma 的 KB 更新流程 (kb-sync 候选含 study 集合不能用); 现指纹不一致只告警跳过"
+      "公开 chroma 的 KB 更新流程: 设计 v0.1 已出 (checkpoints/p3_public_kb_update_design.md, 推荐 A1 = kb-sync 公开腿 + deploy_public 支持 swap), 待用户裁 D1-D5 后实现; 现指纹不一致只告警跳过"
     ],
     "Q3_override": "2026-11-26 用户: 公开站全部用 Anthropic key, 模型选便宜的 → 免费题 = Claude Haiku 5.5 ($0.10/$0.50), 内部组与 fallback 同",
     "3.3": "公开 chroma 只含 sdtm_kb_v1 4329; 140q 与基线逐题一致"
