@@ -83,8 +83,8 @@ def test_ch01_sections_carry_real_headings(ch01_chunks):
 
 
 def test_ch02_splits_by_h2(ch02_chunks):
-    """ch02 (18KB, 9 个 H2) —— q38 的 gold 章节, 原为整文件单块。"""
-    assert len(ch02_chunks) == 9
+    """ch02 (8 个 H2) —— q38 的 gold 章节, 原为整文件单块。"""
+    assert len(ch02_chunks) == 8
     assert all(c.section != "whole_file" for c in ch02_chunks)
     # §2.6 Creating a New Domain 含 "Determine the domain code" —— q38 要的那一半
     assert any("2.6" in (c.section or "") for c in ch02_chunks), \
@@ -120,14 +120,14 @@ def test_ch01_domain_is_none(ch01_chunks):
 # ch04 (~130KB, >50KB tier): L-4 lock — must use ### split, max tokens < 8000
 # ---------------------------------------------------------------------------
 
-def test_ch04_produces_47_chunks(ch04_chunks):
-    """ch04 (130KB > 50KB) produces exactly 47 chunks via ### split (L-4 lock)."""
-    assert len(ch04_chunks) == 47
+def test_ch04_produces_45_chunks(ch04_chunks):
+    """ch04 (130KB > 50KB) produces exactly 45 chunks via ### split (L-4 lock)."""
+    assert len(ch04_chunks) == 45
 
 
 def test_large_chapter_still_splits_by_h3(ch04_chunks):
     """L-4 锁不得被本次改动破坏: >50KB 仍按 ### 切。"""
-    assert len(ch04_chunks) == 47
+    assert len(ch04_chunks) == 45
     assert any("4.2.2" in (c.section or "") for c in ch04_chunks)
 
 

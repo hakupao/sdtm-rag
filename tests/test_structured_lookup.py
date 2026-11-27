@@ -216,7 +216,7 @@ class TestConceptDefinitionChannel:
 
     def test_defhome_epoch(self, lookup):
         assert lookup.var_to_model_defhome.get("EPOCH") == \
-            "model/03_special_purpose_domains.md"
+            "model/02_observation_classes.md"
 
     def test_defhome_map_hygiene(self, lookup):
         m = lookup.var_to_model_defhome

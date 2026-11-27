@@ -24,14 +24,14 @@ def graph():
 def test_node_counts(graph):
     n = graph["nodes"]
     assert len(n["Domain"]) == 63          # DI 桩 counts_toward_63=false 不导
-    assert len(n["Variable"]) == 1541      # 1523 IG + 18 model-only (偏差 D4)
+    assert len(n["Variable"]) == 1546      # 1523 IG + 23 model-only (偏差 D4)
     assert len(n["Codelist"]) == 1005
     assert len(n["Class"]) == 8
-    assert len(n["ModelChapter"]) == 4     # 偏差 D3
+    assert len(n["ModelChapter"]) == 5     # 偏差 D3
 
 def test_variable_model_only_split(graph):
     flags = [v["model_only"] for v in graph["nodes"]["Variable"]]
-    assert flags.count(False) == 1523 and flags.count(True) == 18
+    assert flags.count(False) == 1523 and flags.count(True) == 23
     by_name = {v["name"]: v for v in graph["nodes"]["Variable"]}
     assert by_name["APID"]["model_only"] is True      # 模型级变量, 不在任何 IG 域
     assert "role" not in by_name["APID"]              # model-only 节点只有 name+model_only
@@ -47,7 +47,7 @@ def test_edge_counts(graph):
     assert len(e["HAS_VARIABLE"]) == 1917
     assert len(e["USES_CT"]) == 542        # 唯一 (var, ct) 对, 跨域 union
     assert len(e["IN_CLASS"]) == 63
-    assert len(e["DEFHOME"]) == 62         # 偏差 D4: 全量 62 (R4), 不静默丢 18 个 model-only
+    assert len(e["DEFHOME"]) == 75         # 偏差 D4: 全量 75 (R4), 不静默丢 23 个 model-only
     assert len(e["RELATED_TO"]) == 52
 
 # ── 语义抽点 (跨域分歧 / 逐域权威值 / advisory 保真) ──────────────────────
@@ -75,14 +75,14 @@ def test_class_and_chapter_nodes(graph):
     sizes = {c["name"]: c["n_domains"] for c in graph["nodes"]["Class"]}
     assert sizes["Findings"] == 30 and sizes["Study Reference"] == 1
     assert {m["path"] for m in graph["nodes"]["ModelChapter"]} == {
-        "model/02_observation_classes.md", "model/03_special_purpose_domains.md",
+        "model/02_observation_classes.md", "model/03_special_purpose_domains.md", "model/04_associated_persons.md",
         "model/05_study_level_data.md", "model/06_relationship_datasets.md",
     }
 
 def test_defhome_edge_shape(graph):
     rows = {r["var"]: r["chapter"] for r in graph["edges"]["DEFHOME"]}
-    assert rows["APID"] == "model/06_relationship_datasets.md"
-    assert len(rows) == 62
+    assert rows["APID"] == "model/04_associated_persons.md"
+    assert len(rows) == 75
 
 def test_load_meta_missing_key_fails_loud(tmp_path):
     bad = tmp_path / "meta.yaml"

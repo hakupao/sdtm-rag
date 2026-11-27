@@ -8289,7 +8289,7 @@ domains:
     label: Subject Reference Start Date/Time
     name: RFSTDTC
     role: Record Qualifier
-    type: DateTime
+    type: Char
   - core: Exp
     ct_codes: []
     ct_dict:
@@ -8297,7 +8297,7 @@ domains:
     label: Subject Reference End Date/Time
     name: RFENDTC
     role: Record Qualifier
-    type: DateTime
+    type: Char
   - core: Exp
     ct_codes: []
     ct_dict:
@@ -21082,14 +21082,14 @@ model_defhome:
   AGE: model/03_special_purpose_domains.md
   AGETXT: model/03_special_purpose_domains.md
   AGEU: model/03_special_purpose_domains.md
-  APID: model/06_relationship_datasets.md
+  APID: model/04_associated_persons.md
   ARMCD: model/03_special_purpose_domains.md
   ARMNRS: model/03_special_purpose_domains.md
   COUNTRY: model/03_special_purpose_domains.md
   DOMAIN: model/02_observation_classes.md
   DTHDTC: model/03_special_purpose_domains.md
   DTHFL: model/03_special_purpose_domains.md
-  EPOCH: model/03_special_purpose_domains.md
+  EPOCH: model/02_observation_classes.md
   ETCD: model/03_special_purpose_domains.md
   ETHNIC: model/03_special_purpose_domains.md
   FETUSID: model/02_observation_classes.md
@@ -21099,7 +21099,8 @@ model_defhome:
   INVID: model/03_special_purpose_domains.md
   INVNAM: model/03_special_purpose_domains.md
   LEVEL: model/06_relationship_datasets.md
-  MIDS: model/03_special_purpose_domains.md
+  MIDS: model/02_observation_classes.md
+  MIDSDTC: model/02_observation_classes.md
   MIDSTYPE: model/03_special_purpose_domains.md
   NHOID: model/02_observation_classes.md
   PARENT: model/06_relationship_datasets.md
@@ -21110,16 +21111,22 @@ model_defhome:
   QORIG: model/06_relationship_datasets.md
   QVAL: model/06_relationship_datasets.md
   RACE: model/03_special_purpose_domains.md
+  RDEVID: model/04_associated_persons.md
   RDOMAIN: model/06_relationship_datasets.md
-  REFID: model/06_relationship_datasets.md
   RELID: model/06_relationship_datasets.md
+  RELMIDS: model/02_observation_classes.md
   RELTYPE: model/06_relationship_datasets.md
   RFENDTC: model/03_special_purpose_domains.md
   RFICDTC: model/03_special_purpose_domains.md
   RFPENDTC: model/03_special_purpose_domains.md
   RFSTDTC: model/03_special_purpose_domains.md
   RPATH: model/05_study_level_data.md
+  RPHASE: model/02_observation_classes.md
+  RPPLDY: model/02_observation_classes.md
+  RPPLENDY: model/02_observation_classes.md
+  RPPLSTDY: model/02_observation_classes.md
   RPRFDY: model/05_study_level_data.md
+  RSUBJID: model/04_associated_persons.md
   SBSTRAIN: model/03_special_purpose_domains.md
   SETCD: model/03_special_purpose_domains.md
   SEUPDES: model/03_special_purpose_domains.md
@@ -21128,14 +21135,20 @@ model_defhome:
   SJSEQ: model/03_special_purpose_domains.md
   SJSTDTC: model/03_special_purpose_domains.md
   SJUPDES: model/03_special_purpose_domains.md
-  SPEC: model/06_relationship_datasets.md
   SPECIES: model/03_special_purpose_domains.md
+  SREL: model/04_associated_persons.md
   STRAIN: model/03_special_purpose_domains.md
   SUBJID: model/03_special_purpose_domains.md
-  TAETORD: model/03_special_purpose_domains.md
+  TAETORD: model/02_observation_classes.md
   TPBRANCH: model/05_study_level_data.md
   TPSTGORD: model/05_study_level_data.md
+  TSVALCD: model/05_study_level_data.md
+  TSVCDREF: model/05_study_level_data.md
+  TSVCDVER: model/05_study_level_data.md
   TTDUR: model/05_study_level_data.md
   TTENRL: model/05_study_level_data.md
   TTSTRL: model/05_study_level_data.md
   USUBJID: model/02_observation_classes.md
+  VISIT: model/02_observation_classes.md
+  VISITDY: model/02_observation_classes.md
+  VISITNUM: model/02_observation_classes.md

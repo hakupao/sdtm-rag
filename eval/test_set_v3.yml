@@ -435,6 +435,7 @@
   expected_sources:
     - "model/02_observation_classes.md"
     - "chapters/ch08_relationships.md#8.6.3 Guidelines for Differentiating Between Interventions, Events, Findings, and Findings About Events or Interventions$"
+    - "domains/FA/assumptions.md"
 
 - id: q40
   category: concept
@@ -943,7 +944,7 @@
     - "SREL"
   expected_sources:
     - "model/04_associated_persons.md"
-    - "model/06_relationship_datasets.md#6.6 Associated Persons Related Subjects (APRELSUB)$"
+    - "model/06_relationship_datasets.md#6.6 Associated Persons Relationships (APRELSUB)$"
 
 - id: q77
   category: cross_domain
@@ -1454,7 +1455,7 @@
     - "separate QNAM values should be used"
     - "AETRTEMI"
     - "AETRTEMA"
-    - "first 6 columns (STUDYID...QNAM) should be unique"
+    - "should be unique for every record"
   expected_sources_any:
     - "chapters/ch08_relationships.md"
     # ⚠️ 该成员**独立覆盖 0/4 facts** (违反 check_source_recall docstring 纪律第 1 条),
@@ -1497,7 +1498,7 @@
     - "Identifier for a single associated person, a group of associated persons, or a pool of associated persons"
     - "If APID identifies a pool, POOLDEF records must exist for each associated person"
     - "One record per pooled subject per pool"
-    - "Defines which subjects belong to each pool"
+    - "individual subjects included in a pool"
   expected_sources:
     - "model/04_associated_persons.md"
     - "model/06_relationship_datasets.md"
@@ -1569,7 +1570,6 @@
     - "domains/TE/spec.md"
   expected_sources_any:
     - "domains/SE/assumptions.md"
-    - "model/03_special_purpose_domains.md#Subject Elements (SE)$"
 
 - id: q127
   category: cross_domain

@@ -12,10 +12,10 @@ META_PATH = Path(__file__).resolve().parents[1] / "data" / "meta" / "meta.yaml"
 
 def test_expected_counts_match_golden_anchors():
     exp = expected_from_yaml(META_PATH)
-    assert exp["node_counts"] == {"Domain": 63, "Variable": 1541, "Codelist": 1005,
-                                  "Class": 8, "ModelChapter": 4}
+    assert exp["node_counts"] == {"Domain": 63, "Variable": 1546, "Codelist": 1005,
+                                  "Class": 8, "ModelChapter": 5}
     assert exp["edge_counts"] == {"HAS_VARIABLE": 1917, "USES_CT": 542, "IN_CLASS": 63,
-                                  "DEFHOME": 62, "RELATED_TO": 52}
+                                  "DEFHOME": 75, "RELATED_TO": 52}
 
 def test_expected_neighborhood_derivation():
     exp = expected_from_yaml(META_PATH)

@@ -165,10 +165,10 @@ def test_count_tokens_returns_zero_for_empty_string():
 # find_mermaid_blocks: L-1 state machine
 # ---------------------------------------------------------------------------
 
-def test_find_mermaid_blocks_ta_returns_20(ta_text):
-    """TA/examples.md has exactly 20 mermaid blocks (matches 1A.0.b finding)."""
+def test_find_mermaid_blocks_ta_returns_24(ta_text):
+    """TA/examples.md has exactly 24 mermaid blocks (kb-2026.11.28; 20 before the PDF figure backfill)."""
     blocks = find_mermaid_blocks(ta_text)
-    assert len(blocks) == 20
+    assert len(blocks) == 24
 
 
 def test_find_mermaid_blocks_returns_tuples_with_valid_offsets(ta_text):

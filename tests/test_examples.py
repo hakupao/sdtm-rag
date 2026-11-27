@@ -69,45 +69,58 @@ def test_ta_examples_file_type_examples(ta_chunks):
 
 
 # ---------------------------------------------------------------------------
-# PC/examples.md: exactly 14 chunks (H4 nested; Example 4 = Method A+D only)
+# PC/examples.md: 15 chunks = 1 ('PC – Examples', PC's own Example 1, no H4) + 14 merged-example
+# Method chunks (H4 nested; Example 4 = Method A+D only)
 # ---------------------------------------------------------------------------
 
-def test_pc_examples_produces_14_chunks(pc_chunks):
-    """PC/examples.md produces exactly 14 chunks (4+4+4+2; Example 4 = Method A+D only)."""
-    assert len(pc_chunks) == 14
+def test_pc_examples_produces_15_chunks(pc_chunks):
+    """PC/examples.md produces exactly 15 chunks (1 + 4+4+4+2; Example 4 = Method A+D only)."""
+    assert len(pc_chunks) == 15
 
 
 def test_pc_examples_all_have_sub_label_method(pc_chunks):
-    """All PC chunks have sub_label matching 'Method [A-D]' pattern."""
-    for chunk in pc_chunks:
+    """All 14 merged-example PC chunks have sub_label matching 'Method [A-D]' pattern."""
+    merged = [c for c in pc_chunks if c.section != 'PC – Examples']
+    assert len(merged) == 14 and len(pc_chunks) - len(merged) == 1
+    for chunk in merged:
         assert chunk.sub_label is not None
         assert chunk.sub_label.startswith("Method ")
 
 
 def test_pc_examples_sub_labels_are_valid_methods(pc_chunks):
-    """PC chunk sub_labels are only 'Method A', 'Method B', 'Method C', or 'Method D'."""
+    """Merged-example PC chunk sub_labels are only 'Method A', 'Method B', 'Method C', or 'Method D'."""
     valid = {"Method A", "Method B", "Method C", "Method D"}
-    for chunk in pc_chunks:
+    merged = [c for c in pc_chunks if c.section != 'PC – Examples']
+    assert len(merged) == 14 and len(pc_chunks) - len(merged) == 1
+    for chunk in merged:
         assert chunk.sub_label in valid, f"Unexpected sub_label: {chunk.sub_label!r}"
 
 
 def test_pc_examples_all_have_example_index(pc_chunks):
-    """All PC chunks have a non-None example_index."""
-    for chunk in pc_chunks:
+    """All 14 merged-example PC chunks have a non-None example_index."""
+    merged = [c for c in pc_chunks if c.section != 'PC – Examples']
+    assert len(merged) == 14 and len(pc_chunks) - len(merged) == 1
+    for chunk in merged:
         assert chunk.example_index is not None
 
 
 def test_pc_examples_example_indices_range_1_to_4(pc_chunks):
-    """PC example_index values are all within 1..4."""
-    for chunk in pc_chunks:
+    """Merged-example PC example_index values are all within 1..4."""
+    merged = [c for c in pc_chunks if c.section != 'PC – Examples']
+    assert len(merged) == 14 and len(pc_chunks) - len(merged) == 1
+    for chunk in merged:
         assert 1 <= chunk.example_index <= 4, (
             f"example_index {chunk.example_index} out of range [1,4]"
         )
 
 
 def test_pc_examples_all_have_cdisc_section_id(pc_chunks):
-    """All PC chunks have cdisc_section_id == '§6.3.5.9.3'."""
-    for chunk in pc_chunks:
+    """Merged-example PC chunks have cdisc_section_id == '§6.3.5.9.3'; the 'PC – Examples' chunk has none."""
+    merged = [c for c in pc_chunks if c.section != 'PC – Examples']
+    assert len(merged) == 14 and len(pc_chunks) - len(merged) == 1
+    ex1 = [c for c in pc_chunks if c.section == 'PC – Examples']
+    assert [(c.cdisc_section_id, c.example_index, c.sub_label) for c in ex1] == [(None, None, None)]
+    for chunk in merged:
         assert chunk.cdisc_section_id == "§6.3.5.9.3", (
             f"Expected §6.3.5.9.3, got {chunk.cdisc_section_id!r}"
         )

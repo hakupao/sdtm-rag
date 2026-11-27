@@ -178,7 +178,7 @@ def test_ct_codes_for_variable_union_across_domains(store: MetaStore):
 def test_model_defhome_map(store: MetaStore):
     m = store.model_defhome_map
     assert m["RDOMAIN"] == "model/06_relationship_datasets.md"
-    assert m["EPOCH"] == "model/03_special_purpose_domains.md"
+    assert m["EPOCH"] == "model/02_observation_classes.md"
     # returns a copy: mutating it must not corrupt the store
     m["RDOMAIN"] = "tampered"
     assert store.model_defhome("RDOMAIN") == "model/06_relationship_datasets.md"
