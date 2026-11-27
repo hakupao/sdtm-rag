@@ -79,6 +79,7 @@ def test_r4_chapter_02_is_new_kb_layout(tmp_path):
     ({"06_relationship_datasets.md": None}, r"model/06_\*\.md, found 0"),
     ({"02_observation_classes.md": "## 4.1 Moved"}, r"§4.1, expected §3.1"),
     ({"02_observation_classes.md": "## 3.2 Special-purpose Domains"}, r"§3.2, expected §3.1"),
+    ({"02_observation_classes.md": "## 3.10 X"}, r"§3.10, expected §3.1"),  # segment, not string, prefix
     ({"06_relationship_datasets.md": "## 7 Moved"}, r"§7, expected §6"),
     ({"02_observation_classes.md": "## The General Observation Classes"}, "no numbered heading"),
 ])

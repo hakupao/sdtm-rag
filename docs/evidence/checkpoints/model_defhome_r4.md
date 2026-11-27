@@ -16,12 +16,12 @@ E1 = R4; E2 = 提前合并, 接受旧 KB 下多 3 条 (DOMAIN / USUBJID / POOLID
 兜底 (`_model_chapter_file`): `model/02_*.md` / `model/06_*.md` 不是恰好一个, 或首个编号标题不是 §3.1 / §6 的祖先或子节 (02 接受 3 / 3.1 / 3.1.x, 拒绝 3.2; 06 接受 6.x), 或没有编号标题 → `ValueError`, build_meta 失败 (kb-sync 候选构建也随之失败)。model 目录缺失同样报错 (原来静默返回 `{}`)。
 两套真实 KB 都不误报: 旧 KB 首标题 `3.1.1` / `6.1`, 新 KB `3` / `6.1`。输出仍是「变量 → 单个文件」, meta.yaml 结构不变。
 
-## 改动 (`a62afba`)
+## 改动 (`a62afba` + 审查修正)
 | 文件 | 内容 |
 |---|---|
 | `scripts/build_meta.py` | R4 判定 + 兜底检查 (审查后: 02 的章节比较从主章节号收紧到 §3.1) |
 | `data/meta/meta.yaml` | 旧 KB 重新生成, 只多 3 行 (下节) |
-| `tests/test_model_defhome_r4.py` (新) | 合成 model/ 树: 每条分支 (GEN 为 02+03+05+06) + 兜底 6 种触发 (含 02 首标题 §3.2) + 重复前缀 + 目录缺失 + 新 KB 首标题形态 |
+| `tests/test_model_defhome_r4.py` (新) | 合成 model/ 树: 每条分支 (GEN 为 02+03+05+06) + 兜底 7 种触发 (含 02 首标题 §3.2、§3.10) + 重复前缀 + 目录缺失 + 新 KB 首标题形态 |
 | `tests/test_build_meta.py` | 实时构建断言: RDOMAIN→06、DOMAIN/USUBJID/POOLID→02、ETCD→03 (隔离金丝雀)、RPATHCD/RSTGCD/RSTAGE 不在 |
 | `tests/test_structured_lookup.py` | EPOCH 金丝雀 → ETCD 金丝雀; EPOCH 降为普通断言 (旧 KB → 03); hygiene: 三变量 → 02, 多文件丢弃守卫改用 RPATHCD/RSTGCD/RSTAGE; docstring 去掉写死的 59 |
 | `tests/test_build_neo4j.py`, `tests/test_reconcile_neo4j.py` | DEFHOME 59 → 62 |
@@ -39,11 +39,11 @@ E1 = R4; E2 = 提前合并, 接受旧 KB 下多 3 条 (DOMAIN / USUBJID / POOLID
 ## 验收
 | 项 | 结果 |
 |---|---|
-| 旧 KB pytest (`bfbf547` → 最终代码) | 1 failed / 2908 passed / 61 skipped → 1 failed / 2919 passed / 61 skipped (`a62afba` 时 2918, 审查后补 1 个参数化用例)。唯一失败 `test_p2_seam_characterization` 基点即失败 (已知日期问题) |
+| 旧 KB pytest (`bfbf547` → 最终代码) | 1 failed / 2908 passed / 61 skipped → 1 failed / 2920 passed / 61 skipped (`a62afba` 时 2918, 两轮审查后各补 1 个参数化用例)。唯一失败 `test_p2_seam_characterization` 基点即失败 (已知日期问题) |
 | 旧 KB `_model_defhome` vs `defhome_rules.py` R4 | 整张字典相等, 62 条 |
 | 新 KB (`00a2e93`, 指纹 `bf33babc…`) `_model_defhome` vs R4 实算 | 整张字典相等, 72 条 (03:31 02:18 06:12 05:7 04:4); 生成的 meta.yaml 中 model_defhome 与进程内结果相同 |
 | 新 KB 140 题 retrieval 闸 | avg 0.9917; 与本轮重跑的基线 `baseline_mine.json` 逐题双向 0 差, `kbsync.regressions` = []; 与 CT 分支的 `baseline.json` / `candidate_fixed2.json` (同 KB 同 chroma, 只差 defhome) 也逐题 0 差。q73 / q83 = 1.0 |
-| 新 KB pytest (`a62afba`; 审查后改动只收紧兜底, 新 KB 重建 meta.yaml 与 `a62afba` 逐字节相同, R4 两个测试文件 23 passed) | 15 failed / 2909 passed / 56 skipped。相对 CT 分支新 KB 结果 (16 failed): `test_build_meta::test_model_defhome` 转绿; `test_defhome_canary_epoch_six_col_isolation` 改名为 `test_defhome_epoch` 后仍失败 (= 下方清单)。其余失败均属下方清单或非本范围 (③ 计数/chunker 5 个、q126 gold 漂移、p2 seam) |
+| 新 KB pytest (`a62afba`; 审查后改动只收紧兜底, 新 KB 重建 meta.yaml 与 `a62afba` 逐字节相同, R4 两个测试文件 23 passed; 补 §3.10 用例后 24) | 15 failed / 2909 passed / 56 skipped。相对 CT 分支新 KB 结果 (16 failed): `test_build_meta::test_model_defhome` 转绿; `test_defhome_canary_epoch_six_col_isolation` 改名为 `test_defhome_epoch` 后仍失败 (= 下方清单)。其余失败均属下方清单或非本范围 (③ 计数/chunker 5 个、q126 gold 漂移、p2 seam) |
 
 新 KB 下 R4 相对旧 KB meta: 新增 12 (VISIT / VISITNUM / VISITDY / RPPLDY / RPPLSTDY / RPPLENDY / MIDSDTC / RELMIDS / RPHASE → 02; RSUBJID / RDEVID / SREL → 04); 改归属 4 (EPOCH / TAETORD / MIDS 03 → 02, APID 06 → 04); 丢 2 (REFID / SPEC, Notes 空, E3)。
 
@@ -84,10 +84,11 @@ E1 = R4; E2 = 提前合并, 接受旧 KB 下多 3 条 (DOMAIN / USUBJID / POOLID
 | M10 兜底只比主章节号 (`n = 1`, 审查 L2) | RED 1 | 02 首标题 §3.2 用例 |
 | M11 无编号标题时放行 | RED 1 | 无编号标题用例 |
 | M12 02 只在恰好两个文件时优先 (审查 L4) | RED 2 | 合成 GEN (02+03+05+06); 实时 DOMAIN |
+| M13 章节比较改成字符串前缀 (第二轮审查 L-A, 改前存活) | RED 1 | §3.10 用例 |
 | M7 兜底允许同前缀多文件 (`if not hits:`) | RED 1 | 重复前缀用例 |
 | M8 剩多个时取第一个 | RED 2 | 合成 AMBIG; 实时 RPATHCD |
 | M9 model 目录缺失时返回 `{}` | RED 1 | 目录缺失用例 |
-| 还原后 | 23 passed | |
+| 还原后 | 23 passed (补 §3.10 前); 24 passed (补后) | |
 
 局限: `test_structured_lookup` / `test_meta_store` / `test_build_neo4j` 读 tracked meta.yaml, 对 build_meta 的变异不可见; 能被变异抓到的断言都放在实时构建的 `test_build_meta` 与合成测试里。
 
@@ -99,7 +100,11 @@ writer = 主会话 (Claude Code 主代理); reviewer = `oh-my-claudecode:code-re
   - L3 标题正则要求数字后跟空白 (`## 3. Foo` / `## §3` 会被跳过)、代码块里的 `#` 行也会被当标题 → 两套 KB 都没有, 记录不改。
   - L4 合成测试缺「02 + 两个以上其他文件」→ GEN 改为 02+03+05+06, 变异 M12 合成测试也红。
   - L5 兜底只查 02 / 06, 与 v3 第 7 条范围一致 → 不改。
-- 审查后修正提交: 见下一轮审查。
+- `f7c10b1` (L1/L2/L4 修正 + 本 checkpoint): **PASS-with-nits** (0 CRITICAL/HIGH/MEDIUM)。在 `git archive` 副本上自做 9 个变异, 两套 KB 各跑, 8 红; 字符串前缀实现 (`startswith`) 存活。旧 KB meta 逐字节一致; 新 KB 下两份代码生成的 meta 逐字节相同; 本文件陈述与事实一致。
+  - L-A 字符串前缀变异存活 (`3.10` / `31` 会被误放行, 现代码本身正确) → 补 `## 3.10` 参数化用例, 变异 M13 红。
+  - L-B 02 以 `## 3 …` 开头即通过, 即使后文只有 §3.2 内容 (兼容新 KB 的代价) → 记录不改。
+  - NIT 改动表标题 → 已改。
+- 最后一个提交只改测试与本文件 (`[skip ci]`), 未再送审。
 
 ## 环境与副作用
 - 未 push (分支无 upstream), 未合并、未开 PR、未触发部署。未写主仓 (主仓 `data/meta/meta.yaml` mtime 仍为 2026-11-26 22:11)、未写 pedia 仓、未改 submodule 指针、未改 `eval/test_set_v3.yml`。新 KB 用 `git archive 00a2e93` 展开。
