@@ -10,17 +10,31 @@ Regenerate ONLY on purpose:  P2_SEAM_REGEN=1 .venv/bin/python -m pytest tests/te
 """
 from __future__ import annotations
 
+import datetime as _dt
 import hashlib
 import io
 import json
 import os
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
 GOLDEN = Path(__file__).parent / "fixtures" / "p2_seam_characterization.json"
+GOLDEN_DATE = _dt.date(2026, 11, 26)  # day the golden was recorded
 DIM = 8
+
+
+def _frozen_dt(day: _dt.date) -> ModuleType:
+    """Stand-in for server.web_search's `_dt` (datetime module) whose date.today() is fixed."""
+    class _Date(_dt.date):
+        @classmethod
+        def today(cls):
+            return day
+    mod = ModuleType("datetime_frozen")
+    mod.__dict__.update(_dt.__dict__)
+    mod.date = _Date
+    return mod
 
 _DOCS = {
     "cdisc_t": [
@@ -187,6 +201,9 @@ def harness(tmp_path_factory):
 
     mp.setattr(ws.requests, "post", fake_post)
     mp.setattr(ws.WebSearcher, "_day_used", 0)
+    # retrieved_at (= date.today()) goes into the [Web: url (retrieved YYYY-MM-DD)] tool
+    # result -> messages_sha. Freeze it to the golden's recording date so the hash is stable.
+    mp.setattr(ws, "_dt", _frozen_dt(GOLDEN_DATE))
 
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
