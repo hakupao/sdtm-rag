@@ -11,7 +11,11 @@ Dispatch is decided per H2 (each `## ` heading owns the range up to the next `##
   - Flat (every other H2, e.g. TA / IS / DS / EX / DM / MB, and PC's `## PC – Examples`
     added in newer KB versions) — 1 chunk per H2, example_index parsed from the H2.
   - cdisc_section_id is taken only from the chunk's own H2 (`§x.y...` prefix), else None.
-  - Text before the first H2 is not chunked.
+  - Text before the first H2 (or the whole file if it has no H2) is chunked only
+    when it contains a `#### Method` H4 (nested rule, cdisc_section_id None);
+    otherwise it is dropped.
+  - A single `#### Method` H4 is enough to make an H2 nested; its H2/H3 lead-in
+    text before the first H4 is then not part of any chunk (existing behavior).
   - chunk_index runs 0.. across the whole file in document order.
 
 Locks honored (per docs/evidence/checkpoints/phase_1a_0_sanity.md §4):
@@ -101,11 +105,18 @@ class ExamplesChunker(BaseChunker):
 
         # (start, end, section, cdisc_section_id, example_index, sub_label), doc order.
         spans: list[tuple[int, int, str, str | None, int | None, str | None]] = []
-        for i, (h2_start, h2_text) in enumerate(h2s):
-            h2_end = h2s[i + 1][0] if i + 1 < len(h2s) else len(text)
-            section_id = _parse_section_id(h2_text)
+        # Ranges: the pre-first-H2 region (heading None), then one per H2.
+        bounds = [p for p, _ in h2s] + [len(text)]
+        ranges = [(0, bounds[0], None)] + [
+            (h2_start, bounds[i + 1], h2_text)
+            for i, (h2_start, h2_text) in enumerate(h2s)
+        ]
+        for h2_start, h2_end, h2_text in ranges:
+            section_id = _parse_section_id(h2_text) if h2_text else None
             h4_in = [(p, t) for p, t in h4s if h2_start <= p < h2_end]
             if not any(t.startswith("Method ") for _, t in h4_in):
+                if h2_text is None:  # pre-H2 region without Method H4s: not chunked
+                    continue
                 spans.append(
                     (h2_start, h2_end, h2_text, section_id,
                      _parse_example_index(h2_text), None)
