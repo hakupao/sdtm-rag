@@ -1,9 +1,9 @@
 {
   "project": "10_split_and_public",
   "tier": 3,
-  "status": "P3_3.3_DONE_KB_UPGRADE_READY_WAITING_PEDIA_TAG",
-  "current_step": "P3: 3.1/3.2/3.3 完成; p3 + 4 个修复分支已分两段合 main 并上线私有站 (0673fee → 2b24d53, 2026-11-27); 3.3 公开数据根 + .env 已在 VM, 公开容器保持停止",
-  "next_step": "代码和预演都已就绪 (线上 2b24d53 已含 CT 解析 / PC 切块 / R4; 第二次预演 kb_rehearsal_477bac3.md 闸 PASS), **等 pedia 总闸第三轮和主人同意后打 kb-* tag** (KB 树哈希应 = 63f857774a42…, 指纹 477bac3ce565…; 不同则重算清单 v6) → kb-sync 私有正例: 预计按回退 1 题 (q76)、满分 137 过闸, 余量为零; 没过则生产不变, 先向协调方汇报再决定是否启用 q76 双标题补救, 不自行启用 → 本地「KB 更新」一次提交 (submodule + meta.yaml + 18 个测试锚点 + gold 5 处含 q76 + README 的 tag 字样, 见 kb_upgrade_bundle_checklist.md v6; 本机首跑 test_create_app_boots_through_lifespan) → 排公开腿实现 (D1-D8) | 3.4 前: 公开站独立 Anthropic key、开 SDTM_RAG_PUBLIC_DEPLOY → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 验收窗口已定 (M3=临时容器先验再换正式, deploy_public 按 p3_step3.2_compose.md「M3 裁定」改) + TRUSTED_PROXIES 改 cloudflared 固定地址",
+  "status": "KB_UPDATE_2026.11.28_LIVE_PRIVATE",
+  "current_step": "P3: 3.1/3.2/3.3 完成; 1.9 私有正例完成 = 「KB 更新」kb-2026.11.28 已上线私有站 (2026-11-28): kb-sync run 210 PASS → 提交 f798709 → 只构建 run 211 + 测试端口 → 部署 run 212 (换入候选, 线上 = 镜像 f798709 + 指纹 477bac3ce565 / 4333 条 / model_defhome 75); 公开容器保持停止, 公开 chroma 仍是旧 KB",
+  "next_step": "排公开腿实现 (公开 chroma 的 KB 更新, D1-D8; 按 3.3 的记录公开 chroma 是旧 KB (4329 条, 本次没有读公开数据根), 与镜像 f798709 的 KB 指纹不一致, deploy_public 开了也会按预检跳过) | 3.4 前: 开 SDTM_RAG_PUBLIC_DEPLOY (公开站独立 key 已由主人换好, 见 decisions_p3.public_keys) → 3.4 Cloudflare Tunnel (sdtm.bojiang.org) + 验收窗口已定 (M3=临时容器先验再换正式, deploy_public 按 p3_step3.2_compose.md「M3 裁定」改) + TRUSTED_PROXIES 改 cloudflared 固定地址。回滚本次 KB 更新: dispatch tag=2b24d53ec7047ed37070b9e53f54995f091fcf76 deploy=true (自动换回 chroma_prev_f863e45445a6_20261127T164455Z), 详见 checkpoints/kb_update_2026.11.28.md",
   "completed": [
     {
       "step": "recon",
@@ -115,20 +115,30 @@
       "date": "2026-11-25",
       "prod_image": "cb5fd06",
       "note": "submodule→kb-2026.11.25; build-only run 244 → 测试端口 0 差 → run 245 部署; artifact evidence/checkpoints/p1_kb_tag_and_reorg_image.md"
+    },
+    {
+      "step": "1.9-positive+kb-update-2026.11.28",
+      "status": "PASS",
+      "date": "2026-11-28",
+      "prod_image": "f798709",
+      "note": "kb-sync run 210 PASS (回退 1 题 q76, 满分 137, avg 0.9881) → 提交 f798709 (submodule kb-2026.11.28 + meta + 18 锚点 + gold 5 处 + README tag; 本机 pytest 2995/0, 140q 138 满分 0.9917, study 51 逐题同; critic 审查 PASS) → 只构建 run 211 → 测试端口 (新镜像 + 候选副本: 140q = 预演全部修订, study recall 逐题同) → 部署 run 212 decision=swap; 线上 stamp 477bac3ce565 / 4333, meta model_defhome 75; 旧数据 chroma_prev_f863e45445a6_20261127T164455Z; deploy_public skipped; artifact evidence/checkpoints/kb_update_2026.11.28.md"
     }
   ],
   "recovery_hint": "新会话在 /Volumes/DevSSD/Project/sdtm-rag 打开: 读本文件 → PLAN.md §2 P1 1.8/1.9 → 续跑",
   "decisions_2026_11_25_late": "两仓都公开; B 的 origin 配双 push URL (Gitea + GitHub hakupao/sdtm-rag), 一次 push 两边都推 (不是 Gitea push-mirror); B 内网信息接受公开; A 仍推重写版",
   "todo_later": [
     "lan-services Caddy assets/kg_viewer.html 拷贝源改为 viewer/dist/kg_viewer.html",
-    "Cloudflare Pages watch paths → web/** + releases/v1.4/** (用户在面板确认)",
     "pyproject authors 真名 vs LICENSE holder hakupao (用户裁定)",
     "P4: VM 磁盘自动清理规则",
     "lan-services: deploy/caddy/Dockerfile:13 注释旧路径 (改了会触发 caddy 重建, 随下次 caddy 改动一起); /Volumes/DevSSD/mini-home/lan-services 是无远端老副本, 用户定去留; 确认 mini 上 com.sdtmrag.* launchd 未加载",
     "P4: 删 deploy/deploy.sh + deploy/.env.service.template (launchd 遗留)",
     "P3.4c: 窄屏 (≤600px) 侧栏不收起, 公开档顶栏徽标挤压标题",
     "P3: 依赖残余 pip-audit 8 包 (均不在公开路径, 见 p2.9_fix.md)",
-    "P3 冒烟: /api/info.tier==public + /openapi.json 404 + 可信代理=cloudflared + 端口只绑 127.0.0.1"
+    "P3 冒烟: /api/info.tier==public + /openapi.json 404 + 可信代理=cloudflared + 端口只绑 127.0.0.1",
+    "scripts/build_neo4j.py 文件头与 DEFHOME 注释里的过期数字 1541 / 18 / 62 → 1546 / 23 / 75 (随下一个会部署的提交改; kb_update_2026.11.28_review.md MINOR 1)",
+    "eval/tests_support/gold_semantics_diff.py: load_old_impl 的 cwd=ROOT.parent 在拆仓后不是 git 仓库, 直接跑报错 → 改成 ROOT (现用 GIT_DIR=$PWD/.git 绕过)",
+    "先例测试端口脚本 (step_1.9 / p3_merge_seg1 / seg2) 的 top5 比较取错键 (应为 top5_sources), 以前的「逐题 0 差」只比了 recall; 以后的测试端口脚本从 kb_update_testport_f798709.sh 起步",
+    "study 检索 top5 末位席次的趟间波动 (同配置两趟 51 题里 4 题 top5 不同, recall 不变): 机制未查清, 见 kb_update_2026.11.28.md「发现」第 1 条"
   ],
   "decisions_1_9": "2026-11-25 用户: CI 检测+闸+报告, 升级提交由本地「KB 更新」双推; pyproject 作者→hakupao; mini-home/lan-services 改名 .archived-20261125",
   "log": [
@@ -241,6 +251,19 @@
         "checkpoints/kb_rehearsal_477bac3.md (对 kb-sync 与提交顺序的含义)"
       ],
       "note": "主人本人裁定 q76 = 做法 A (原话「先不动，随 KB 升级那次提交一起改」); 登记补救办法 (kb-sync 没过时改用双标题, 须先汇报协调方); 只改文档, 未改 eval / tests"
+    },
+    {
+      "date": "2026-11-28",
+      "step": "1.9-positive+kb-update-2026.11.28",
+      "status": "DEPLOYED_PRIVATE",
+      "evidence": [
+        "checkpoints/kb_update_2026.11.28.md",
+        "checkpoints/kb_update_2026.11.28_review.md",
+        "checkpoints/kb_update_testport_f798709.sh",
+        "checkpoints/kb_update_snapshot.sh",
+        "subagent_prompts/review_kb_update_commit.md"
+      ],
+      "note": "Gitea run 210 (kb-sync PASS) / 211 (只构建) / 212 (部署, 换入候选); 提交 f798709; 回滚 = dispatch tag 2b24d53 (自动换回 chroma_prev_f863e45445a6_20261127T164455Z); 发现: 先例测试端口脚本 top5 比较取错键、gold_semantics_diff 拆仓后 cwd 失效、study top5 趟间波动; 登记: 公开站地址 sdtm.bojiang.org、公开站 key 已换、Cloudflare Pages watch paths 已设"
     }
   ],
   "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)",
@@ -251,7 +274,7 @@
     "主会话: deepseek-v4-pro 按 $1.32/$3.96 每 1M (P3 前对照官方价格页核实)"
   ],
   "decisions_p3": {
-    "Q1": "公开站域名 = Cloudflare 上的 bojiang.org (2026-11-26 用户裁定)",
+    "Q1": "公开站域名 = Cloudflare 上的 bojiang.org (2026-11-26 用户裁定); 公开站地址 = sdtm.bojiang.org (主人 2026-11-27 定, 协调方转述; 取代此前文档里举例的 ask.<域名>)",
     "3.2": "私有 compose.yml 不动, 公开实例独立 compose.public.yml (写死档位/路径, 不发布端口) + workflow deploy_public job (vars 门控, 失败停机)",
     "open": [
       "公开 chroma 的 KB 更新流程: 设计 v0.2 + 2026-11-27 受托代裁 D1-D8 (见 decisions_2026_11_27_delegated); 实现待 rag main 修复合并后排"
@@ -261,7 +284,10 @@
     "M3": "2026-11-27 主人本人裁定 (非代裁): 公开站部署 = 先用临时容器验, 通过后再换正式容器 (原话「先用临时容器验，通过后再换正式容器」); 3.4 实现要求与 D2 衔接点见 checkpoints/p3_step3.2_compose.md「M3 裁定」",
     "M3_suggestion_pending": "协调方建议 (主人未裁定): 首次上线用 Cloudflare Access 只放行主人本人经隧道验一次 (真实访客 IP / 限速 / WAF), 验完再放开",
     "gold_4_revisions": "2026-11-27 主人本人裁定 (非代裁): q39 加新来源 domains/FA/assumptions.md 进 expected_sources (AND; 先在 pedia 定稿新 KB 上重跑 140q 确认能召回, 召回不到退回不动并上报); q117 fact → 'should be unique for every record'; q120 fact → 'individual subjects included in a pool'; q126 删掉 any-of 成员 model/03#Subject Elements (SE)$。随「KB 更新」提交落地, 现在不改 eval。详见 checkpoints/kb_upgrade_bundle_checklist.md v5",
-    "gold_q76": "2026-11-27 主人本人裁定 (非代裁): q76 的旧节标题在 pedia 打 tag 之前「先不动，随 KB 升级那次提交一起改」(= 预演报告的做法 A): model/06_relationship_datasets.md#6.6 Associated Persons Related Subjects (APRELSUB)$ → …#6.6 Associated Persons Relationships (APRELSUB)$, 随「KB 更新」提交落地, 现在不改 eval。kb-sync 预计按回退 1 题、满分 137 过闸, 余量为零。补救办法 (协调方建议, 主人看过选项说明): 若因另有一题波动没过, 生产不变, 改用做法 B (新旧双标题 any-of) 再重新触发; 做之前先向协调方汇报, 由协调方问主人, 不自行启用。详见 checkpoints/kb_upgrade_bundle_checklist.md v6 第 1 / 2 / 6 条"
+    "gold_q76": "2026-11-27 主人本人裁定 (非代裁): q76 的旧节标题在 pedia 打 tag 之前「先不动，随 KB 升级那次提交一起改」(= 预演报告的做法 A): model/06_relationship_datasets.md#6.6 Associated Persons Related Subjects (APRELSUB)$ → …#6.6 Associated Persons Relationships (APRELSUB)$, 随「KB 更新」提交落地, 现在不改 eval。kb-sync 预计按回退 1 题、满分 137 过闸, 余量为零。补救办法 (协调方建议, 主人看过选项说明): 若因另有一题波动没过, 生产不变, 改用做法 B (新旧双标题 any-of) 再重新触发; 做之前先向协调方汇报, 由协调方问主人, 不自行启用。详见 checkpoints/kb_upgrade_bundle_checklist.md v6 第 1 / 2 / 6 条",
+    "public_keys": "主人 2026-11-27 已把公开站 .env 里的 Anthropic key 和 OpenAI key 都换成单独的新 key (协调方只读核对过两者与私有站不同, 未验证可用性); 主人说 Anthropic 的 workspace 月上限和 OpenAI 的项目硬上限都已设 (金额未说, 协调方看不到后台)。协调方转述, 执行「KB 更新」的会话没有核实",
+    "cloudflare_pages_watch_paths": "已完成: 主人让协调方直接设置, 2026-11-27 通过 Cloudflare API 把 sdtm-pedia 项目的 Include paths 从 release/v1.0/**、*、web/** 改成 web/*、releases/v1.4/*, Exclude 为空; 2026-11-28 pedia 的一个纯文档推送已被这条规则跳过构建 (验证生效)。协调方转述",
+    "kb_update_consent": "2026-11-27 主人在协调方的待办项上亲自选定 (经待办项转达): 问题「pedia 打 tag 之后，rag 这边一路做完（kb-sync 过闸 → KB 更新提交 → push → 部署私有站），可以吗？」→ 原话「可以，一路做完」 (选项说明: 手动触发 kb-sync，不等凌晨定时；过闸后先只构建、测试端口验证，再正式部署；每步汇报)。只覆盖正常路径"
   },
   "decisions_2026_11_27_delegated": {
     "source": "2026-11-27 主人把选择题委托给协调 bot「sdtm开发」(原话:「之前那些选项，你可以替我分析后决定嘛。我听从你的建议」); 以下为 bot 受托代裁, 非主人逐条裁定",
@@ -284,7 +310,7 @@
       "E6": "保留",
       "status": "另一会话在子工作区实现, 分支叠在 hakupao/fix-ct-cell-format 上"
     },
-    "anthropic_key": "公开站与私有站分开 (公开站单独 key), 3.4 前落地",
+    "anthropic_key": "公开站与私有站分开 (公开站单独 key), 3.4 前落地 → 2026-11-27 主人已换好 (Anthropic + OpenAI), 见 decisions_p3.public_keys",
     "ct_followups_not_now": [
       "* 标志位",
       "多 codelist 逐码校验",
