@@ -34,3 +34,4 @@
 {"ts": "2026-11-27T11:30:00+09:00", "step": "1.9-prep-review", "event": "review", "agent": "oh-my-claudecode:critic + oh-my-claudecode:security-reviewer", "verdict": "PASS-with-fixes→fixed", "note": "p2_seam 日期依赖挡 CI; PC chunker 丢内容; defhome 方案 R0 推荐"}
 {"ts": "2026-11-27T13:00:00+09:00", "step": "1.9-prep-pedia-reply", "event": "review", "agent": "oh-my-claudecode:architect + oh-my-claudecode:verifier", "verdict": "PASS-with-fixes→fixed", "note": "defhome R4; 清单 v3 硬约束 (代码先于候选)"}
 {"ts": "2026-11-27T14:00:00+09:00", "step": "1.9-prep-decisions", "event": "decisions_logged", "agent": "main", "verdict": "DELEGATED", "note": "协调 bot 受托代裁 D1-D8 / E1-E6 等登记"}
+{"ts": "2026-11-27T12:20:00+09:00", "step": "P3-merge-seg1", "event": "deploy", "agent": "main (orca worker)", "verdict": "PASS", "note": "merge 0673fee; build run 199; testport 0 差; deploy run 200; deploy_public skipped"}

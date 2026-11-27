@@ -1,9 +1,9 @@
 {
   "project": "10_split_and_public",
   "tier": 3,
-  "status": "P3_3.3_DONE",
-  "current_step": "P3: 3.1/3.2/3.3 完成 (3.2 在分支 p3 未合并; 3.3 公开数据根 + .env 已在 VM, 公开容器验收后已 stop)",
-  "next_step": "等 rag main 修复合并 (p2_seam 日期 / CT 解析 / PC chunker / R4, 均在 pedia tag 前) → pedia 解冻改 KB 并打 kb-* tag → 新指纹上重跑预演与 kb_upgrade_bundle_checklist.md 全部数字和 gold 对照 → kb-sync 私有正例 → 本地「KB 更新」一次提交 → 排公开腿实现 (D1-D8) | 3.4 前: 公开站独立 Anthropic key、开 SDTM_RAG_PUBLIC_DEPLOY | 原有: 合并 p3 → main (触发私有部署, 先确认) → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 定验收窗口方案 (M3) + TRUSTED_PROXIES 改 cloudflared 固定地址",
+  "status": "P3_3.3_DONE_MERGED_MAIN_SEG1",
+  "current_step": "P3: 3.1/3.2/3.3 完成; p3 已合 main 并上线私有站 0673fee (第一段, 2026-11-27); 3.3 公开数据根 + .env 已在 VM, 公开容器保持停止; 第二段合并待指示",
+  "next_step": "第二段合并 (fix-ct-cell-format → fix-pc-examples-chunker → defhome-r4, --no-ff [skip ci], 只构建→测试端口→部署; 待协调方指示, 均须在 pedia tag 前) → 等 pedia 解冻改 KB 并打 kb-* tag → 新指纹上重跑预演与 kb_upgrade_bundle_checklist.md 全部数字和 gold 对照 → kb-sync 私有正例 → 本地「KB 更新」一次提交 → 排公开腿实现 (D1-D8) | 3.4 前: 公开站独立 Anthropic key、开 SDTM_RAG_PUBLIC_DEPLOY → 3.4 Cloudflare Tunnel (bojiang.org 子域) + 定验收窗口方案 (M3) + TRUSTED_PROXIES 改 cloudflared 固定地址",
   "completed": [
     {
       "step": "recon",
@@ -197,6 +197,16 @@
         "checkpoints/kb_upgrade_bundle_checklist_review.md"
       ],
       "note": "按 pedia t4_downstream_notes 更新: defhome 推荐 R0→R4 (PDF 定义出处; architect 审查); 清单 v3 (verifier 审查): gold 对照表 A/B 无新问题; PC 切块改按 H2 分派; 硬约束=改 chunk/meta 的代码须在 kb-sync 建候选前进 main (线上 meta 来自候选), R4+随KB 组合排除"
+    },
+    {
+      "date": "2026-11-27",
+      "step": "P3-merge-seg1",
+      "status": "PASS",
+      "evidence": [
+        "checkpoints/p3_merge_deploy.md",
+        "checkpoints/p3_merge_seg1_testport_0673fee.sh"
+      ],
+      "note": "p3 + fix-p2-seam-date --no-ff [skip ci] 合 main (0673fee), 双推; 只构建 run 199 → 测试端口 CDISC 140/study 51 逐题 0 差 → 部署 run 200, 线上 0673fee, 同指纹不换数据, deploy_public skipped"
     }
   ],
   "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)",
