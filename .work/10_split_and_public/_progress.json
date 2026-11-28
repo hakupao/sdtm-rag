@@ -1,9 +1,9 @@
 {
   "project": "10_split_and_public",
   "tier": 3,
-  "status": "P3_TUNNEL_AND_PUBLIC_LEG_MERGED_LIVE_PRIVATE",
-  "current_step": "P3: 3.1/3.2/3.3 完成; 1.9 私有正例完成; 3.4 / 3.4b 的配置与代码 + 公开腿实现 2026-11-28 已合进 main 并重新部署私有站 (线上 = 镜像 613f048 + 指纹 477bac3ce565 / 4333 条, 行为不变; 只构建 run 215 → 测试端口 → 部署 run 216 decision=same → kb-sync 空跑 run 217: private same / public skipped)。公开站没有任何变化: 隧道没接, 公开网络没重建 (172.18.0.0/16), 隔离规则没装, SDTM_RAG_PUBLIC_DEPLOY 未开, 公开容器停止 (镜像 099c2c9), 公开 chroma 仍是旧 KB",
-  "next_step": "以下每一步都要主人另行同意。先处理 todo_later 里标了「必须在打开公开部署开关之前处理」的各项 → 公开腿演练阶段 B (隧道第 1-4 步: 重建公开网络 → 装隔离规则 → 核对) → 开 SDTM_RAG_PUBLIC_DEPLOY → 阶段 C (kb-sync 公开腿补建候选) → 阶段 D/E (第一次公开部署, 容器保持停止 → 人工启动) → 阶段 F (隧道第 6-9 步: 连接器、Access 只放行主人、路由、验收、放开)。方案 = checkpoints/p3_public_leg_impl.md §5 + docs/plans/P3_4_tunnel_drill.md + docs/plans/P3_4_tunnel_owner_steps.md。公开部署只接受 319654c 之后构建的镜像 (镜像下限; 线上 613f048 满足)。回滚这次部署: dispatch tag=f798709476b75bfb8959cd1d0ca4b252cc122c5e deploy=true (同指纹, 不换数据; 只在变量未开时可用), 详见 checkpoints/p3_tunnel_leg_merge_deploy.md",
+  "status": "P3_STAGE_B_NETWORK_REBUILT_ISOLATION_INSTALLED",
+  "current_step": "P3: 3.1/3.2/3.3 完成; 1.9 私有正例完成; 3.4 / 3.4b 的配置与代码 + 公开腿实现已在 main, 私有站线上 = 镜像 613f048 + 指纹 477bac3ce565 / 4333 条。公开腿演练阶段 B (隧道演练第 1-4 步) 2026-11-28 已在虚拟机里做完, 结果都与方案预期一致: 公开网络重建为 10.201.8.0/24 (网桥 br-sdtmpub, 动态段 10.201.8.128/25); 隔离规则已装 (nft 表 inet sdtm_rag_public_isolation + 隔离单元 + 每分钟巡检定时器), 先红后绿 (装前 FAIL, 装后 PASS), 巡检能把被删 / 被清空的规则装回; 默认网桥容器对照全部可达, ISOLATION_LAN / ISOLATION_EGRESS 不用改; 私有站与同机其他容器未受影响 (启动时间、docker 规则表不变)。公开站仍未上线: 公开容器 = 已创建、从未启动 (镜像 099c2c9), 没有入口, 隧道没接, SDTM_RAG_PUBLIC_DEPLOY 未开, 公开 chroma 仍是旧 KB。详见 checkpoints/p3_stageB_network_isolation.md",
+  "next_step": "以下每一步都要主人另行同意。先处理 todo_later 里标了「必须在打开公开部署开关之前处理」的各项 → (阶段 B 已完成, 2026-11-28) 开 SDTM_RAG_PUBLIC_DEPLOY → 阶段 C (kb-sync 公开腿补建候选) → 阶段 D/E (第一次公开部署, 容器保持停止 → 人工启动) → 阶段 F (隧道第 6-9 步: 连接器、Access 只放行主人、路由、验收、放开)。方案 = checkpoints/p3_public_leg_impl.md §5 + docs/plans/P3_4_tunnel_drill.md + docs/plans/P3_4_tunnel_owner_steps.md。公开部署只接受 319654c 之后构建的镜像 (镜像下限; 线上 613f048 满足)。回滚这次部署: dispatch tag=f798709476b75bfb8959cd1d0ca4b252cc122c5e deploy=true (同指纹, 不换数据; 只在变量未开时可用), 详见 checkpoints/p3_tunnel_leg_merge_deploy.md。阶段 B 留下的待办: 下一次计划内重启虚拟机后立刻重跑隔离探测 (3a + 3d), 并确认从未启动的公开容器没有被拉起; 虚拟机意外重启时同样先看这两条。撤掉阶段 B 的办法见 checkpoints/p3_stageB_network_isolation.md「回退办法」",
   "completed": [
     {
       "step": "recon",
@@ -129,6 +129,12 @@
       "date": "2026-11-28",
       "prod_image": "613f048",
       "note": "squash 319654c (隧道) + 781521d (公开腿) + 整合 e50a9f8 / 5556687 / 613f048; 合并后红的 5 条测试 (快照两用 2 / 浅克隆取不到基点 2 / runner 里僵尸被当活进程 1) 只改测试修掉; 本机 3542/0, CI 3483/0/61 skipped; 独立安全审查 PASS-with-fixes (MEDIUM-1 已改) + 两次窄范围确认 PASS; 只构建 run 214 失败 (已归档) → run 215 success → 测试端口 (140q / study recall 逐题 0 差, 私有档响应头 13 项逐项相同, 限流相同) → 部署 run 216 decision=same → kb-sync run 217 private same / public skipped; 公开侧无变化; artifact evidence/checkpoints/p3_tunnel_leg_merge_deploy.md"
+    },
+    {
+      "step": "P3-stageB (隧道演练第 1-4 步)",
+      "status": "PASS",
+      "date": "2026-11-28",
+      "artifact": "evidence/checkpoints/p3_stageB_network_isolation.md"
     }
   ],
   "recovery_hint": "新会话在 /Volumes/DevSSD/Project/sdtm-rag 打开: 读本文件 → PLAN.md §2 P1 1.8/1.9 → 续跑",
@@ -154,7 +160,9 @@
     "涉及进程 / 信号 / 文件系统语义的测试, 合并前在 runner 镜像 (docker.gitea.com/runner-images:ubuntu-latest, 1 号进程 /bin/sleep) 里跑一遍 (2026-11-28: 公开腿的一条测试只在 Linux runner 里红, 见 failures/p3_tunnel_leg_merge_build_attempt_1.md)",
     "test_abort_first_ends_a_deploy_process_that_is_still_alive 的缺口 (改之前就有, 窄范围审查发现): 兜底只发 SIGTERM、不升级 SIGKILL 的变异不会变红 → 让测试里的子进程忽略 SIGTERM; 顺带把僵尸判断改成按字节读并要求线程数为 1",
     "定时触发的 kb-sync 没有在跑: 最近 30 次运行里没有任何 schedule 事件 (README 写的是每天 03:17 定时运行), 原因没有查",
-    "tests/test_kbsync_public.py 里还有两处带星号的打码形态假值 (sk-proj-****…), 这次扫描器没有报; 规则变严时同样改成运行时拼接。其它测试文件 (test_kbsync_deploy_public.py、test_p2_9_fixes.py、p3_public_leg_key_probe.py) 里完整形状的假密钥也没有处理"
+    "tests/test_kbsync_public.py 里还有两处带星号的打码形态假值 (sk-proj-****…), 这次扫描器没有报; 规则变严时同样改成运行时拼接。其它测试文件 (test_kbsync_deploy_public.py、test_p2_9_fixes.py、p3_public_leg_key_probe.py) 里完整形状的假密钥也没有处理",
+    "阶段 B 之后的文档: deploy/README.md「公开实例与隧道」开头的状态说明与 docs/plans/P3_4_tunnel_drill.md 开头的「全部未执行」已过时; 演练方案第 1 步的 `systemctl is-active ufw` 打印 active (单元状态), 改成 `sudo ufw status` (实际 inactive)",
+    "阶段 B 未验证 (都要等虚拟机下一次重启): 隔离规则是否先于容器装入; 从未启动的公开容器在 unless-stopped 下是否保持不启动"
   ],
   "decisions_1_9": "2026-11-25 用户: CI 检测+闸+报告, 升级提交由本地「KB 更新」双推; pyproject 作者→hakupao; mini-home/lan-services 改名 .archived-20261125",
   "log": [
@@ -297,6 +305,16 @@
         "subagent_prompts/review_tunnel_leg_merge_round3.md"
       ],
       "note": "Gitea run 214 (只构建, 测试步骤失败) / 215 (只构建) / 216 (部署, same) / 217 (kb-sync 空跑); 回滚 = dispatch tag f798709 (变量未开时); 发现: 并行分支各自全绿、合并后 5 条测试红 (三种原因); 定时触发的 kb-sync 看起来没有在跑; 私有站生产 env 里限流本来就开着 (30 / 10); 登记: 主人 2026-11-28 的四项选择与合并同意, 协调方受托代裁各条"
+    },
+    {
+      "date": "2026-11-28",
+      "step": "P3-stageB",
+      "status": "PASS",
+      "evidence": [
+        "checkpoints/p3_stageB_network_isolation.md"
+      ],
+      "gates": "预检 5 条满足; 3b judge FAIL (7 个内网目标 open, 外网 3 个 open); 3d judge PASS (7 个 timeout, 对照侧 open, 外网 open); 部署预检同款 (默认网桥容器对照, 去 capability) PASS; 3f 删表 / 清空后巡检装回; 3e 私有站 200 + 全部 23 个容器启动时间不变 + docker 5 张表去计数器全文不变; 第 4 步 10.201.8.128 / 10.201.8.2",
+      "note": "主人经待办项同意 (只覆盖第 1-4 步); 没有独立审查 (派单不起子代理)"
     }
   ],
   "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)",
@@ -310,7 +328,7 @@
     "Q1": "公开站域名 = Cloudflare 上的 bojiang.org (2026-11-26 用户裁定); 公开站地址 = sdtm.bojiang.org (主人 2026-11-27 定, 协调方转述; 取代此前文档里举例的 ask.<域名>)",
     "3.2": "私有 compose.yml 不动, 公开实例独立 compose.public.yml (写死档位/路径, 不发布端口) + workflow deploy_public job (vars 门控, 失败停机)",
     "open": [
-      "公开站上线的各步演练 (公开腿阶段 B-G / 隧道第 1-9 步): 代码已合入 main, 每一步都待主人另行同意"
+      "公开站上线的各步演练 (公开腿阶段 C-G / 隧道第 5-9 步): 每一步都待主人另行同意; 阶段 B (隧道第 1-4 步) 2026-11-28 已做完"
     ],
     "Q3_override": "2026-11-26 用户: 公开站全部用 Anthropic key, 模型选便宜的 → 免费题 = Claude Haiku 5.5 ($0.10/$0.50), 内部组与 fallback 同",
     "3.3": "公开 chroma 只含 sdtm_kb_v1 4329; 140q 与基线逐题一致",
