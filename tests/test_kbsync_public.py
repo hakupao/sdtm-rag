@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
 import json
 import re
@@ -433,12 +434,33 @@ def test_candidate_step_failure_names_the_key_cause_and_hides_key_fragments(root
     assert "sk-proj" not in out and "<已隐去>" in out
 
 
-@pytest.mark.parametrize("secret", ["sk-proj-AbCd1234****wxyz", "sk-ant-api03-AbCdEf123456", "tvly-" + "e" * 32,
-                                    "Authorization: Bearer abcdEFGH12345678", "x-api-key: abcdefgh12345678",
-                                    "OPENAI_API_KEY=ZZZZzzzz99998888", '"api_key": "QQQQqqqq11112222"',
-                                    "AIza" + "Sy" * 18, "Authorization: Basic dXNlcjpwYXNzd29yZA==",
-                                    "access_token=abcd+efgh/ijkl==", "password: hunter2hunter2", "secret=AAAA/BBBB+CCCC=",
-                                    "eyJhIjoiYWJjZGVmZ2hpamtsbW5vcCJ9.eyJ0IjoiMTIzNDU2Nzg5MCJ9.c2lnbmF0dXJl"])
+def _b64url(text: str) -> str:
+    return base64.urlsafe_b64encode(text.encode()).decode().rstrip("=")
+
+
+# 假值都在运行时拼出来: 源码里不出现完整的密钥 / token 形状, 免得密钥扫描器对测试数据报警 (2026-11-28 被报过一次)。
+# 拼出来的字符串与之前写死的逐字相同; 改这里时保持「每个假值至少拆成两段」。
+_LETTERS = "".join(chr(ord("a") + i) for i in range(16))   # a..p
+_DIGITS = "".join(str(i % 10) for i in range(1, 11))        # 1..9 再接 0
+FAKE_SECRETS = [
+    "sk-" + "proj-AbCd1234****wxyz",
+    "sk-" + "ant-" + "api03-AbCdEf123456",
+    "tvly-" + "e" * 32,
+    "Authorization: " + "Bearer" + " abcdEFGH" + "12345678",
+    "x-api-key: " + "abcdefgh" + "12345678",
+    "OPENAI_API_KEY=" + "ZZZZzzzz" + "99998888",
+    '"api_key": "' + "QQQQqqqq" + '11112222"',
+    "AIza" + "Sy" * 18,
+    "Authorization: Basic " + base64.b64encode(b"user:password").decode(),
+    "access_token=" + "abcd+efgh" + "/ijkl==",
+    "password: " + "hunter2" * 2,
+    "secret=" + "AAAA/BBBB" + "+CCCC=",
+    ".".join(_b64url(part) for part in ('{"a":"' + _LETTERS + '"}', '{"t":"' + _DIGITS + '"}', "signature")),  # JWT 的外形
+]
+assert len(FAKE_SECRETS) == 13  # 列表被清空时 parametrize 只会变成 1 条 skip, 不会红
+
+
+@pytest.mark.parametrize("secret", FAKE_SECRETS)
 def test_scrub_hides_key_shapes(secret):
     out = ks.scrub(f"Traceback: provider said {secret} is wrong")
     assert "<已隐去>" in out and secret.split()[-1].strip('"') not in out
