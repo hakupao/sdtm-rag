@@ -38,6 +38,8 @@ HIDE_E2E = "test_study_collection_names_in_a_startup_error_are_hidden"
 HIDE_CFG = "test_configured_study_collection_name_in_a_startup_error_is_hidden"
 HIDE_UNIT = "test_hide_study_names"
 HIDE_WHOLE = "test_a_name_with_a_key_shaped_fragment_is_hidden_whole"
+KEY_WHOLE = "test_a_secret_containing_the_word_study_is_scrubbed_whole"
+BOTH = "test_sanitize_log_keeps_both_guarantees_in_one_text"
 GLUED = "test_stdout_and_stderr_of_the_container_log_are_not_glued_together"
 SETTINGS = "test_study_setting_names_match_the_settings_class"
 SEES = "test_the_schedule_check_sees_every_way_of_writing_it"
@@ -51,7 +53,8 @@ NOSCHED = "test_no_workflow_has_a_schedule_trigger"
 CRON = '  schedule:\n    - cron: "17 3 * * *"\n'
 
 SAFE = 'SAFE_COLLECTION_RE = re.compile(r"study_st[0-9]{2,3}(_docs)?|sdtm_kb_v[0-9]{1,3}")'
-LOGS = "        text = scrub(_hide_study_names(raw))\n"
+LOGS = "        text = _sanitize_log(raw)\n"
+SAN = '    return _hide_study_names(SECRET_RE.sub(_KEY_MASK, raw)).replace(_KEY_MASK, "<已隐去>")\n'
 JOIN = 'raw = logs.stdout.decode("utf-8", "replace") + "\\n" + logs.stderr.decode("utf-8", "replace")'
 TOKEN = '''STUDY_NAME_RE = re.compile(r"(?i)study[^\\s'\\"`\\[\\]{}(),;:=<>|/\\\\]+")'''
 WORD = "        return word if word.lower() in STUDY_SETTING_NAMES else _show_collection(word)\n"
@@ -72,6 +75,7 @@ MUTATIONS = [
      "只核对开头 (后面跟着什么都放行)", NAMES),
     # ── LOW-2: 启动报错带出之前先脱敏 ──
     ("L2a", KS, LOGS, "        text = _hide_study_names(raw)\n", "容器日志带出之前不脱敏", SCRUB),
+    ("L2c", KS, SAN, "    return _hide_study_names(SECRET_RE.sub(_KEY_MASK, raw))\n", "占位符没有换回去 (输出里留着占位符)", SCRUB),
     ("L2b", KS, '"\\n".join(tail))\n        # 应用拒绝启动时',
      '"\\n".join(raw.strip().splitlines()[-40:]))\n        # 应用拒绝启动时',
      "失败原因处理过, 但打印的日志末尾是原文", SCRUB),
@@ -85,8 +89,12 @@ MUTATIONS = [
     ("L3f", KS, TOKEN, TOKEN.replace("(?i)study", "(?i)(?<![A-Za-z0-9_])study"),
      "要求 study 前面不是字母数字 (粘在别的词 / 颜色码 / 写出来的 \\n 后面的名字漏掉; 审查前的写法)", HIDE_UNIT),
     ("L3g", KS, LOGS, '        text = "<日志已隐去>"\n', "过度隐去: 整段日志都不带出 (防过度的闸)", VERBATIM),
-    ("L3h", KS, LOGS, "        text = _hide_study_names(scrub(raw))\n",
-     "先脱敏后隐名 (审查 MEDIUM: 名字被「<已隐去>」切成两段, 后半段漏出来)", HIDE_WHOLE),
+    ("L3h", KS, SAN, "    return _hide_study_names(scrub(raw))\n",
+     "先脱敏 (直接用「<已隐去>」) 后隐名 (审查第 1 轮 MEDIUM: 名字被切成两段, 后半段漏出来)", HIDE_WHOLE),
+    ("L3n", KS, SAN, "    return scrub(_hide_study_names(raw))\n",
+     "先隐名后脱敏 (审查第 2 轮: 值里带 study 的 key 只盖住一部分)", KEY_WHOLE),
+    ("L3o", KS, '_KEY_MASK = "\\x00K\\x00"\n', '_KEY_MASK = "<K>"\n', "占位符里有分隔符 (名字又被切成两段)", HIDE_WHOLE),
+    ("L3p", KS, SAN, "    return scrub(raw)\n", "新的入口只脱敏、不隐名", BOTH),
     ("L3i", KS, JOIN, 'raw = (logs.stdout + logs.stderr).decode("utf-8", "replace")', "stdout 与 stderr 直接相连", GLUED),
     ("L3j", KS, WORD, "        return _show_collection(word)\n", "配置项的名字也被隐去 (报错里看不出是哪个开关)", HIDE_CFG),
     ("L3k", KS, WORD, "        return word if any(word.lower().startswith(n) for n in STUDY_SETTING_NAMES) else _show_collection(word)\n",

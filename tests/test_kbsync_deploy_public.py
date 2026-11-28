@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -1863,10 +1864,44 @@ def test_a_name_with_a_key_shaped_fragment_is_hidden_whole(site, capsys, monkeyp
     with pytest.raises(RuntimeError) as e:
         instance.check_chroma(s, client)
     out, md = _startup_refusal_out(site, capsys, monkeypatch, tmp_path, f"RuntimeError: {e.value}")
-    tail = name.split(".", 1)[1]
-    hidden = f"['<名字不按约定，已隐去：sha256 前 10 位 {hashlib.sha256(name.encode()).hexdigest()[:10]}，长 {len(name)}>']"
+    head, tail = name.split(".", 1)
     for text in (out, md):
-        assert name not in text and tail not in text and hidden in text  # 整个名字一个指纹, 没有剩下的半截
+        assert name not in text and tail not in text and head.split("-")[0] not in text
+        # 整个名字换成一个指纹, 方括号里没有剩下的半截 (指纹是对「key 片段已换成占位符」的文本算的, 所以不核对具体的值)
+        assert re.search(r"study collections in chroma: \['<名字不按约定，已隐去：sha256 前 10 位 [0-9a-f]{10}，长 \d+>'\]\n", text)
+
+
+# 凭据的值里恰好有 study (独立审查第 2 轮查到: 先隐名的话, 这一段先被换成指纹, 脱敏规则只盖得住一部分)。
+# 假值都在运行时拼出来 (源码里不留完整的密钥形状)
+STUDY_IN_SECRETS = [
+    ("api_key=" + "Ab3/" + "study" + "Q/0123456789" + "abcdefXYZ", ["Ab3/", "0123456789", "abcdefXYZ"]),
+    ("password=" + "my" + "study" + "2024pass", ["2024pass", "mystudy"]),
+    ("Authorization: " + "Bearer " + "abc" + "study" + "ZZZZ9999zzzz", ["abcstudy", "ZZZZ9999"]),
+    ("sk-" + "ab" + "Study" + "Q" * 16, ["sk-ab", "QQQQ"]),
+    ("tvly-" + "study" + "x" * 30, ["tvly-", "xxxx"]),
+]
+assert len(STUDY_IN_SECRETS) == 5
+
+
+@pytest.mark.parametrize("secret,fragments", STUDY_IN_SECRETS)
+def test_a_secret_containing_the_word_study_is_scrubbed_whole(secret, fragments):
+    assert ks.scrub(secret).endswith("<已隐去>")  # 单看脱敏规则, 值是整段盖住的
+    got = ks._sanitize_log(f"ValueError: provider said {secret} is wrong\n")
+    assert "<已隐去> is wrong" in got and "名字不按约定" not in got  # 隐名没有抢在前面把它切开
+    for frag in fragments:
+        assert frag not in got
+
+
+def test_sanitize_log_keeps_both_guarantees_in_one_text(site, capsys, monkeypatch, tmp_path):
+    """同一段日志里既有「值里带 study 的 key」又有「名字里带 key 形片段的集合」: 两样都不漏, 三个出口都一样。"""
+    secret, frags = STUDY_IN_SECRETS[0]
+    name = "study_risk-assess.ONC2031X"
+    line = f"RuntimeError: {secret} rejected while opening ['{name}']"
+    out, md = _startup_refusal_out(site, capsys, monkeypatch, tmp_path, line)
+    for text in (out, md):
+        assert name not in text and "ONC2031X" not in text and all(f not in text for f in frags)
+        assert re.search(r"启动报错：RuntimeError: <已隐去> rejected while opening \['<名字不按约定，已隐去：sha256 前 10 位 [0-9a-f]{10}，长 \d+>'\]\n", text)
+    assert "\x00" not in out and "\x00" not in md  # 占位符没有留在输出里
 
 
 def test_stdout_and_stderr_of_the_container_log_are_not_glued_together(site, capsys):

@@ -1045,12 +1045,11 @@ def accept_check(docker: Docker, name: str, *, tries: int = 60, sleep=time.sleep
         sleep(3)
     if not healthy:
         logs = docker.run(["logs", "--tail", "40", name])
-        # 带出之前过两道，都作用在整段日志上（下面打印的日志末尾和失败原因里的那一行用的是同一份）。顺序不能换：
-        # 先 _hide_study_names（不按约定的 study 集合名），再 scrub（key 片段）。反过来的话，scrub 会在名字中间留下
-        # 「<已隐去>」，把一个名字切成两段，后半段原样漏出去（名字里有 risk-… / ask-… 这样的片段时；独立审查查到的）。
+        # 带出之前过两道（key 片段、不按约定的 study 集合名），见 _sanitize_log；都作用在整段日志上，
+        # 下面打印的日志末尾和失败原因里的那一行用的是同一份。
         # stdout 与 stderr 之间补一个换行：直接相连的话，前一段的最后一行会和后一段的第一行粘成一行
         raw = logs.stdout.decode("utf-8", "replace") + "\n" + logs.stderr.decode("utf-8", "replace")
-        text = scrub(_hide_study_names(raw))
+        text = _sanitize_log(raw)
         tail = text.strip().splitlines()[-40:]
         print(f"[deploy-public] {name} 未就绪，日志末尾：\n" + "\n".join(tail))
         # 应用拒绝启动时（公开档的各项启动自检）最后一条报错带进失败原因，不用翻日志
@@ -1205,6 +1204,20 @@ def _hide_study_names(text: str) -> str:
         return word if word.lower() in STUDY_SETTING_NAMES else _show_collection(word)
 
     return STUDY_NAME_RE.sub(show, text)
+
+
+# key 片段的临时占位符：里面没有 STUDY_NAME_RE 的分隔符（「<已隐去>」里的尖括号是分隔符，会把一个词切成两段）
+_KEY_MASK = "\x00K\x00"
+
+
+def _sanitize_log(raw: str) -> str:
+    """容器日志带出之前的两道处理，三步，顺序是独立审查两轮查出来的，不能换：
+    1. key 片段先换成不切词的占位符。先做这一步：反过来先隐名的话，key 的值里恰好有 study 时，那一段先被换成指纹，
+       剩下的不够长、或者被指纹两边的尖括号截断，脱敏规则就只盖得住一部分。
+    2. 再隐去不按约定的 study 集合名。占位符不能直接用「<已隐去>」：集合名中间有一段长得像 key 时（risk-… 里的 sk-…），
+       尖括号会把名字切成两段，后半段原样漏出去；用不切词的占位符，整个名字仍然是一个词、换成一个指纹。
+    3. 最后把占位符换成统一的「<已隐去>」。"""
+    return _hide_study_names(SECRET_RE.sub(_KEY_MASK, raw)).replace(_KEY_MASK, "<已隐去>")
 
 
 def live_contaminated_stop(docker: Docker, a: argparse.Namespace, name: str, image: str, extra: list[str]) -> int:
