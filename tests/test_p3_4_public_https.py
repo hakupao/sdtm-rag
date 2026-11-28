@@ -35,9 +35,48 @@ def _sdtm_rag_env() -> dict[str, str]:
     return {k: v for k, v in os.environ.items() if k.lower().startswith("sdtm_rag_")}
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _env_before_this_file():
-    return _sdtm_rag_env()
+@pytest.fixture(scope="module")
+def _env_log():
+    """What the per-test recorder below collected, for the guard at the end of the file. It holds no
+    environment snapshot of its own, so it does not matter when pytest sets it up."""
+    return {"watched": [], "left_behind": []}
+
+
+@pytest.fixture(autouse=True)
+def _record_sdtm_rag_env(request, _env_log):
+    """Compare the SDTM_RAG_* environment before and after EACH test in this file.
+
+    Both snapshots are taken at function scope, around one test. pytest sets up the module- and
+    session-scoped fixtures a test needs before its function-scoped ones, and does not tear them
+    down before the file's last test has finished (a parametrized module fixture would be the
+    exception; this file has none). So the two snapshots of a test always see the same
+    module-level state.
+
+    An autouse fixture is set up before the fixtures a test asks for by name, so this one is torn
+    down after the test's own `monkeypatch`: the second snapshot is taken after monkeypatch has
+    restored what it recorded. That holds while no autouse fixture in conftest or in a plugin
+    requests `monkeypatch`. Such a fixture would be set up before this one and undone after it, and
+    the guard would then fail for every test that sets a name through monkeypatch (loudly; it would
+    not miss anything).
+
+    An earlier version compared a snapshot taken once at module scope with the environment seen
+    inside the guard. The module fixture `engines` removes every SDTM_RAG_* name from the first
+    test that uses it until module teardown; the module snapshot was taken before it. A checkout
+    whose local `.env` sets SDTM_RAG_* names therefore failed the guard although no test had left
+    anything behind (server.config loads that file into os.environ at import; so does litellm in
+    its default LITELLM_MODE, which looks for a `.env` upwards from where it is installed). Here
+    those names are in both snapshots of a test or in neither.
+
+    Only names and the kind of change are recorded: a local `.env` can hold secrets, and an
+    assertion message would print the values."""
+    before = _sdtm_rag_env()
+    _env_log["watched"].append(request.node.nodeid)
+    yield
+    after = _sdtm_rag_env()
+    if after != before:
+        changed = {k: "added" if k not in before else "removed" if k not in after else "changed"
+                   for k in sorted(before.keys() | after.keys()) if before.get(k) != after.get(k)}
+        _env_log["left_behind"].append((request.node.nodeid, changed))
 
 
 def _absent_now_and_after(monkeypatch, *names):
@@ -503,9 +542,35 @@ def test_public_install_refuses_trusted_network_wider_than_one_host(engines):  #
                                   quota_trusted_proxies="10.201.8.0/24"))
 
 
-def test_this_file_leaves_no_sdtm_rag_env_behind(_env_before_this_file):
+def test_this_file_leaves_no_sdtm_rag_env_behind(request, _env_log):
     """Last in the file on purpose. Tests above call load_dotenv, which writes into os.environ
     directly; a name left behind reaches every later test file. The lowercase trusted-proxies key
     once did (a public app refuses case variants that disagree: 59 failures when
-    test_p2_l3_instance ran after this file)."""
-    assert _sdtm_rag_env() == _env_before_this_file
+    test_p2_l3_instance ran after this file).
+
+    It reads what `_record_sdtm_rag_env` collected for the tests that ran before it in this
+    session, so it only vouches for those: selected on its own it has nothing to check and skips.
+    What it covers is the bodies and function-scoped fixtures of the tests that ran. A name written
+    by a module-scoped fixture or by import-time code is in both snapshots of every test and is not
+    seen (the earlier module-level snapshot did see such a name when `engines` did not remove it,
+    a lowercase one for instance); neither is the guard's own body.
+
+    Tests are told apart by node id: a method of a class may carry the name of a module-level test."""
+    mine = [item for item in request.session.items if getattr(item, "module", None) is request.module]
+    in_this_file = [item.nodeid for item in mine]
+    if in_this_file == [request.node.nodeid]:
+        pytest.skip("selected on its own: no test of this file ran before the guard, nothing to check")
+    assert in_this_file[-1] == request.node.nodeid, (
+        f"the guard is not the last selected test of this file (a test added after it, or the "
+        f"order given on the command line): {in_this_file[-1]} would go unchecked")
+    # A test carrying one of these markers can be skipped before any fixture is set up, so the
+    # recorder may legitimately never see it (conftest adds `skip` to local_data tests when the
+    # study data is absent, as in CI). When such a test does run, the recorder watches it as usual.
+    may_not_run = {item.nodeid for item in mine
+                   if item.get_closest_marker("skip") or item.get_closest_marker("skipif")
+                   or any(m.kwargs.get("run", True) is False for m in item.iter_markers("xfail"))}
+    unwatched = sorted(set(in_this_file) - may_not_run - set(_env_log["watched"]))
+    assert not unwatched, (
+        f"the per-test recorder did not see these tests of this file: {unwatched} (is it still "
+        "autouse, and not shadowed by a fixture of the same name?)")
+    assert _env_log["left_behind"] == [], "SDTM_RAG_* names a test changed and did not restore"
