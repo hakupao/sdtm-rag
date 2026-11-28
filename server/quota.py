@@ -510,6 +510,20 @@ def _price(s, model: str, pt: int, ct: int, *, reported: bool = False) -> float:
     return (pt * (r_in or 0.0) + ct * (r_out or 0.0)) / 1_000_000
 
 
+def _settle_price(s, model: str | None, reserved_model: str, pt: int, ct: int, *, reported: bool) -> float:
+    """Price of a finished call. `model` is the name the provider reported. When that name has no
+    pinned price but the model the call was reserved for has one (a spelling of the same model the
+    table does not know, or a Router fallback to a model that is not pinned), never charge less than
+    the reserved model's pinned price: the other price sources can be lower than the real one."""
+    from server.cost import pinned_rates
+
+    price = _price(s, model or reserved_model, pt, ct, reported=reported)
+    if model and model != reserved_model and pinned_rates(model, None) is None \
+            and pinned_rates(reserved_model, None) is not None:
+        price = max(price, _price(s, reserved_model, pt, ct, reported=reported))
+    return price
+
+
 def _estimate(s, purpose: str, kw: dict) -> tuple[float, str]:
     usd, model, _pt = _estimate_parts(s, purpose, kw)
     return usd, model
@@ -631,13 +645,13 @@ def settle(ctx, purpose: str, handle, usage, model, *, streamed_text: str | None
     s = _settings(ctx)
     tokens = _usage_tokens(usage) if purpose != "web" else None
     if tokens is not None:
-        actual = _price(s, model or entry.model, *tokens, reported=True)
+        actual = _settle_price(s, model, entry.model, *tokens, reported=True)
     elif streamed_text is not None and purpose != "web":
         n = _text_tokens(streamed_text)
         out = math.ceil(1.5 * n)
         if closed_early:
             out = max(out, n + int(cfg(s, "quota_abort_buffer_tokens")))
-        actual = min(entry.est, _price(s, model or entry.model, entry.pt, out))
+        actual = min(entry.est, _settle_price(s, model, entry.model, entry.pt, out, reported=False))
     else:
         actual = entry.est
     store = _store(s)

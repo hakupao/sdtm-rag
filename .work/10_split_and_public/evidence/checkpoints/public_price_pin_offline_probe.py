@@ -26,6 +26,8 @@ PAYLOAD = {}  # 相对路径 -> base64; emit 时填入
 
 if len(sys.argv) > 1 and sys.argv[1] == "emit":
     src = Path(__file__).read_text(encoding="utf-8")
+    if any(Path(f).is_absolute() or ".." in Path(f).parts for f in sys.argv[2:]):
+        raise SystemExit("只接受仓库内的相对路径 (不含 ..)")
     files = {f: base64.b64encode(Path(f).read_bytes()).decode() for f in sys.argv[2:]}
     mark = "PAYLOAD = " + "{}"                       # 拼出来: 这一行自己不能含那个标记
     if src.count(mark) != 1:

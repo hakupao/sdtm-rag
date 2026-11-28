@@ -83,6 +83,8 @@ def test_pinned_table_is_the_official_prices():
     assert cost._PRICES == OFFICIAL
     assert cost._LONG_PROMPT_PRICES == OFFICIAL_LONG_PROMPT
     assert set(cost._LONG_PROMPT_PRICES) <= set(cost._PRICES)
+    # every row names the provider whose first-party price it is
+    assert {k.split("-", 1)[0] for k in cost._PRICES} == set(cost._PINNED_PROVIDERS)
 
 
 def test_every_builtin_server_model_has_a_pinned_price():
@@ -102,6 +104,12 @@ def test_every_builtin_server_model_has_a_pinned_price():
     ("claude-opus-5-7", False),           # must not borrow the claude-opus-5 row
     ("claude-haiku-4-5-turbo", False), ("claude-opus-5-2026020", False), ("claude-opus-5-202602011", False),
     ("claude-opus", False), ("gpt-4o-mini", False), ("", False),
+    ("claude-sonnet-4-6@20260514", False), ("deepseek-v4-pro-0813", False), ("claude-opus-5-latest", False),
+    # first-party prices: the bare id or the row's own provider prefix, no other route
+    ("deepseek/deepseek-v4-pro", True), ("DeepSeek/DeepSeek-V4-Pro", True), ("anthropic/claude-haiku-5-5-20261001", True),
+    ("bedrock/claude-haiku-5-5", False), ("vertex_ai/claude-opus-5", False), ("openai/claude-haiku-5-5", False),
+    ("deepseek/claude-opus-5", False), ("anthropic/deepseek-v4-pro", False),
+    ("openrouter/anthropic/claude-haiku-5-5", False), ("/claude-opus-5", False),
 ])
 def test_a_pinned_row_matches_the_id_or_a_dated_snapshot_only(model, pinned):
     assert (cost.pinned_rates(model, 0) is not None) is pinned
@@ -120,6 +128,9 @@ def test_haiku_5_5_is_priced_by_prompt_length():
     assert cost.pinned_rates(HAIKU, 100_000) == (0.10, 0.50)
     assert cost.pinned_rates(HAIKU, 100_001) == (0.50, 2.50)
     assert cost.pinned_rates(HAIKU, None) == (0.50, 2.50)          # size unknown: the upper bound
+    # a dated snapshot has the same tiers as its base row
+    assert cost.pinned_rates("claude-haiku-5-5-20261001", 100_000) == (0.10, 0.50)
+    assert cost.pinned_rates("claude-haiku-5-5-20261001", 150_000) == (0.50, 2.50)
     assert cost.pinned_rates("claude-opus-5-5", 900_000) == (4.00, 20.00)   # no tier
     assert cost.pinned_rates("claude-opus-5-5", None) == (4.00, 20.00)
     u = {"prompt_tokens": 100_000, "completion_tokens": 1_000}
@@ -177,6 +188,51 @@ def test_reserve_and_settle_through_the_store_use_those_tiers(tmp_path):
     quota.finalize(ctx)
 
 
+def _settled(s, tmp_path, monkeypatch, reported_model, other_rates):
+    """USD charged for one answer call reserved on m1 (Haiku 5.5) whose provider reported
+    `reported_model` with a 120,000-token prompt and 1,000 output tokens."""
+    monkeypatch.setattr(quota, "_rates", lambda model: other_rates)
+    ctx = _ctx(s, tmp_path)
+    store = quota._store(s)
+    kw = {"model": "m1", "max_tokens": 16_000, "messages": [{"role": "user", "content": "a" * 3000}]}
+    before = store.spent(quota._day())
+    h = quota.reserve(ctx, "answer", kw)
+    quota.settle(ctx, "answer", h, {"prompt_tokens": 120_000, "completion_tokens": 1_000}, reported_model)
+    quota.finalize(ctx)
+    return store.spent(quota._day()) - before
+
+
+def test_settle_never_charges_less_than_the_reserved_models_pinned_price(tmp_path, monkeypatch):
+    """The provider reports a name the table does not know. Whatever the other price sources say,
+    the charge is at least the pinned price of the model the call was reserved for."""
+    s = _settings(tmp_path, "public", HAIKU)
+    haiku_long = (120_000 * 0.50 + 1_000 * 2.50) / 1e6            # 0.0625
+    # another source prices the unknown name too low (litellm's map: base tier only) => the pinned price
+    assert _settled(s, tmp_path, monkeypatch, "claude-haiku-5-5-latest", (0.10, 0.50)) == pytest.approx(haiku_long)
+    # nothing prices it => the fallback rate, which is higher here
+    assert _settled(s, tmp_path, monkeypatch, "claude-haiku-5-5-latest", (None, None)) \
+        == pytest.approx((120_000 * 5 + 1_000 * 25) / 1e6)
+    # a pinned name is charged its own price: a snapshot of the same model, or the Router's fallback model
+    assert _settled(s, tmp_path, monkeypatch, "claude-haiku-5-5-20261001", (9.0, 9.0)) == pytest.approx(haiku_long)
+    assert _settled(s, tmp_path, monkeypatch, "deepseek-v4-pro", (9.0, 9.0)) \
+        == pytest.approx((120_000 * 1.32 + 1_000 * 3.96) / 1e6)
+    assert _settled(s, tmp_path, monkeypatch, None, (9.0, 9.0)) == pytest.approx(haiku_long)
+
+
+def test_settle_keeps_the_old_price_chain_when_the_reserved_model_is_not_pinned(tmp_path, monkeypatch):
+    monkeypatch.setenv("SDTM_RAG_QUOTA_ENABLED", "true")          # private meters only when asked to
+    s = _settings(tmp_path, "private", UNPINNED)
+    monkeypatch.setattr(quota, "_rates", lambda model: {"gpt-4o-mini": (1.0, 2.0)}.get(model, (3.0, 4.0)))
+    ctx = _ctx(s, tmp_path)
+    ctx.tier = "private"
+    store = quota._store(s)
+    h = quota.reserve(ctx, "answer", {"model": "m1", "max_tokens": 1000, "messages": []})
+    assert h is not None, "the meter is off: this test would not be testing settle"
+    quota.settle(ctx, "answer", h, {"prompt_tokens": 1_000_000, "completion_tokens": 0}, "gpt-4o-mini")
+    assert store.spent(quota._day()) == pytest.approx(1.0)        # the reported name's own price, as before
+    quota.finalize(ctx)
+
+
 # ── a pinned model never asks litellm ────────────────────────────────────
 
 def _break_litellm(monkeypatch):
@@ -214,7 +270,7 @@ def test_public_refuses_a_selectable_model_without_a_pinned_price(tmp_path):
     err = _startup_error(s)
     assert err is not None and "refuses to start" in err
     assert "selectable model 'm1' (openai/gpt-4o-mini): no pinned price" in err
-    assert "server/cost.py" in err
+    assert "server/cost.py" in err and "_PRICES" in err and "_LONG_PROMPT_PRICES" in err
     assert "reserves" not in err            # one clear reason, not also an amount from a guessed rate
     with pytest.raises(RuntimeError, match="no pinned price"):
         create_app(s)

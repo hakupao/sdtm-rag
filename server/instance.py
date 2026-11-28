@@ -80,8 +80,9 @@ def _public_cost_problems(s) -> list[str]:
         model = quota._group_model(s, m.id)[0]
         if pinned_rates(model, None) is None:
             out.append(f"selectable model {m.id!r} ({model}): no pinned price — add the provider's "
-                       "official price to _PRICES in server/cost.py (public does not price a selectable "
-                       "model from litellm's price map or from the fallback rate)")
+                       "official price to _PRICES in server/cost.py (and to _LONG_PROMPT_PRICES when it "
+                       "is priced by prompt length); public does not price a selectable model from "
+                       "litellm's price map or from the fallback rate")
             continue
         est = quota.round_estimate_usd(s, m.id)
         if est > budget:

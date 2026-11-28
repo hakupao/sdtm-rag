@@ -50,6 +50,11 @@ _LONG_PROMPT_PRICES: dict[str, tuple[int, float, float]] = {
 _DATE_SUFFIX = re.compile(r"-\d{8}")
 
 
+# The provider prefix a pinned row may carry: these are first-party prices. The same model behind
+# another route (bedrock/…, vertex_ai/…, openrouter/…) is billed by that platform, at its own price.
+_PINNED_PROVIDERS = {"claude": "anthropic", "deepseek": "deepseek"}
+
+
 def _normalize(model: str) -> str:
     """Strip a litellm provider prefix and lowercase. 'anthropic/Claude-Sonnet-4-6'
     -> 'claude-sonnet-4-6'. A bare 'gpt-4o' is returned unchanged (lowercased)."""
@@ -57,16 +62,18 @@ def _normalize(model: str) -> str:
 
 
 def _pinned_key(model: str) -> str | None:
-    """The `_PRICES` key for this model: the normalized id itself, or the id minus a '-YYYYMMDD'
+    """The `_PRICES` key for this model, or None. Matches the bare id or the id under its own
+    provider's prefix ('claude-opus-5', 'anthropic/Claude-Opus-5'), optionally with a '-YYYYMMDD'
     snapshot suffix ('claude-sonnet-4-6-20260514'). Nothing looser: 'claude-opus-5-7' must not borrow
-    the 'claude-opus-5' row, and 'claude-haiku-4-5-turbo' must not borrow 'claude-haiku-4-5'."""
+    the 'claude-opus-5' row, 'claude-haiku-4-5-turbo' must not borrow 'claude-haiku-4-5', and
+    'bedrock/claude-haiku-5-5' is not Anthropic's first-party price."""
+    prefix, sep, _ = model.strip().lower().partition("/")
     norm = _normalize(model)
-    if norm in _PRICES:
-        return norm
-    for key in _PRICES:
-        if norm.startswith(key) and _DATE_SUFFIX.fullmatch(norm[len(key):]):
-            return key
-    return None
+    key = norm if norm in _PRICES else next(
+        (k for k in _PRICES if norm.startswith(k) and _DATE_SUFFIX.fullmatch(norm[len(k):])), None)
+    if key is None or (sep and prefix != _PINNED_PROVIDERS[key.split("-", 1)[0]]):
+        return None
+    return key
 
 
 def pinned_rates(model: str, prompt_tokens: int | None) -> tuple[float, float] | None:

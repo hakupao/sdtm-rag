@@ -48,13 +48,19 @@ FALLBACK = "test_an_unpriced_model_still_meters_at_the_fallback_rate"
 OFFLINE = "test_public_cost_check_passes_without_the_online_price_map"
 OFFLINE_PRIV = "test_private_is_priced_the_same_without_the_online_price_map"
 OFFLINE_NAMES = "test_public_names_the_unpinned_model_without_the_online_price_map"
+FLOOR = "test_settle_never_charges_less_than_the_reserved_models_pinned_price"
+OLD_CHAIN = "test_settle_keeps_the_old_price_chain_when_the_reserved_model_is_not_pinned"
 
 HAIKU_ROW = '    "claude-haiku-5-5": (0.10, 0.50),      # prompts up to 100,000 tokens; above: _LONG_PROMPT_PRICES\n'
 LONG_ROW = '    "claude-haiku-5-5": (100_000, 0.50, 2.50),\n'
-MATCH = "        if norm.startswith(key) and _DATE_SUFFIX.fullmatch(norm[len(key):]):\n"
+MATCH = "        (k for k in _PRICES if norm.startswith(k) and _DATE_SUFFIX.fullmatch(norm[len(k):])), None)\n"
+PREFIX = "    if key is None or (sep and prefix != _PINNED_PROVIDERS[key.split(\"-\", 1)[0]]):\n"
+LONG_GET = "    long_prompt = _LONG_PROMPT_PRICES.get(key)\n"
+FLOOR_IF = "            and pinned_rates(reserved_model, None) is not None:\n"
+FLOOR_MAX = "        price = max(price, _price(s, reserved_model, pt, ct, reported=reported))\n"
 TIER_IF = "    if long_prompt is not None and (prompt_tokens is None or prompt_tokens > long_prompt[0]):\n"
 PINNED = "    pinned = pinned_rates(model, pt if reported else None)\n"
-SETTLE = "        actual = _price(s, model or entry.model, *tokens, reported=True)\n"
+SETTLE = "        actual = _settle_price(s, model, entry.model, *tokens, reported=True)\n"
 GATE = "        if pinned_rates(model, None) is None:\n"
 PUBLIC_ONLY = '    if s.instance != "public":\n        return\n    from server.config import PUBLIC_FORCED_OFF\n'
 
@@ -70,25 +76,37 @@ MUTATIONS = [
     ("C6", COST, '    "claude-opus-5-5": (4.00, 20.00),\n', '    "claude-opus-5-5": (4.00, 2.00),\n',
      "opus-5-5 输出价写低", TABLE),
     # ── 匹配规则 ──
-    ("C7", COST, MATCH, "        if norm.startswith(key):\n", "退回宽松的前缀匹配 (opus-5-7 借用 opus-5 的价)", SUFFIX),
-    ("C8", COST, MATCH, "        if norm.startswith(key) and _DATE_SUFFIX.match(norm[len(key):]):\n",
-     "日期后缀只匹配开头 (9 位数字也放行)", SUFFIX),
+    ("C7", COST, MATCH, "        (k for k in _PRICES if norm.startswith(k)), None)\n",
+     "退回宽松的前缀匹配 (opus-5-7 借用 opus-5 的价)", SUFFIX),
+    ("C8", COST, MATCH, MATCH.replace("_DATE_SUFFIX.fullmatch", "_DATE_SUFFIX.match"), "日期后缀只匹配开头 (9 位数字也放行)", SUFFIX),
+    ("C13", COST, '_DATE_SUFFIX = re.compile(r"-\\d{8}")', '_DATE_SUFFIX = re.compile(r"[-@]\\d{8}")',
+     "后缀放宽到 @YYYYMMDD (审查者的存活变异 X3)", SUFFIX),
+    ("C14", COST, PREFIX, "    if key is None:\n", "不看服务商前缀 (bedrock/… 也按第一方价; 安全审查 LOW-4)", SUFFIX),
+    ("C15", COST, PREFIX, PREFIX.replace("(sep and prefix != ", "(sep and prefix == "), "前缀判断写反", SUFFIX),
     # ── 分档 ──
     ("C9", COST, LONG_ROW, "", "拿掉 haiku-5-5 超过 10 万 token 的那一档 (低估 5 倍)", TIER),
     ("C10", COST, TIER_IF, TIER_IF.replace("> long_prompt[0]", ">= long_prompt[0]"), "分档边界写成大于等于", TIER),
     ("C11", COST, TIER_IF, TIER_IF.replace("prompt_tokens is None or", "prompt_tokens is not None and"),
      "提示词长度未知时不取高档", TIER),
     ("C12", COST, LONG_ROW, LONG_ROW.replace("0.50, 2.50", "0.50, 0.50"), "高档的输出价写成低档的", TABLE),
+    ("C16", COST, LONG_GET, "    long_prompt = _LONG_PROMPT_PRICES.get(_normalize(model))\n",
+     "分档表按原始模型名查 (带日期后缀的快照丢掉高档; 审查者的存活变异 X2)", TIER),
     # ── 计量走固定表 ──
     ("Q1", QUOTA, PINNED, "    pinned = None\n", "计量不查固定表 (修之前的行为)", NO_LITELLM),
     ("Q2", QUOTA, PINNED, "    pinned = pinned_rates(model, pt)\n",
      "估算出来的提示词长度也按它自己的档位算 (贴着分档线时预留偏低; 启动自检的上限也跟着按低档)", METER),
-    ("Q3", QUOTA, SETTLE, "        actual = _price(s, model or entry.model, *tokens)\n",
+    ("Q3", QUOTA, SETTLE, "        actual = _settle_price(s, model, entry.model, *tokens, reported=False)\n",
      "结算时不告诉计价「这是服务商回报的用量」(一律按高档扣, 多扣 5 倍)", STORE),
     ("Q4", QUOTA, PINNED, "    pinned = pinned_rates(model, None)\n", "计价一律按高档 (reported 不起作用)", METER),
-    ("Q5", QUOTA, "        actual = min(entry.est, _price(s, model or entry.model, entry.pt, out))\n",
-     "        actual = min(entry.est, _price(s, model or entry.model, entry.pt, out, reported=True))\n",
+    ("Q5", QUOTA, "        actual = min(entry.est, _settle_price(s, model, entry.model, entry.pt, out, reported=False))\n",
+     "        actual = min(entry.est, _settle_price(s, model, entry.model, entry.pt, out, reported=True))\n",
      "没有用量的流式结算把估算长度当成回报的用量 (按低档扣)", STORE),
+    # ── 结算的下限 (代码审查 MEDIUM: 服务商回报了表里没有的名字) ──
+    ("Q6", QUOTA, FLOOR_MAX, "        pass\n", "去掉「不低于所预留模型的固定价」", FLOOR),
+    ("Q7", QUOTA, FLOOR_MAX, FLOOR_MAX.replace("max(", "min("), "下限写成上限", FLOOR),
+    ("Q8", QUOTA, FLOOR_IF, "            and True:\n", "所预留的模型没有固定价时也套下限 (改变原有的计价链)", OLD_CHAIN),
+    ("Q9", QUOTA, FLOOR_MAX, "        price = _price(s, reserved_model, pt, ct, reported=reported)\n",
+     "直接改用所预留模型的固定价 (回退费率更高时会少记)", FLOOR),
     # ── 公开档启动自检 ──
     ("I1", INST, GATE, "        if False:\n", "公开档不再要求固定价格", REFUSE),
     ("I2", INST, GATE, "        if pinned_rates(m.id, None) is None:\n",
@@ -165,9 +183,14 @@ def prefix_run(frozen: dict[str, bytes], base: dict[str, str]) -> bool:
 
 
 def main() -> int:
-    loaded = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, '.'); import server.cost as c; "
-                             "print(c.__file__)"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
-    must(Path(loaded).resolve() == (ROOT / COST).resolve(), f"导入的 server.cost 不是 ROOT 下的那一份: {loaded}")
+    # 两种导入方式都核对 (venv 里有指向工作区的可编辑安装): 当前目录在最前 (`python -m pytest` 的方式),
+    # 和测试里离线子进程的方式 (PYTHONPATH=ROOT)。
+    for how, code, env in (
+            ("cwd", "import sys; sys.path.insert(0, '.'); import server.cost as c; print(c.__file__)", None),
+            ("PYTHONPATH", "import server.cost as c; print(c.__file__)", {**os.environ, "PYTHONPATH": str(ROOT)})):
+        loaded = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True,
+                                check=True).stdout.strip()
+        must(Path(loaded).resolve() == (ROOT / COST).resolve(), f"导入的 server.cost 不是 ROOT 下的那一份 ({how}): {loaded}")
     ids = [m[0] for m in MUTATIONS] + ["PRE"]
     only = [x for x in os.environ.get("PPP_MUT_ONLY", "").split(",") if x]
     unknown = sorted(set(only) - set(ids))
