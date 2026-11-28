@@ -1,0 +1,14 @@
+# 公开站网络隔离的巡检定时器 (P3.4b): 开机 20 秒后第一次, 之后每分钟整点一次。
+# 用 OnCalendar (按墙上时钟), 不用 OnUnitActiveSec: 后者相对「上次激活」计时, 巡检以失败退出之后可能不再触发,
+# 而失败之后正是最需要它继续跑的时候 (规则修好后要靠它装回)。
+# 安装位置 (虚拟机内): /etc/systemd/system/, 与 sdtm-rag-public-isolation-watch.service 一起。
+[Unit]
+Description=sdtm-rag public docker network isolation watchdog (every minute)
+
+[Timer]
+OnBootSec=20s
+OnCalendar=minutely
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

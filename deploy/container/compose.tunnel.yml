@@ -1,0 +1,39 @@
+# 公开站的隧道连接器 (P3.4)。独立项目: 起停它 = 公开站对外 / 不对外的开关, 与 api 的部署互不牵连。
+# 连接方式: Cloudflare 后台管理的隧道 (路由 sdtm.bojiang.org -> http://sdtm-rag-public-api:8000 在后台配置, 不在本文件)。
+#   - token 是秘密: 只存在虚拟机的 /opt/sdtm-rag-public/cloudflared/tunnel-token (属主 65532:65532, 权限 400,
+#     所在目录 root 700), 只读挂进容器, cloudflared 经 TUNNEL_TOKEN_FILE 读文件 (2025.4.0 起支持)。
+#     不用 TUNNEL_TOKEN 环境变量 / --token 参数 / env_file: 那三种都会让值出现在 docker inspect 或 compose config 里。
+#   - 网络: 加入 compose.public.yml 建的 sdtm-rag-public (external, 须已存在且是固定子网), 占静态地址 10.201.8.2;
+#     公开实例只信这一个地址带来的 CF-Connecting-IP。不发布任何端口。
+#   - 镜像钉版本 + 摘要 (多架构索引; 2026-11-28 查 Docker Hub)。升级 = 同时改标签和摘要。
+#   - 进程以 65532 (镜像自带的 nonroot) 运行, 去掉全部 capability, 根文件系统只读。
+name: sdtm-rag-public-tunnel
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.11.2@sha256:55c7e3e8d89d5e8d20b75a82f3602cbf98e06db406e73e282073cfdc5a9a3af6
+    container_name: sdtm-rag-public-cloudflared
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    user: "65532:65532"
+    environment:
+      TUNNEL_TOKEN_FILE: /etc/cloudflared/tunnel-token
+      TUNNEL_EDGE_IP_VERSION: "4"
+      TUNNEL_METRICS: 127.0.0.1:20241
+    volumes:
+      - type: bind
+        source: /opt/sdtm-rag-public/cloudflared/tunnel-token
+        target: /etc/cloudflared/tunnel-token
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      public:
+        ipv4_address: 10.201.8.2
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    mem_limit: 256m
+networks:
+  public:
+    name: sdtm-rag-public
+    external: true

@@ -12,6 +12,7 @@
 | `container/compose.yml` | `api` 8000 + `ui` Streamlit 8501 (只转发到 mini 本机); `data/` → `$APP_DIR/data`, `.env` → `$APP_DIR/.env` (只读; `APP_DIR` 缺省 `/app`) |
 | `../.gitea/workflows/sdtm-rag.yml` | push main → 测试 → 构建 → 推镜像 → 部署 → 健康检查; checkout `submodules: true` (公开 GitHub 仓, 无需凭据) |
 | `../.gitea/workflows/kb-sync.yml` + `kbsync/kbsync.py` | KB→RAG 同步（step 1.9）：每天检测 A 仓最新的 `kb-*` tag，在生产数据副本上入库并运行 CDISC 闸；详见下文「KB 同步」 |
+| `container/compose.public.yml` + `container/compose.tunnel.yml` + `public-net/` | 公开实例、Cloudflare 隧道连接器、网络隔离规则；详见下文「公开实例与隧道」 |
 | `deploy.sh` + `.env.service.template` | **遗留** (launchd 时代服务目录同步), 删除候选 |
 
 宿主侧: 数据 `/Volumes/DevSSD/deploy-data/sdtm-rag/data` (chroma / study / 反馈记录); 密钥 虚拟机 `/opt/sdtm-rag/.env` (600)。
@@ -57,6 +58,67 @@ push 到 Gitea `main` (路径过滤见 workflow) → 自动部署, 镜像标签 
    （或在确认换入已生效后执行 `finish`）。
 3. 人工排查：`python3 deploy/kbsync/kbsync.py --via <镜像> detect|predeploy-check|swap-status --data-root <数据根> ...`
    （job 容器无法访问数据根，所有文件操作都在兄弟容器中执行）。
+
+## 公开实例与隧道
+
+> **状态（2026-11-28）：配置已写好，还没有上线。** 隧道没有接，虚拟机里的网络还是旧的自动网段，隔离规则没有装。
+> 本节描述的是按演练方案做完之后的样子；其中「网络隔离」在演练方案第 3 步的探测结论为 PASS 之前不成立。
+> 上线后把这段状态说明改掉。
+
+公开站 `sdtm.bojiang.org` 的入口只有 Cloudflare 隧道：访客 → Cloudflare → 连接器容器（cloudflared）→ 公开实例。
+公开实例和连接器都不发布宿主端口。上线步骤见 `docs/plans/P3_4_tunnel_owner_steps.md`（主人在 Cloudflare 后台做的部分）
+和 `docs/plans/P3_4_tunnel_drill.md`（虚拟机里的部分，含每一步的回退）。
+
+| 项 | 值 | 定义在 |
+|----|----|--------|
+| docker 网络 | `sdtm-rag-public`，子网 `10.201.8.0/24`，网桥 `br-sdtmpub`，不启用 IPv6 | `container/compose.public.yml` |
+| 公开实例 | 容器 `sdtm-rag-public-api`，端口 8000，动态地址（只从 `10.201.8.128/25` 分配） | 同上 |
+| 连接器 | 容器 `sdtm-rag-public-cloudflared`，静态地址 `10.201.8.2`，独立 compose 项目 `sdtm-rag-public-tunnel` | `container/compose.tunnel.yml` |
+| 可信代理 | `SDTM_RAG_QUOTA_TRUSTED_PROXIES=10.201.8.2`，写在公开实例的 `environment`，压过 `.env` 里的同名键 | `container/compose.public.yml` |
+| 全局限流 | 每个访客 IP 每分钟 60 个请求、突发 20；不计 `/`、`/static/*`、`/api/health`。三个 `SDTM_RAG_RATE_LIMIT_*` 键写在公开实例的 `environment` | `container/compose.public.yml` |
+| 隧道 token | 虚拟机内 `/opt/sdtm-rag-public/cloudflared/tunnel-token`（属主 `65532:65532`，权限 `400`；所在目录 `root` `700`） | 主人手工放置 |
+| 隔离规则 | nft 表 `inet sdtm_rag_public_isolation`，由 systemd 单元在 docker 之前装入；另有每分钟一次的巡检 | `public-net/isolation.nft`、`public-net/sdtm-rag-public-isolation*.{service,timer}` |
+
+子网、连接器地址、可信代理、规则里的网段和网桥名是同一组事实，改一处必须同时改其余几处（`tests/test_deploy_public_tunnel.py` 逐处核对）。
+子网选在 `10/8`：虚拟机现有网络占用 `172.17`–`172.31` 各段和 `192.168` 的若干段，docker 自动分配也只用这两段，不会撞上。
+
+- **只信连接器**：公开实例只在连接对端是 `10.201.8.2`、且请求里恰好有一条 `CF-Connecting-IP` 时采信它。
+  同一网络里别的地址带这个头来，或者带了两条，都按连接对端计。可信代理必须是单主机地址，写成网段会拒绝启动。
+  公开实例的 `FORWARDED_ALLOW_IPS` 置空：uvicorn 默认会采信来自回环的 `X-Forwarded-For` 并改写连接对端，置空后谁的都不信。不要放宽它。
+- **限流有两层**（主人 2026-11-28 定）。应用里的一层就是上表的全局限流，按连接器传来的访客 IP 计；它比提问接口自己的限额宽
+  （每 IP 每分钟 20 题、突发 6，另有每访客的），正常用户先碰到的是提问限额那条带说明的拒绝，全局这一层只挡对便宜接口的灌水。
+  Cloudflare 的一层是主人在后台建的一条限速规则（`/api/` 前缀，同一 IP 10 秒超过 50 次挡 10 秒；免费套餐只能建 1 条、不能限定主机名）。
+  要调其中一层时两边一起看：Cloudflare 的阈值要高于应用在 10 秒内会放行的数量（现在是 30）。
+  这三个键是 `Settings` 字段，环境变量名不分大小写：公开站的 `.env` 里如果有取值不同的大小写变体，会压过部署配置里的值，
+  所以公开档启动时发现这种冲突就拒绝启动（报错只列键名），私有站不做这项检查。
+- **首次上线先只放行主人**（主人 2026-11-28 定）：先建 Cloudflare Access 应用，再加路由；隧道层的验收全部通过后才放开。
+  撤入口配置时顺序相反：先删路由，再删 Access 应用（路由还在时删 Access 应用 = 对所有人开放）。
+- **HTTPS**：公开档的 cookie 一律带 `Secure`（显式关掉会拒绝启动），响应带 `Strict-Transport-Security: max-age=31536000`。
+  这个头由应用自己发，只对 `sdtm.bojiang.org` 生效；不要打开 Cloudflare 的全域 HSTS 和 Always Use HTTPS 开关（会影响同域名的其他子域名）。
+  明文跳转用一条只匹配该主机名的重定向规则。私有站不受这些影响（局域网里走 HTTP）。
+- **token**：连接器通过 `TUNNEL_TOKEN_FILE` 读只读挂载的文件。不要改成环境变量、命令行参数或 `env_file`，那样 token 会出现在
+  `docker inspect` 和 `docker compose config` 的输出里。轮换：后台刷新 token → 覆盖文件 → `up -d --force-recreate`。
+- **起停连接器**（compose 文件经标准输入传入，虚拟机上不落文件）：
+
+  ```bash
+  ssh bojiang.local 'export PATH=/opt/homebrew/bin:$PATH LIMA_HOME=/Volumes/DevSSD/lima; limactl shell deploy -- docker compose -f - up -d' \
+    < deploy/container/compose.tunnel.yml          # 起
+  ssh bojiang.local 'export PATH=/opt/homebrew/bin:$PATH LIMA_HOME=/Volumes/DevSSD/lima; limactl shell deploy -- docker stop sdtm-rag-public-cloudflared'   # 立即下线
+  ```
+
+  停掉连接器，公开站立即不可达，公开实例本身不受影响。连接器和公开实例的部署互不牵连。
+- **网络隔离**：公开网络里的容器访问不了局域网、虚拟机本机、mini 和同机其他容器（目的地址属于私有网段或本机的包一律丢弃），访问公网不受限。
+  这**不是**域名白名单：容器被攻破后仍可连任意公网地址（包括主人自己对外的入口：出口公网 IP 上的端口转发、同域名下别的对外子域名）。
+  隔离单元和 docker 之间没有硬依赖（规则文件出错不该拖垮私有站）：单元失败时 docker 仍会把容器拉起来。
+  兜底是巡检定时器 `sdtm-rag-public-isolation-watch.timer`：每分钟把规则文件整份重装一遍（表被删、被清空、被改动都会恢复），
+  连续两次重装不上就停掉连接器（公开站下线）。这时如果表还在，内核里原有的规则仍然有效；如果表已经不在，公开实例处于没有隔离的状态，
+  但连接器已停，没有入口。规则缺失到巡检处理之间最长约一分钟。巡检保证的是「内核里的规则 = 规则文件」，
+  不验证实际效果，也发现不了定时器自己被停用，所以每次部署后和虚拟机重启后还要跑探测、确认定时器开着
+  （`deploy/public-net/isolation_probe.py`：隔离侧和对照侧各跑一遍 `probe`，再 `judge`；完整命令见演练方案第 3 步）。
+  对照侧也连不上的目标记「无结论」，不算通过。
+  要撤掉规则时先停巡检定时器。不要在虚拟机上启用系统自带的 `nftables.service`（它的配置文件第一句就是清空整个规则集；
+  2026-11-28 查到是 `disabled`），也不要手工执行清空整个规则集的命令：docker 的规则和这张表都会消失。
+- **改网络定义**（子网、网桥名）：连接器挂在网络上时 compose 无法重建网络。先停并删除连接器，再按演练方案第 2 步重建。
 
 ## 回滚
 

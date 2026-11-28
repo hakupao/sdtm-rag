@@ -1,0 +1,53 @@
+#!/usr/sbin/nft -f
+# 公开站网络隔离 (P3.4b)。公开实例和隧道连接器所在的 docker 网络 (sdtm-rag-public, 网桥 br-sdtmpub,
+# 子网 10.201.8.0/24) 不许访问局域网、虚拟机本机、mini 宿主和同机其他容器; 公网照常可达。
+#
+# 只动自己这一张表, 可重复执行。docker 的规则在 ip filter / ip nat 表 (iptables-nft), 本文件不碰;
+# 绝不能在这里清空整个规则集 —— 那会让全机容器断网。
+# 匹配条件有两个, 命中任一即生效: 进入接口 (挡得住伪造源地址) 和源地址 (网桥名没按预期固定时仍生效)。
+# 钩子优先级 -10: 排在 docker 的 filter (0) 之前; drop 是终局裁决, 后面的链放行也不会复活。
+# forward 钩子在 DNAT 之后: 访问虚拟机地址上别的容器发布的端口, 此时目的地址已改写成 172.x, 一样被丢。
+# DNS 不受影响: 容器用 docker 内置解析器 (127.0.0.11), 由 dockerd 在宿主命名空间转给 systemd-resolved。
+table inet sdtm_rag_public_isolation
+delete table inet sdtm_rag_public_isolation
+
+table inet sdtm_rag_public_isolation {
+	set blocked4 {
+		type ipv4_addr
+		flags interval
+		elements = {
+			0.0.0.0/8,
+			10.0.0.0/8,
+			100.64.0.0/10,
+			127.0.0.0/8,
+			169.254.0.0/16,
+			172.16.0.0/12,
+			192.0.0.0/24,
+			192.168.0.0/16,
+			198.18.0.0/15,
+			224.0.0.0/4,
+			240.0.0.0/4
+		}
+	}
+
+	chain forward {
+		type filter hook forward priority -10; policy accept;
+		# 同一网络内 (连接器 -> 公开实例)。现在桥内流量不过这条链 (br_netfilter 未加载); 哪天被加载, 没有这两条会切断隧道
+		iifname "br-sdtmpub" oifname "br-sdtmpub" accept
+		ip saddr 10.201.8.0/24 ip daddr 10.201.8.0/24 accept
+		iifname "br-sdtmpub" ip daddr @blocked4 counter drop
+		ip saddr 10.201.8.0/24 ip daddr @blocked4 counter drop
+		# 该网络不启用 IPv6; 万一有 IPv6 包从这个网桥进来, 一律不转发
+		iifname "br-sdtmpub" meta nfproto ipv6 counter drop
+	}
+
+	chain input {
+		type filter hook input priority -10; policy accept;
+		# 虚拟机主动连容器 (排查) 的回包
+		ct state established,related accept
+		# 容器 -> 虚拟机本机 (网关地址、虚拟机各地址、docker-proxy 代发布的端口)
+		iifname "br-sdtmpub" counter drop
+		# 源地址兜底不含回环: 虚拟机自己连 10.201.8.1 时走 lo, 源地址也是 10.201.8.1
+		iifname != "lo" ip saddr 10.201.8.0/24 counter drop
+	}
+}

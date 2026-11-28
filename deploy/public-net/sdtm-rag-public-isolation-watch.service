@@ -1,0 +1,16 @@
+# 公开站网络隔离的巡检 (P3.4b), 由同名 .timer 每分钟触发一次。
+# 每次都把规则文件整份重装一遍 (一个原子事务, 中间没有空窗): 表被删掉、被清空内容、被改动, 都会在一分钟内恢复成文件里的样子。
+# 重装不上就隔 3 秒再试一次 (docker 起停容器时也在提交规则, 可能撞上); 两次都不行 (规则文件缺失或写坏、nft 不可用)
+# → 停掉隧道连接器 (公开站下线) 并以失败退出。表还在的话, 内核里原有的规则这时仍然有效, 停连接器是因为已经没法保证它和规则文件一致;
+# 表已经不在的话 (被删了, 或开机时就没装上), 公开实例这时处于没有隔离的状态, 但连接器已停, 没有入口。
+# 定时器照常继续, 修好后下一次重装成功。
+# 连接器被它停掉后不会自动恢复: 修好规则后手工 docker start。只碰公开站的连接器, 不碰同机其他容器。
+# 副作用: 规则里的计数器每分钟随重装清零。要撤掉隔离规则时, 先停用本 timer, 否则一分钟内规则会被重新装回。
+# 日志: journalctl -u sdtm-rag-public-isolation-watch.service (表不在时会多一行 isolation table was missing)
+[Unit]
+Description=sdtm-rag public docker network isolation watchdog
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '/usr/sbin/nft list table inet sdtm_rag_public_isolation >/dev/null 2>&1 || echo "isolation table was missing"; /usr/sbin/nft -f /etc/sdtm-rag-public/isolation.nft && exit 0; sleep 3; /usr/sbin/nft -f /etc/sdtm-rag-public/isolation.nft && exit 0; echo "isolation ruleset reload failed twice: stopping the tunnel connector"; /usr/bin/docker stop sdtm-rag-public-cloudflared; exit 1'

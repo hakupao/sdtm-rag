@@ -70,10 +70,15 @@ def test_public_refuses_to_start_unmetered(engines):  # noqa: F811
 
 # ── #6 / #7: trusted proxies narrow; global rate limit keyed on the real visitor ──
 
+# P3.4: tightened from "≥ /24" to single hosts — the connector has a static address, and a /24 would
+# also trust any other container that joins the public docker network (/31 = 2 hosts, still refused).
 @pytest.mark.parametrize(("cidr", "ok"), [("10.0.0.0/8", False), ("10.0.0.0/23", False),
-                                          ("10.0.0.0/24", True), ("10.0.0.1/32", True),
-                                          ("fd00::/64", False), ("fd00::/120", True),
-                                          ("10.0.0.1/32,0.0.0.0/0", False)])
+                                          ("10.0.0.0/24", False), ("10.0.0.0/31", False),
+                                          ("10.0.0.1/32", True), ("10.0.0.1", True),
+                                          ("fd00::/64", False), ("fd00::/120", False),
+                                          ("fd00::/127", False), ("fd00::1/128", True),
+                                          ("10.0.0.1/32,0.0.0.0/0", False),
+                                          ("10.0.0.1/32,10.0.0.0/24", False)])
 def test_public_trusted_proxies_must_be_narrow(engines, cidr, ok):  # noqa: F811
     s = S(engines[0], **{**PUB, "quota_trusted_proxies": cidr})
     if ok:

@@ -1,0 +1,19 @@
+# 公开站网络隔离 (P3.4b): 开机时在 docker 之前装入 deploy/public-net/isolation.nft。
+# 安装位置 (虚拟机内): /etc/systemd/system/sdtm-rag-public-isolation.service, 规则文件 /etc/sdtm-rag-public/isolation.nft。
+# 本单元失败时 docker 仍会启动容器 (没有硬依赖, 以免规则文件出错拖垮同机的私有站)。
+# 兜底: sdtm-rag-public-isolation-watch.timer 每分钟把规则整份重装一遍, 重装不上就停掉隧道连接器。
+# 每次部署和虚拟机重启后另跑 deploy/public-net/isolation_probe.py 确认实际效果。
+[Unit]
+Description=sdtm-rag public docker network isolation (nftables)
+Before=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/sdtm-rag-public/isolation.nft
+ExecReload=/usr/sbin/nft -f /etc/sdtm-rag-public/isolation.nft
+# 前缀 - : 表已经不在时 (被人删了 / 巡检还没装回) 停单元和重启单元不算失败
+ExecStop=-/usr/sbin/nft delete table inet sdtm_rag_public_isolation
+
+[Install]
+WantedBy=multi-user.target

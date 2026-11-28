@@ -3,9 +3,22 @@
 #   - SDTM_RAG_INSTANCE=public 写在 environment: 真实环境变量优先于 .env 同名键 (load_dotenv 不覆盖);
 #     .env 里写大小写变体 (如 sdtm_rag_instance=private) 与之冲突 → server/config.py 拒启动。
 #     public 档启动自检 (server/instance.check_startup) 拦 study 数据/开关。
-#   - 不发布宿主端口 (局域网/mini 均不可达); 外网入口只有同网络的 cloudflared (3.4)。
+#   - 不发布宿主端口 (局域网/mini 均不可达); 外网入口只有同网络的 cloudflared (compose.tunnel.yml, 另一个项目)。
 #     运维冒烟用 docker exec sdtm-rag-public-api python -c "...urlopen('http://127.0.0.1:8000/...')"。
 #   - 数据根: CDISC-only chroma (3.3 建), 不含 data/study。
+#   - 网络 (3.4): 固定子网 10.201.8.0/24, 网桥名固定 br-sdtmpub。连接器占静态地址 10.201.8.2 (在 ip_range 之外,
+#     本服务的动态地址只从 10.201.8.128/25 取, 抢不到它)。SDTM_RAG_QUOTA_TRUSTED_PROXIES 写死成这一个地址:
+#     只有连接器带来的 CF-Connecting-IP 才算访客 IP。真实环境变量优先于 .env 的同名键。
+#     FORWARDED_ALLOW_IPS 置空: uvicorn 默认会采信来自 127.0.0.1 的 X-Forwarded-For 并改写连接对端,
+#     那样容器内的请求就能冒充连接器的地址; 置空 = 谁的都不信。以后也不要为了判断协议把它放宽。
+#     这三处 (子网 / 静态地址 / 可信代理) 与 deploy/public-net/isolation.nft 互相对应, 改一处须同改
+#     (tests/test_deploy_public_tunnel.py 逐处钉字面值)。
+#   - 全局限流 (主人 2026-11-28 定: 应用里和 Cloudflare 各加一层): 每个访客 IP 每分钟 60 个请求, 突发 20。
+#     计的是连接器传来的真实访客 IP, 不是连接器自己的地址 (那样所有访客会并成一个)。不计 /、/static/*、/api/health。
+#     取值高于提问接口自己的限额 (每 IP 每分钟 20 题 / 突发 6, 另有每访客的): 正常用户先碰到的是提问限额那条带说明的拒绝,
+#     全局这一层只挡对便宜接口 (/api/info、乱扫的路径) 的灌水。这三个键是 Settings 字段, 环境变量名不分大小写:
+#     .env 里出现取值不同的大小写变体会压过这里的值, 所以公开档启动时发现这种冲突就拒绝启动 (server/auth.py)。
+#   - 本文件只定义 api 一个服务: 部署时的临时验收容器照着它另起副本 (不接隧道, 不进本网络)。
 name: sdtm-rag-public
 services:
   api:
@@ -14,6 +27,11 @@ services:
     restart: unless-stopped
     environment:
       SDTM_RAG_INSTANCE: public
+      SDTM_RAG_QUOTA_TRUSTED_PROXIES: 10.201.8.2
+      FORWARDED_ALLOW_IPS: ""
+      SDTM_RAG_RATE_LIMIT_ENABLED: "true"
+      SDTM_RAG_RATE_LIMIT_PER_MIN: "60"
+      SDTM_RAG_RATE_LIMIT_BURST: "20"
     volumes:
       - type: bind
         source: /Volumes/DevSSD/deploy-data/sdtm-rag-public/data
@@ -37,3 +55,12 @@ services:
 networks:
   public:
     name: sdtm-rag-public
+    driver: bridge
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.name: br-sdtmpub
+    ipam:
+      config:
+        - subnet: 10.201.8.0/24
+          gateway: 10.201.8.1
+          ip_range: 10.201.8.128/25

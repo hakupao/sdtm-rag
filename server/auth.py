@@ -9,10 +9,13 @@ Design constraints:
   PURE ASGI (operating on scope/receive/send), NOT BaseHTTPMiddleware — the latter buffers
   the response body and breaks streaming. Starlette's built-in SessionMiddleware is also
   pure ASGI, so the whole stack is streaming-safe.
-- Plain HTTP over the LAN (no TLS, §1): the session cookie cannot be Secure (it would never
-  be sent) — HttpOnly + SameSite=Lax only. The shared password and cookie travel in
+- PRIVATE tier = plain HTTP over the LAN (no TLS, §1): the session cookie cannot be Secure (it
+  would never be sent) — HttpOnly + SameSite=Lax only. The shared password and cookie travel in
   cleartext on the LAN; this is the accepted residual risk of the §1 "shared password"
   decision (mitigation path = VPN / TLS / Cloudflare Tunnel, §6 roadmap).
+- PUBLIC tier (P3.4) = HTTPS only, behind the Cloudflare tunnel: every cookie is Secure (turning
+  that off refuses to start) and every response carries HSTS for its own hostname. Both are keyed
+  on `settings.instance == "public"`; the private tier's cookies and headers are unchanged.
 """
 from __future__ import annotations
 
@@ -92,8 +95,8 @@ def client_key(ip: str, v6_prefix: int = 64) -> str:
 
 def resolve_client_ip(scope, trusted: str, v6_prefix: int = 64) -> str:
     """Client key (see client_key) of the socket peer, or of `CF-Connecting-IP` ONLY when the peer
-    is a configured trusted proxy (the Cloudflare tunnel connector); otherwise the header is
-    ignored (spoofable)."""
+    is a configured trusted proxy (the Cloudflare tunnel connector) and the header appears exactly
+    once with a valid IP; otherwise the header is ignored (spoofable)."""
     return client_key(_resolve_ip(scope, trusted), v6_prefix)
 
 
@@ -106,13 +109,15 @@ def _resolve_ip(scope, trusted: str) -> str:
             return peer
     except ValueError:
         return peer
-    for k, v in scope.get("headers", []):
-        if k == b"cf-connecting-ip":
-            try:
-                return str(ipaddress.ip_address(v.decode("latin1").strip()))
-            except ValueError:
-                return peer
-    return peer
+    # Exactly one header, or none of them counts: Cloudflare sends one. Two means something upstream
+    # appended instead of overwriting, and picking either would let a visitor choose their own IP.
+    values = [v for k, v in scope.get("headers", []) if k == b"cf-connecting-ip"]
+    if len(values) != 1:
+        return peer
+    try:
+        return str(ipaddress.ip_address(values[0].decode("latin1").strip()))
+    except ValueError:
+        return peer
 
 
 def _json_refusal(status: int, code: str, message: str, headers=None, **fields) -> JSONResponse:
@@ -150,8 +155,21 @@ _CSP = (
 )
 
 
+# Image floor for the public deploy job: an image may be put behind the tunnel only if
+# `server.auth.PUBLIC_EDGE_LEVEL >= 1`. Level 1 = what P3.4 added for the public tier, all in this
+# module: single-host trusted proxy, exactly-one CF-Connecting-IP, Secure cookies, HSTS. Images built
+# before P3.4 have no such attribute (read it with getattr(..., 0)). Do not rename it: the deploy
+# precheck looks it up by name. Raise the number when a later change must not be rolled back past.
+PUBLIC_EDGE_LEVEL = 1
+
+# HSTS, public tier only (the private tier is plain HTTP on the LAN). Sent by the app, not by
+# Cloudflare's zone-level HSTS switch, so it binds this hostname only: no `includeSubDomains`
+# (would reach hostnames below this one) and no `preload` (needs the apex + includeSubDomains).
+_HSTS = "max-age=31536000"
+
+
 class SecurityHeadersMiddleware:
-    def __init__(self, app):
+    def __init__(self, app, *, hsts: bool = False):
         self.app = app
         self._headers = [
             (b"content-security-policy", _CSP.encode("latin1")),
@@ -159,6 +177,8 @@ class SecurityHeadersMiddleware:
             (b"x-frame-options", b"DENY"),
             (b"referrer-policy", b"no-referrer"),
         ]
+        if hsts:
+            self._headers.append((b"strict-transport-security", _HSTS.encode("latin1")))
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -409,24 +429,47 @@ class FlagRateLimitMiddleware:
         return await resp(scope, receive, send)
 
 
-# Public: the CIDRs allowed to set CF-Connecting-IP. The tunnel connector (cloudflared) is ONE
-# host on the container's own network, so anything wider than a /24 (v4) or /120 (v6) trusts hosts
-# that are not the connector and lets them spoof every visitor's identity (quota + rate limits).
-_MIN_TRUSTED_PREFIX = {4: 24, 6: 120}
-
-
+# Public: who may set CF-Connecting-IP. The tunnel connector (cloudflared) is ONE container with a
+# static address on the public docker network (deploy/container/compose.tunnel.yml), so every entry
+# must be a single host (/32 IPv4, /128 IPv6). Anything wider trusts whatever else lands on that
+# network and lets it spoof every visitor's identity (quota + rate limits).
 def _check_public_trusted(trusted: str) -> None:
-    broad = [str(n) for n in _trusted_nets(trusted) if n.prefixlen < _MIN_TRUSTED_PREFIX[n.version]]
+    broad = [str(n) for n in _trusted_nets(trusted) if n.num_addresses != 1]
     if broad:
         raise RuntimeError(f"public tier: SDTM_RAG_QUOTA_TRUSTED_PROXIES too broad {broad} "
-                           "(trust only the tunnel connector: ≥ /24 IPv4, ≥ /120 IPv6)")
+                           "(trust only the tunnel connector's own address: /32 IPv4, /128 IPv6)")
+
+
+def _is_public(settings) -> bool:
+    return getattr(settings, "instance", "private") == "public"
+
+
+def _check_public_env_case_variants(environ) -> None:
+    """Public tier: refuse `SDTM_RAG_*` names that differ only by case and carry different values.
+    pydantic-settings matches env names case-insensitively and the LATER one wins — a lowercase line
+    in `.env` (load_dotenv adds it after the real environment) would silently override what
+    compose.public.yml pins, e.g. turn the global rate limit off. The message lists names only
+    (values may be secrets). Same idea as config._check_instance_env, for every setting.
+    Names are folded with .lower(), exactly as pydantic does; non-ASCII names are refused outright
+    (U+212A KELVIN SIGN lower-cases to "k": `sdtm_rag_top_\u212a` would feed `top_k`)."""
+    seen: dict[str, dict[str, str]] = {}
+    for name, value in environ.items():
+        low = name.lower()
+        if low.startswith("sdtm_rag_"):
+            if not name.isascii():
+                raise RuntimeError(f"public tier: non-ASCII setting name in the environment / .env: {name!r}")
+            seen.setdefault(low, {})[name] = value
+    clash = sorted(sorted(variants) for variants in seen.values() if len(set(variants.values())) > 1)
+    if clash:
+        raise RuntimeError(f"public tier: conflicting case variants of the same setting in the "
+                           f"environment / .env: {clash} (keep one spelling)")
 
 
 def _install_quota(app, settings) -> None:
     from server import quota
 
     eff = quota.validate(settings)   # malformed / misspelt quota settings fail at startup
-    public = getattr(settings, "instance", "private") == "public"
+    public = _is_public(settings)
     if not quota.app_enabled(settings):
         if public:
             raise RuntimeError("public tier refuses to start unmetered: SDTM_RAG_QUOTA_ENABLED "
@@ -447,6 +490,11 @@ def _install_quota(app, settings) -> None:
     secure = quota.cfg(settings, "visitor_cookie_secure")
     if secure is None:
         secure = public
+    if public and not secure:
+        # P3.4: the public site is HTTPS only; a non-Secure visitor cookie would also travel on a
+        # plain-HTTP request to the same hostname.
+        raise RuntimeError("public tier refuses SDTM_RAG_VISITOR_COOKIE_SECURE=false "
+                           "(the public site is HTTPS only)")
     v6 = int(quota.cfg(settings, "quota_ipv6_prefix"))
     app.add_middleware(FlagRateLimitMiddleware, trusted_proxies=trusted, v6_prefix=v6, limiter=TokenBucketLimiter(
         int(quota.cfg(settings, "flag_rate_per_min")), int(quota.cfg(settings, "flag_rate_burst"))))
@@ -580,6 +628,8 @@ def install_security(app, settings) -> None:
         SecurityHeaders -> RateLimit -> [BodyLimit -> Visitor -> FlagRateLimit] -> Session -> AuthGate -> route
     (headers wrap every response incl. 429/401/302; rate-limit throttles before auth so
     login brute-force is capped; session is loaded before the gate reads it)."""
+    if _is_public(settings):
+        _check_public_env_case_variants(os.environ)
     if settings.auth_enabled:
         if not settings.session_secret or not settings.shared_password_hash:
             raise RuntimeError(
@@ -594,14 +644,16 @@ def install_security(app, settings) -> None:
             session_cookie=settings.session_cookie_name,
             max_age=settings.session_max_age_s,
             same_site="lax",
-            https_only=False,  # plain HTTP over LAN (§1); cannot require Secure
+            # private: plain HTTP over LAN (§1), cannot require Secure. public: check_startup
+            # refuses auth_enabled, so this cookie does not exist there; Secure if it ever does.
+            https_only=_is_public(settings),
         )
 
     # P2 L2 (public tier / quota_enabled only): BodyLimit -> Visitor -> FlagRateLimit, inside
     # RateLimit and outside Session/AuthGate.
     _install_quota(app, settings)
 
-    public = getattr(settings, "instance", "private") == "public"
+    public = _is_public(settings)
     if public and settings.rate_limit_trust_forwarded:
         # X-Forwarded-For is client-controlled through the tunnel: spoofable bucket key.
         raise RuntimeError("public tier refuses SDTM_RAG_RATE_LIMIT_TRUST_FORWARDED=true "
@@ -622,7 +674,7 @@ def install_security(app, settings) -> None:
         )
 
     if settings.security_headers_enabled:
-        app.add_middleware(SecurityHeadersMiddleware)
+        app.add_middleware(SecurityHeadersMiddleware, hsts=public)
 
 
 # ── Compare error sanitizer (SEC MED, deferred from phase 2) ────────────────

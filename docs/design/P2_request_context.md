@@ -199,6 +199,10 @@ cp -R /Volumes/DevSSD/Project/sdtm-rag/data/study data/study   # 复制 (32M), �
 export SDTM_RAG_CHROMA_DIR_OVERRIDE=/Volumes/DevSSD/Project/sdtm-rag/data/chroma   # 只读共享, 跑 140q 闸用
 ```
 
+⚠ 「只读共享」不是严格只读 (2026-11-28 实测): 设了这个变量跑全量 pytest 之后, 主仓 `data/chroma/chroma.sqlite3` 和两个 study 集合的向量段文件的
+修改时间变成了运行那一刻 (chromadb 打开持久化库时自己会写)。内容没坏: `sqlite3 "file:<主仓>/data/chroma/chroma.sqlite3?mode=ro" "pragma integrity_check"`
+返回 `ok`, 各集合条数与 `ingested_at_commit.txt` 一致。任务要求「不写主仓」时, 把 `data/chroma` 复制一份再指过去。
+
 实测 (2026-11-26, 一次性工作树): 不放 `data/study` ⇒ hook 以 `catalog 不在本机` 拦下 (fail-closed, 正确)。
 **符号链接不行**: hook 能过、`git status` 干净, 但 pytest 3 failed + 16 errors (`scripts/study/paths.py` 的
 `out_dir 必须在 STUDY_DATA_ROOT 内` 安全检查对 resolve 后的路径报错; git 报 `pathspec … is beyond a symbolic link`)。
@@ -215,13 +219,21 @@ export SDTM_RAG_CHROMA_DIR_OVERRIDE=/Volumes/DevSSD/Project/sdtm-rag/data/chroma
 | 计量开着: `SDTM_RAG_QUOTA_ENABLED` 不设或为真 (布尔严格解析, `ture`/`y` 之类拒启动) | 关掉 = 免费题无上限 |
 | `SDTM_RAG_QUOTA_*` / `VISITOR_*` / `FLAG_*` / `FREE_*` 无拼错的键 (`quota.validate`; 生效值启动时打日志, secret 只记 set/unset) | 拼错 = 静默用默认值 |
 | `SDTM_RAG_VISITOR_SECRET` 已设 | 访客 cookie 签名 |
-| `SDTM_RAG_QUOTA_TRUSTED_PROXIES` 已设且每段 ≥ /24 (IPv4) / ≥ /120 (IPv6) | 只信隧道连接器 (cloudflared) 一台主机; 更宽 = 同网段任何主机都能伪造 `CF-Connecting-IP` 冒充任意访客 |
+| `SDTM_RAG_QUOTA_TRUSTED_PROXIES` 已设且每项都是单主机 (/32 IPv4, /128 IPv6; P3.4 起, 原为 ≥ /24) | 只信隧道连接器 (cloudflared) 一台主机; 更宽 = 同网段任何主机都能伪造 `CF-Connecting-IP` 冒充任意访客。部署时由 `compose.public.yml` 写死为连接器的静态地址 |
+| (不是启动自检, 是请求时的规则; P3.4) 可信对端送来的 `CF-Connecting-IP` 恰好一条且是合法 IP 才采信 | 两条说明上游是追加而不是覆盖, 取哪条都等于让访客自己挑 IP; 不采信时按连接对端计 |
+| `SDTM_RAG_VISITOR_COOKIE_SECURE` 不为假 (P3.4) | 公开站只走 HTTPS; 不带 `Secure` 的访客 cookie 会随同主机名的明文请求发出 |
 | `SDTM_RAG_RATE_LIMIT_TRUST_FORWARDED` 不为真 | `X-Forwarded-For` 穿过隧道可被访客伪造; 公开档全局限流按 `CF-Connecting-IP` (仅可信代理来源) 计 |
 | `SDTM_RAG_SELECTABLE_MODELS` 显式设置, 每个模型显式写 `max_output_tokens`, 且单轮预留 ≤ 免费池 / 10 (`quota.round_estimate_usd`: 历史上限 + 40k token prompt 余量 + max_output) | 内置清单是私有站的 Claude 128K 输出 (一轮 ≈ $3); 例: DeepSeek v4-pro 32000 输出 ≈ $0.21 ≤ $0.30 |
 | `security_headers_enabled=true` | BYOK key 在浏览器 localStorage, CSP 是 XSS 的第二道防线 |
 
-**部署要求 (P3.2 compose 落实, 本轮不改 compose)**: 公开容器的服务端口只绑 `127.0.0.1` 或专用 docker 网络, 不暴露到宿主机 LAN;
-`SDTM_RAG_QUOTA_TRUSTED_PROXIES` 只写 cloudflared 容器 / 主机的那一个地址 (/32 或其所在的专用 /24 网络)。否则 LAN 上任何主机直连端口即可绕过隧道、伪造访客 IP。
+**部署要求 (P3.2 / P3.4 compose 落实)**: 公开容器不发布宿主端口, 只在专用 docker 网络 `sdtm-rag-public` (固定子网) 上;
+`SDTM_RAG_QUOTA_TRUSTED_PROXIES` 只写 cloudflared 容器的那一个静态地址 (`compose.public.yml` 的 `environment`, 压过 `.env` 同名键)。
+否则同网络上的其他主机直连端口即可绕过隧道、伪造访客 IP。同一文件把 `FORWARDED_ALLOW_IPS` 置空: uvicorn 默认采信回环来的
+`X-Forwarded-For` 并改写连接对端 (容器内的请求可借此冒充连接器), 置空后谁的都不信; 这是 compose 里的值, 应用启动时不检查。公开档的响应另带 HSTS (`max-age=31536000`, 只对本主机名, 由应用发出);
+同一文件打开全局限流 (`SDTM_RAG_RATE_LIMIT_ENABLED=true`, 每 IP 每分钟 60、突发 20; 主人 2026-11-28 定「应用里和 Cloudflare 各加一层」):
+它按上一行说的可信代理取访客 IP, 取值高于本节的提问限额 (每 IP 每分钟 20 题), 只挡对便宜接口的灌水; 应用启动时不要求它开着, 由 compose 的测试钉住。
+公开档启动时另查一项: 环境里同一个 `SDTM_RAG_*` 键有取值不同的大小写变体 ⇒ 拒绝启动 (pydantic 不分大小写, `.env` 里后来的那个会压过 compose 的值)。
+隧道、网络隔离与上线步骤见 `deploy/README.md`「公开实例与隧道」。
 
 **已裁 (主会话, 2026-11-26)**: 免费题每 IP 每日上限与「每访客 10 题」并存 —— 接受; P2.9 末轮 (N1) 因公司共享出口 IP 把默认值上调:
 `quota_free_per_ip_day` 30 → **50**, `quota_inflight_per_ip` 3 → **5**; 换 cookie 的同一 IP 最多 50 题,
