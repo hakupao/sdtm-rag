@@ -50,6 +50,8 @@ OFFLINE_PRIV = "test_private_is_priced_the_same_without_the_online_price_map"
 OFFLINE_NAMES = "test_public_names_the_unpinned_model_without_the_online_price_map"
 FLOOR = "test_settle_never_charges_less_than_the_reserved_models_pinned_price"
 OLD_CHAIN = "test_settle_keeps_the_old_price_chain_when_the_reserved_model_is_not_pinned"
+FLOOR_STREAM = "test_the_floor_also_holds_for_a_stream_that_ended_without_usage"
+STREAM = "        actual = min(entry.est, _settle_price(s, model, entry.model, entry.pt, out, reported=False))\n"
 
 HAIKU_ROW = '    "claude-haiku-5-5": (0.10, 0.50),      # prompts up to 100,000 tokens; above: _LONG_PROMPT_PRICES\n'
 LONG_ROW = '    "claude-haiku-5-5": (100_000, 0.50, 2.50),\n'
@@ -107,6 +109,13 @@ MUTATIONS = [
     ("Q8", QUOTA, FLOOR_IF, "            and True:\n", "所预留的模型没有固定价时也套下限 (改变原有的计价链)", OLD_CHAIN),
     ("Q9", QUOTA, FLOOR_MAX, "        price = _price(s, reserved_model, pt, ct, reported=reported)\n",
      "直接改用所预留模型的固定价 (回退费率更高时会少记)", FLOOR),
+    # 复核时审查者的三条存活变异 (Y1、Y5、Y2)
+    ("Q10", QUOTA, STREAM, "        actual = min(entry.est, _price(s, model or entry.model, entry.pt, out))\n",
+     "没有用量的流式结算不套下限", FLOOR_STREAM),
+    ("Q11", QUOTA, FLOOR_IF, FLOOR_IF.replace("is not None:", "is not None and reported:"),
+     "下限只在有用量的分支生效", FLOOR_STREAM),
+    ("Q12", QUOTA, FLOOR_MAX, FLOOR_MAX.replace("reported=reported", "reported=False"),
+     "下限一律按高档算 (回报的用量在低档时多记 5 倍)", FLOOR),
     # ── 公开档启动自检 ──
     ("I1", INST, GATE, "        if False:\n", "公开档不再要求固定价格", REFUSE),
     ("I2", INST, GATE, "        if pinned_rates(m.id, None) is None:\n",

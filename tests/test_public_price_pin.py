@@ -188,16 +188,16 @@ def test_reserve_and_settle_through_the_store_use_those_tiers(tmp_path):
     quota.finalize(ctx)
 
 
-def _settled(s, tmp_path, monkeypatch, reported_model, other_rates):
+def _settled(s, tmp_path, monkeypatch, reported_model, other_rates, prompt_tokens=120_000):
     """USD charged for one answer call reserved on m1 (Haiku 5.5) whose provider reported
-    `reported_model` with a 120,000-token prompt and 1,000 output tokens."""
+    `reported_model` with a `prompt_tokens` prompt and 1,000 output tokens."""
     monkeypatch.setattr(quota, "_rates", lambda model: other_rates)
     ctx = _ctx(s, tmp_path)
     store = quota._store(s)
     kw = {"model": "m1", "max_tokens": 16_000, "messages": [{"role": "user", "content": "a" * 3000}]}
     before = store.spent(quota._day())
     h = quota.reserve(ctx, "answer", kw)
-    quota.settle(ctx, "answer", h, {"prompt_tokens": 120_000, "completion_tokens": 1_000}, reported_model)
+    quota.settle(ctx, "answer", h, {"prompt_tokens": prompt_tokens, "completion_tokens": 1_000}, reported_model)
     quota.finalize(ctx)
     return store.spent(quota._day()) - before
 
@@ -217,6 +217,26 @@ def test_settle_never_charges_less_than_the_reserved_models_pinned_price(tmp_pat
     assert _settled(s, tmp_path, monkeypatch, "deepseek-v4-pro", (9.0, 9.0)) \
         == pytest.approx((120_000 * 1.32 + 1_000 * 3.96) / 1e6)
     assert _settled(s, tmp_path, monkeypatch, None, (9.0, 9.0)) == pytest.approx(haiku_long)
+    # the floor is the reserved model's price at the tier of the reported usage, not always the upper one
+    assert _settled(s, tmp_path, monkeypatch, "claude-haiku-5-5-latest", (0.01, 0.01), prompt_tokens=50_000) \
+        == pytest.approx((50_000 * 0.10 + 1_000 * 0.50) / 1e6)
+
+
+def test_the_floor_also_holds_for_a_stream_that_ended_without_usage(tmp_path, monkeypatch):
+    """No usage: the charge is estimated prompt + 1.5 x streamed tokens. An unknown reported name must
+    not bring that below the reserved model's pinned price (upper tier: the prompt size is an estimate)."""
+    s = _settings(tmp_path, "public", HAIKU)
+    monkeypatch.setattr(quota, "_rates", lambda model: (0.10, 0.50))     # litellm's map: base tier only
+    ctx = _ctx(s, tmp_path)
+    store = quota._store(s)
+    kw = {"model": "m1", "max_tokens": 16_000, "messages": [{"role": "user", "content": "a" * 3000}]}
+    before = store.spent(quota._day())
+    h = quota.reserve(ctx, "answer", kw)
+    quota.settle(ctx, "answer", h, None, "claude-haiku-5-5-latest", streamed_text="b" * 300)
+    quota.finalize(ctx)
+    charged = store.spent(quota._day()) - before
+    assert charged == pytest.approx((1004 * 0.50 + 150 * 2.50) / 1e6)    # not (1004 x 0.10 + 150 x 0.50) / 1e6
+    assert charged < (1004 * 0.50 + 16_000 * 2.50) / 1e6                 # and still below the reservation
 
 
 def test_settle_keeps_the_old_price_chain_when_the_reserved_model_is_not_pinned(tmp_path, monkeypatch):
