@@ -655,10 +655,17 @@ def test_public_network_with_the_wrong_subnet_stops_the_deploy(site, capsys, sub
     assert "iso:isolated" not in fake.events  # 网段不对就不必测隔离
 
 
+def _unpinned(model: dict) -> dict:
+    """隧道那条线合进来之前的形状: 公开网络没有 ipam 段 (docker 自动分配网段)。"""
+    m = copy.deepcopy(model)
+    assert m["networks"]["public"].pop("ipam")["config"][0]["subnet"] == SUBNET  # 确实去掉了写定的子网
+    return m
+
+
 def test_compose_without_a_pinned_subnet_stops_the_deploy(site, capsys):
     """隧道那条线没有合进来时, 公开 compose 没有给网络写定子网: 不能部署 (两条线要一起合并)。"""
     fake = _fake(site, formal="running", swap=False)
-    fake.pub_model = _with_mount(_with_mount(PUB_MODEL, "/app/data", str(site["pub"])), "/app/.env", str(site["env"]))
+    fake.pub_model = _with_mount(_with_mount(_unpinned(PUB_MODEL), "/app/data", str(site["pub"])), "/app/.env", str(site["env"]))
     before, formal_before = _snapshot(site["pub"]), copy.deepcopy(fake.formal())
     assert _run(fake, site) == 1
     _assert_nothing_happened(fake, site, before, formal_before)
@@ -721,7 +728,8 @@ def test_isolation_probe_runs_in_the_public_network_with_a_bridge_control(site):
 
 def test_public_network_is_read_from_the_compose_model():
     assert ks.public_network(PUB_TUNNEL_MODEL) == (NET, SUBNET)
-    assert ks.public_network(PUB_MODEL) == (NET, None)  # 本分支上的 compose 还没有写定子网
+    assert ks.public_network(PUB_MODEL) == (NET, SUBNET)  # 合并后两份 fixture 相同 (都是写定子网的 compose)
+    assert ks.public_network(_unpinned(PUB_MODEL)) == (NET, None)  # 隧道那条线合进来之前的形状: 没有写定子网
     two = copy.deepcopy(PUB_TUNNEL_MODEL)
     two["services"]["api"]["networks"]["other"] = None
     with pytest.raises(RuntimeError):

@@ -497,10 +497,19 @@ def test_private_deploy_job_uses_the_tag_only_through_env():
         assert login["env"]["ACTOR"] == "${{ gitea.actor }}" and '-u "$ACTOR"' in login["run"]
 
 
+def _base_workflow(name: str) -> dict:
+    """基点 9a8ad43 的 workflow 原文, 冻在 fixture 里: CI 的 checkout 深度是 1, 取不到基点提交。
+    取得到基点的地方 (本机) 顺带核对 fixture 与 `git show` 逐字相同。"""
+    text = (ROOT / "tests/fixtures/workflows" / f"base_9a8ad43_{name}.yml").read_text()
+    r = subprocess.run(["git", "show", f"9a8ad43:.gitea/workflows/{name}.yml"], cwd=ROOT, capture_output=True, text=True)
+    if r.returncode == 0:
+        assert r.stdout == text, "fixture 与基点提交里的 workflow 不一致"
+    return yaml.safe_load(text)
+
+
 def test_private_deploy_job_changed_only_where_intended():
     """私有部署 job 相对基点只改了: 登录步骤的用户名经 env; 标签步骤的校验; 两个步骤里内联的 tag。其余步骤逐字未变。"""
-    base = yaml.safe_load(subprocess.run(["git", "show", "9a8ad43:.gitea/workflows/sdtm-rag.yml"], cwd=ROOT,
-                                         capture_output=True, text=True, check=True).stdout)
+    base = _base_workflow("sdtm-rag")
     old = {s.get("name", "checkout"): s for s in base["jobs"]["deploy"]["steps"]}
     new = {s.get("name", "checkout"): s for s in _job("sdtm-rag", "deploy")["steps"]}
     assert list(old) == list(new)  # 步骤与顺序不变
@@ -521,8 +530,7 @@ def test_private_deploy_job_changed_only_where_intended():
 
 def test_kb_sync_private_leg_changed_only_where_intended():
     """kb-sync 私有腿相对基点 (单 job `kbsync`) 只改了「确定 KB ref」的格式校验; 其余步骤逐字未变, 数据根 / env 文件的值不变。"""
-    base = yaml.safe_load(subprocess.run(["git", "show", "9a8ad43:.gitea/workflows/kb-sync.yml"], cwd=ROOT,
-                                         capture_output=True, text=True, check=True).stdout)
+    base = _base_workflow("kb-sync")
     old = {s.get("name", "checkout"): s for s in base["jobs"]["kbsync"]["steps"]}
     new = {s.get("name", "checkout"): s for s in _job("kb-sync", "private")["steps"]}
     assert list(old) == list(new)

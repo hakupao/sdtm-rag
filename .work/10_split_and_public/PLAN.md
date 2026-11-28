@@ -60,7 +60,7 @@
 | 1.6b | **重写 A 仓历史 (Q5=b, 不可逆, 单独确认)**: 在**全新 mirror clone** 上 `git filter-repo --invert-paths` 去掉 B 的全部路径 (含旧 `branches/07_rag_kg/`、`.gitea/`、RAG 文档); 事前: 原仓完整 mirror 打包归档 (规则 B)、记录 GitHub 上 tag/release 列表、处理 2 个开着的 fork PR (`origin-pr/1,2`)、确认 Cloudflare Pages 绑定的分支; 事后: force-push main + 全部 tag, 核对 10 个 tag 与 release 资产仍在、Pages 重建成功 | 新历史 `git log --all -- sdtm-rag` 为空; tag 数 = 10; 网站 prod 正常; **已知局限写进 checkpoint**: GitHub 上旧提交在 PR ref / 缓存中可能仍可按 SHA 访问, 彻底清除需联系 GitHub 支持 (D5 下无机密, 不追) |
 | 1.7 | 开发环境迁移: B 仓 clone 到新路径建 venv; Claude 记忆按项目路径存 → 复制 RAG 相关 memory 到新项目目录, **并改写其中的路径** (`sdtm-rag/server/...` → `server/...`) | 新路径开 session 能读到记忆, 抽 3 条路径可打开 |
 | 1.8 | 独立审查 (规则 D, `code-reviewer`) + P1 phase_report | 审查 PASS |
-| 1.9 | **KB→RAG 同步管线** (KB 持续修改): A 仓 KB 变更 → B 仓自动开"升级 submodule"变更 → CI 跑零 LLM 闸 (CDISC 140q recall 差 ≤1 题; 不达标阻断并归档 failures/) → 合入后私有/公开两套 chroma 各自重建 (按 `kb_fingerprint` 判断是否需要) → 部署; A 仓保留自己的 CLAUDE.md / Chain D 追溯流程 | 演练一次: A 仓改一行 KB → B 仓两实例索引更新且闸通过 |
+| 1.9 | **KB→RAG 同步管线** (KB 持续修改): A 仓 KB 变更 → B 仓自动开"升级 submodule"变更 → CI 跑零 LLM 闸 (CDISC 140q recall 差 ≤1 题; 不达标阻断并归档 failures/) → 合入后私有/公开两套 chroma 各自重建 (按 `kb_fingerprint` 判断是否需要) → 部署; A 仓保留自己的 CLAUDE.md / Chain D 追溯流程 | 演练一次: A 仓改一行 KB → B 仓两实例索引更新且闸通过。**验收拆成两半** (D3): 私有正例 = 2026-11-28「KB 更新」`kb-2026.11.28` 已完成; 公开正例 = 公开腿演练的阶段 C / D (`p3_public_leg_impl.md` §5), 未做 |
 
 ### P2 统一产品能力 (B 仓, 3-5 天)
 | Step | 内容 | 验收 |
@@ -81,8 +81,8 @@
 | 3.1 | **容量核对**: mini VM 内存/CPU 能否跑两实例 (现单实例 api 1536m + ui 512m) | 实测余量记录; 不够则先扩 VM |
 | 3.2 | compose 参数化: 项目名 / 容器名 (现硬编码, workflow 的 `docker inspect` 也硬编码) / 端口 / 数据目录 / `.env` 按实例; **公开实例只绑 `127.0.0.1`** (只给 Tunnel), 不起 `ui` | 同机两实例并跑; 外网/局域网直连公开实例端口不通 |
 | 3.3 | 公开站专用 chroma: 干净树重新 ingest **只含 CDISC** (~2 分钟 ~$0.05) | `study_*` 集合数 = 0; CDISC 140q recall 与基线差 ≤ 1 题 |
-| 3.4 | Cloudflare Tunnel + 域名 + HTTPS; cookie `Secure` (现 `https_only=False` 硬编码) + HSTS; **Cloudflare WAF/限速规则作第一道防线**; **各 provider 账户侧设硬性月度上限** (应用内封顶不够) | 外网 HTTPS 可访问; 账户上限截图存证 |
-| 3.4b | **网络隔离**: 公开容器独立 docker 网络, 出站只允许 provider API / Tavily / Cloudflare, **禁止访问局域网** (同机有 Gitea、镜像仓库) | 容器内 curl 内网地址失败的测试 |
+| 3.4 | Cloudflare Tunnel + 域名 + HTTPS; cookie `Secure` (现 `https_only=False` 硬编码) + HSTS; **Cloudflare WAF/限速规则作第一道防线**; **各 provider 账户侧设硬性月度上限** (应用内封顶不够) | 外网 HTTPS 可访问; 账户上限截图存证。**2026-11-28: 配置与代码已合入 main, 没有上线** (隧道没接); 主人定: 首次上线先用 Cloudflare Access 只放行本人, 验完再放开; 限流两层 (应用全局限流 + Cloudflare 限速规则)。步骤 `docs/plans/P3_4_tunnel_owner_steps.md` / `P3_4_tunnel_drill.md` |
+| 3.4b | **网络隔离**: 公开容器独立 docker 网络, 出站只允许 provider API / Tavily / Cloudflare, **禁止访问局域网** (同机有 Gitea、镜像仓库) | 容器内 curl 内网地址失败的测试。**2026-11-28: 规则与探测脚本已合入 main (`deploy/public-net/`), 没有装到虚拟机**; 做到的是「私有地址全禁、公网全放」, 不是按域名的出站白名单 (`p3_step3.4_tunnel.md`「网络隔离做到了哪一步」); 实际效果要到演练第 3 步才验证 |
 | 3.4c | **产品化展示**: 公开站首页/空状态说明 (能问什么、示例题、额度规则、key 隐私说明: 不落盘不记日志)、中英界面、关于页链接回 sdtm-pedia; A 仓 README 与网站加 "在线试用" 入口 | 用户审一版截图 |
 | 3.5 | 上线验收: 外网冒烟 (免费题 / 各 provider BYOK / 额度耗尽 / 封顶 / 紧急开关); **规则 A 抽检** 每 provider 5 题共 25, 判据: 引用可追溯且无事实错 ≥ 23/25, 低于则该 provider 标"未验证" | `evidence/audit_matrix.md` |
 | 3.6 | 上线 7 天观察, 预登记告警阈值: 日费用 > 封顶 80%、429 占比 > 20%、5xx > 2% | `evidence/checkpoints/p3_week1.md` |
@@ -122,6 +122,7 @@
   - L4 UI (`webchat/` only, 按冻结约定) — 2.8
   - 合并序 L3 → L1 → L2 → L4, 每合一条跑全部零 LLM 闸; 2.9 审查在集成后
 - **P3**: 串行 (动生产)
+- **并行分支合并前** (2026-11-28 补): 把几条分支试合到一起, 在**深度 1 的克隆 + 独立 venv** 里跑一遍全量测试 (CI 的 checkout 就是深度 1, 也没有 `data/`)。依据: `p3_tunnel_leg_merge_deploy.md`「合并后才红的 4 条测试」—— 两条分支各自全绿, 合到一起才红
 - 每线 writer = `executor` (opus), reviewer = `code-reviewer` / `security-reviewer` (opus), 不同 agent (规则 D); prompt 全留 `evidence/subagent_prompts/`
 - 工作树约束: Claude 记忆按路径存 → 每线 prompt 自带完整背景; chroma / KB 用 `*_OVERRIDE` 只读共享, 不复制; venv 各自 `uv sync`
 

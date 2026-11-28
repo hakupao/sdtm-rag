@@ -3,7 +3,20 @@
   "networks": {
     "public": {
       "name": "sdtm-rag-public",
-      "ipam": {}
+      "driver": "bridge",
+      "driver_opts": {
+        "com.docker.network.bridge.name": "br-sdtmpub"
+      },
+      "ipam": {
+        "config": [
+          {
+            "subnet": "10.201.8.0/24",
+            "gateway": "10.201.8.1",
+            "ip_range": "10.201.8.128/25"
+          }
+        ]
+      },
+      "enable_ipv6": false
     }
   },
   "services": {
@@ -13,7 +26,12 @@
       "command": null,
       "entrypoint": null,
       "environment": {
-        "SDTM_RAG_INSTANCE": "public"
+        "FORWARDED_ALLOW_IPS": "",
+        "SDTM_RAG_INSTANCE": "public",
+        "SDTM_RAG_QUOTA_TRUSTED_PROXIES": "10.201.8.2",
+        "SDTM_RAG_RATE_LIMIT_BURST": "20",
+        "SDTM_RAG_RATE_LIMIT_ENABLED": "true",
+        "SDTM_RAG_RATE_LIMIT_PER_MIN": "60"
       },
       "image": "192.168.100.58/bojiang/sdtm-rag:abc",
       "mem_limit": "1610612736",

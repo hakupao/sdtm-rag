@@ -1,0 +1,341 @@
+# sdtm-rag（SDTM 知识库助手）：push 到 main 后构建镜像，推送到 Gitea 镜像仓库，部署到 mini 虚拟机。
+# 部署配置在 deploy/container/；运维说明见 lan-services 仓库（第 6 步）。
+# 回滚：在 Actions 页面手动运行本工作流，tag 填已有镜像的 commit SHA，跳过构建，直接部署该版本。
+# 只构建不部署：手动运行，tag 留空、deploy 取消勾选 → 构建+推送镜像后结束 (切换前先在测试端口验证)。
+# 健康检查失败时，会自动退回部署前正在运行的镜像；如果换过 chroma/meta，也会一并退回。
+# KB 对齐（step 1.9）：如果目标镜像的 KB 指纹与生产 chroma stamp 不同，部署时换入 kb-sync 过闸的候选（或保留的旧副本）；两者都找不到时直接失败，生产保持不变。
+name: sdtm-rag
+on:
+  push:
+    branches: [main]
+    paths:
+      # KB 是 submodule (vendor/sdtm-pedia): 升级 submodule 时变的是 gitlink 路径本身, 不是其下的文件
+      - "vendor/sdtm-pedia"
+      - ".gitmodules"
+      - "server/**"
+      - "ui/**"
+      - "webchat/**"
+      - "scripts/**"
+      - "eval/**"
+      # tests/ 不进镜像, 故不在过滤里: 只改 tests/ 的 push 不跑本工作流 (含测试步), 改测试后须本机跑 pytest
+      - "README.md"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "deploy/container/**"
+      - ".gitea/workflows/sdtm-rag.yml"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "回滚用：要部署的镜像标签（完整 commit SHA）。留空则构建并部署当前提交"
+        required: false
+        default: ""
+      deploy:
+        description: "false = 只构建并推送镜像, 不部署 (测试端口先验用)"
+        type: boolean
+        default: true
+      force_data_mismatch:
+        description: "true = 无法确定镜像的 KB 指纹，或没有匹配的 chroma 副本时，仍然部署（不换数据，只告警）"
+        type: boolean
+        default: false
+
+concurrency:
+  group: sdtm-rag-deploy
+  cancel-in-progress: false
+
+env:
+  REGISTRY: 192.168.100.58
+  IMAGE: 192.168.100.58/bojiang/sdtm-rag
+  # 数据根是 Docker 守护进程一侧的路径，job 容器无法访问；kbsync 的文件操作通过 --via 在兄弟容器中执行
+  DATA_ROOT: /Volumes/DevSSD/deploy-data/sdtm-rag/data
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # 只部署 main：手动运行时选了其他分支就不执行（避免部署未合并的工作流和 compose）
+    if: gitea.ref == 'refs/heads/main'
+    timeout-minutes: 60
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      # submodule 是公开 GitHub 仓 (https), 无需凭据; .gitmodules 设了 shallow = true
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # 回滚 (手动填 tag) 时跳过测试: 回滚的是旧镜像, 不该被当前 HEAD 的测试拦住。
+      # 不依赖 runner 预装 uv: 装与 Dockerfile 同版本。data/study、chroma、.env 均不在 checkout 里,
+      # 依赖它们的测试带 local_data 标记, 由 tests/conftest.py 自动 skip (见 CLAUDE.md「测试」)。
+      - name: 测试
+        if: inputs.tag == ''
+        run: |
+          curl -LsSf https://astral.sh/uv/0.11.17/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          uv sync --frozen --extra dev
+          .venv/bin/python -m pytest -m "not slow" -q -o addopts="" -rs
+
+      - name: 登录镜像仓库
+        env:
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          [ -n "$REGISTRY_TOKEN" ] || { echo "缺少仓库密钥 REGISTRY_TOKEN"; exit 1; }
+          echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "${{ gitea.actor }}" --password-stdin
+
+      - name: 确定要部署的标签
+        id: tag
+        # 手动输入经环境变量传入，不直接拼进脚本（防止命令注入），并且必须是 40 位 commit SHA
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG="$INPUT_TAG"
+          [ -n "$TAG" ] || TAG="${{ gitea.sha }}"
+          printf '%s' "$TAG" | grep -Eqx '[0-9a-f]{40}' || { echo "标签必须是 40 位小写 commit SHA"; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "部署标签：$TAG"
+
+      - name: 构建并推送
+        if: inputs.tag == ''
+        run: |
+          docker build -f deploy/container/Dockerfile -t "$IMAGE:${{ steps.tag.outputs.tag }}" .
+          docker push "$IMAGE:${{ steps.tag.outputs.tag }}"
+
+      - name: 记录当前线上镜像 (健康检查失败时退回)
+        id: prev
+        if: gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false'
+        run: |
+          PREV=$(docker inspect sdtm-rag-api --format '{{.Config.Image}}' 2>/dev/null | sed 's/.*://' || true)
+          echo "prev=$PREV" >> "$GITHUB_OUTPUT"
+          echo "部署前线上镜像标签：${PREV:-无}"
+
+      # 只读步骤：确定 chroma/meta 的处理方式（same / swap / missing / unknown），此时生产尚未改动
+      - name: KB 数据对齐检查
+        id: kbcheck
+        if: gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          FORCE: ${{ format('{0}', inputs.force_data_mismatch) }}
+        run: |
+          IMG="$IMAGE:$TAG"
+          docker pull "$IMG"
+          FP=$(python3 deploy/kbsync/kbsync.py image-fp --image "$IMG")
+          CHROMA_V=$(python3 deploy/kbsync/kbsync.py chromadb-version --image "$IMG")
+          OUT=$(python3 deploy/kbsync/kbsync.py --via "$IMG" predeploy-check --data-root "$DATA_ROOT" \
+            --target-fp "$FP" --chromadb-version "$CHROMA_V")
+          echo "$OUT"
+          DECISION=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["decision"])')
+          case "$DECISION" in
+            journal_pending)
+              # 上次换数据的 job 被取消或超时：数据处于未知的中间状态，任何决定（包括 force）都不可信
+              echo "数据根残留 kbsync_swap.json（上次换数据未完成收尾）；生产未改动。请先停止服务，再人工执行："
+              echo "  python3 deploy/kbsync/kbsync.py --via <镜像> restore --data-root $DATA_ROOT  （或在确认换入已生效后执行 finish）"
+              exit 1 ;;
+            same) echo "镜像 KB 指纹与生产 chroma 一致，不换数据" ;;
+            swap) echo "镜像 KB 指纹 ${FP:0:12} 与生产不同，部署时换入 $(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["source_chroma"])')" ;;
+            unknown|missing)
+              if [ "$FORCE" = true ]; then
+                echo "::warning::force_data_mismatch：镜像 KB 指纹 ${FP:0:12} 与生产 chroma 不一致 ($DECISION)，不换数据，照常部署；回答可能基于不匹配的索引"
+                DECISION=forced
+              else
+                echo "镜像 KB 指纹 ${FP:0:12} 与生产 chroma 不同，且没有过闸候选或保留副本 ($DECISION)；生产未改动。"
+                echo "请先对该 KB tag 运行 kb-sync 工作流，通过闸后再部署；如果是回滚旧镜像，且确认可以接受数据不匹配，请勾选 force_data_mismatch"
+                exit 1
+              fi ;;
+            *) echo "未知决定 $DECISION"; exit 1 ;;
+          esac
+          { echo "decision=$DECISION"; echo "fp=$FP"; echo "chromadb=$CHROMA_V"; } >> "$GITHUB_OUTPUT"
+
+      - name: 部署
+        id: deploy
+        if: gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false'
+        env:
+          DECISION: ${{ steps.kbcheck.outputs.decision }}
+          FP: ${{ steps.kbcheck.outputs.fp }}
+          CHROMA_V: ${{ steps.kbcheck.outputs.chromadb }}
+        run: |
+          # 只有本步骤开始后，退回镜像的步骤才有意义（kbcheck 失败说明生产未改动，不应重建容器）
+          echo "started=true" >> "$GITHUB_OUTPUT"
+          # 挂载目标跟随镜像的 WorkingDir: step 1.5a 前 (monorepo 时代) 的镜像是
+          # /Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag, 之后是 /app —— 回滚旧镜像时 data/.env 才挂得对
+          APP_DIR=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMAGE:${{ steps.tag.outputs.tag }}")
+          [ -n "$APP_DIR" ] || APP_DIR=/app
+          export APP_DIR
+          echo "挂载目标目录：$APP_DIR"
+          if [ "$DECISION" = swap ]; then
+            # 依次停止服务、核对非 KB 集合、通过改名换入 chroma/meta（journal 记在数据根，失败处理步骤按 journal 退回）
+            IMAGE_TAG="${{ steps.tag.outputs.tag }}" docker compose -f deploy/container/compose.yml stop
+            IMG="$IMAGE:${{ steps.tag.outputs.tag }}"
+            if ! python3 deploy/kbsync/kbsync.py deploy-swap --data-root "$DATA_ROOT" \
+                --image "$IMG" --target-fp "$FP" --chromadb-version "$CHROMA_V"; then
+              # 换到一半失败（journal 存在）时，先退回数据，再启动原容器；如果数据未完全退回或无法判断 journal 状态，则不启动容器，转人工处理
+              JS=0; python3 deploy/kbsync/kbsync.py journal-state --image "$IMG" --data-root "$DATA_ROOT" || JS=$?
+              case "$JS" in
+                0) ;;
+                3) python3 deploy/kbsync/kbsync.py --via "$IMG" restore --data-root "$DATA_ROOT" \
+                     || { echo "restore 失败，服务保持停止状态，需要人工处理"; exit 1; } ;;
+                *) echo "无法判断 journal 状态，服务保持停止状态，需要人工处理"; exit 1 ;;
+              esac
+              echo "换数据被拒绝或失败，数据处于部署前状态，重新启动原容器"
+              IMAGE_TAG=x docker compose -f deploy/container/compose.yml start
+              exit 1
+            fi
+          fi
+          IMAGE_TAG="${{ steps.tag.outputs.tag }}" docker compose -f deploy/container/compose.yml up -d
+          docker inspect sdtm-rag-api sdtm-rag-ui --format '{{.Name}} 运行镜像：{{.Config.Image}}'
+
+      - name: 健康检查
+        if: gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false'
+        run: |
+          GW=$(ip route | awk '/^default/{print $3; exit}')
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://$GW:8000/api/health" || true)
+            [ "$code" = 200 ] && { echo "健康检查通过（$GW:8000/api/health 返回 200）"; exit 0; }
+            sleep 3
+          done
+          echo "健康检查失败，最后返回 $code"; docker logs --tail 80 sdtm-rag-api; exit 1
+
+      - name: 检查 KB 索引新鲜度
+        if: steps.kbcheck.outputs.decision == 'swap'
+        run: docker exec sdtm-rag-api python -m scripts.check_index_freshness
+
+      - name: 换数据收尾（删除 journal，旧副本保留最新 2 份）
+        if: success() && steps.kbcheck.outputs.decision == 'swap'
+        env:
+          IMG: ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
+        run: |
+          python3 deploy/kbsync/kbsync.py --via "$IMG" finish --data-root "$DATA_ROOT"
+          # finish 之后不能再让本 job 失败（否则退回镜像时找不到 journal，无法退回数据）
+          python3 deploy/kbsync/kbsync.py --via "$IMG" prune --data-root "$DATA_ROOT" --keep 2 \
+            || echo "::warning::prune 失败（不影响本次部署），请人工清理旧的 chroma_prev_*"
+
+      # 本步骤必须排在退回镜像之前，且不受 prev != tag 条件限制：同一标签重新部署时也可能换过数据
+      - name: 失败时退回换过的 chroma/meta
+        if: failure() && steps.kbcheck.outputs.decision == 'swap'
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          PREV: ${{ steps.prev.outputs.prev }}
+        run: |
+          IMG="$IMAGE:$TAG"
+          JS=0; python3 deploy/kbsync/kbsync.py journal-state --image "$IMG" --data-root "$DATA_ROOT" || JS=$?
+          [ "$JS" = 0 ] && { echo "未换数据，无需退回"; exit 0; }
+          [ "$JS" = 3 ] || { echo "无法判断 journal 状态，不改动数据，需要人工处理"; exit 1; }
+          IMAGE_TAG="$TAG" docker compose -f deploy/container/compose.yml stop
+          python3 deploy/kbsync/kbsync.py --via "$IMG" restore --data-root "$DATA_ROOT"
+          if [ "$PREV" = "$TAG" ]; then
+            APP_DIR=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMG")
+            [ -n "$APP_DIR" ] || APP_DIR=/app
+            APP_DIR="$APP_DIR" IMAGE_TAG="$TAG" docker compose -f deploy/container/compose.yml up -d
+          fi
+          echo "已退回部署前的 chroma/meta；镜像由下一步退回"
+
+      - name: 健康检查失败 → 退回部署前的镜像
+        if: failure() && steps.deploy.outputs.started == 'true' && steps.prev.outputs.prev != '' && steps.prev.outputs.prev != steps.tag.outputs.tag
+        env:
+          PREV: ${{ steps.prev.outputs.prev }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          # 数据未完全退回（journal 仍在）或无法判断时，绝不启动旧镜像：旧镜像加上换了一半的数据，正是本步骤要防止的错配
+          JS=0; python3 deploy/kbsync/kbsync.py journal-state --image "$IMAGE:$TAG" --data-root "$DATA_ROOT" || JS=$?
+          [ "$JS" = 0 ] || { echo "数据根的 journal 未清除 (状态码 $JS)，不退回镜像，服务需要人工处理（见 deploy/README「KB 同步」）"; exit 1; }
+          printf '%s' "$PREV" | grep -Eqx '[0-9a-f]{40}' || { echo "部署前镜像标签不是 40 位 SHA ($PREV)，不自动退回，请手动处理"; exit 1; }
+          APP_DIR=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMAGE:$PREV")
+          [ -n "$APP_DIR" ] || APP_DIR=/app
+          export APP_DIR
+          IMAGE_TAG="$PREV" docker compose -f deploy/container/compose.yml up -d
+          echo "已退回镜像 $PREV (挂载目录 $APP_DIR)；注意 .env 若已为新镜像改过，需按 deploy/README「回滚」还原"
+
+      - name: 退出镜像仓库
+        if: always()
+        run: docker logout "$REGISTRY" || true
+
+  # 公开实例 (P3, deploy/container/compose.public.yml)。独立 job: 私有部署成功后才跑, 失败只影响公开实例,
+  # 不触发私有 job 的退回步骤。默认关闭: 仓库变量 SDTM_RAG_PUBLIC_DEPLOY=true 才启用 (3.3 公开数据根建好后)。
+  # 失败一律停掉公开实例 (失效安全: 公开站宁可下线, 也不以未验证的档位/数据对外), 不自动退回旧镜像。
+  deploy_public:
+    needs: deploy
+    if: gitea.ref == 'refs/heads/main' && vars.SDTM_RAG_PUBLIC_DEPLOY == 'true' && (gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PUBLIC_DATA_ROOT: /Volumes/DevSSD/deploy-data/sdtm-rag-public/data
+      COMPOSE_PUBLIC: deploy/container/compose.public.yml
+      TAG: ${{ needs.deploy.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 登录镜像仓库
+        env:
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+        run: |
+          [ -n "$REGISTRY_TOKEN" ] || { echo "缺少仓库密钥 REGISTRY_TOKEN"; exit 1; }
+          echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "${{ gitea.actor }}" --password-stdin
+
+      # 只读: 此时公开实例未改动
+      - name: 公开实例预检
+        id: pre
+        run: |
+          printf '%s' "$TAG" | grep -Eqx '[0-9a-f]{40}' || { echo "标签必须是 40 位小写 commit SHA"; exit 1; }
+          IMG="$IMAGE:$TAG"
+          docker pull "$IMG"
+          # P2 之前的镜像不认识 SDTM_RAG_INSTANCE, 会以私有档全功能对外 → 拒绝 (回滚旧 tag 时也走这里)
+          docker run --rm --entrypoint python "$IMG" -c "import server.instance" \
+            || { echo "镜像不含 server.instance (P2 前的版本)，不能作公开实例"; exit 1; }
+          docker run --rm --entrypoint python -e SDTM_RAG_INSTANCE=public "$IMG" -c \
+            "import sys; from server.config import Settings; sys.exit(0 if Settings().instance == 'public' else 'tier != public')" \
+            || { echo "镜像在 SDTM_RAG_INSTANCE=public 下解析出的档位不是 public"; exit 1; }
+          WD=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMG")
+          [ "$WD" = /app ] || { echo "镜像 WorkingDir=$WD，compose.public.yml 只支持 /app"; exit 1; }
+          FP=$(python3 deploy/kbsync/kbsync.py image-fp --image "$IMG")
+          CHROMA_V=$(python3 deploy/kbsync/kbsync.py chromadb-version --image "$IMG")
+          OUT=$(python3 deploy/kbsync/kbsync.py --via "$IMG" predeploy-check --data-root "$PUBLIC_DATA_ROOT" \
+            --target-fp "$FP" --chromadb-version "$CHROMA_V")
+          echo "$OUT"
+          DECISION=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["decision"])')
+          # 公开 chroma 的 KB 更新流程未定 (见 .work/10_split_and_public/_progress.json); 指纹不一致就不部署
+          # 只告警不失败: 否则私有 KB 升级后每次 run 都红, 真失败被淹没。公开实例保持旧镜像
+          if [ "$DECISION" != same ]; then
+            echo "::warning::公开 chroma 与镜像 KB 指纹不一致 ($DECISION)，跳过公开实例部署 (公开实例未改动)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 部署公开实例
+        id: deploy
+        if: steps.pre.outputs.skip != 'true'
+        run: |
+          echo "started=true" >> "$GITHUB_OUTPUT"
+          IMAGE_TAG="$TAG" docker compose -f "$COMPOSE_PUBLIC" up -d
+          docker inspect sdtm-rag-public-api --format '{{.Name}} 运行镜像：{{.Config.Image}}'
+
+      # 公开实例不发布宿主端口 → 用容器健康状态 + docker exec 验
+      - name: 公开实例验收 (健康 / 档位 / 内部接口关闭 / 索引新鲜度)
+        if: steps.pre.outputs.skip != 'true'
+        run: |
+          for i in $(seq 1 60); do
+            st=$(docker inspect -f '{{.State.Health.Status}}' sdtm-rag-public-api 2>/dev/null || true)
+            [ "$st" = healthy ] && break
+            sleep 3
+          done
+          [ "$st" = healthy ] || { echo "公开实例未就绪 ($st)"; docker logs --tail 80 sdtm-rag-public-api; exit 1; }
+          docker exec sdtm-rag-public-api python -c '
+          import json, sys, urllib.request, urllib.error
+          base = "http://127.0.0.1:8000"
+          info = json.load(urllib.request.urlopen(base + "/api/info", timeout=5))
+          if info.get("tier") != "public":
+              sys.exit("tier != public")
+          try:
+              urllib.request.urlopen(base + "/openapi.json", timeout=5)
+              sys.exit("/openapi.json 未关闭")
+          except urllib.error.HTTPError as e:
+              if e.code != 404:
+                  sys.exit(f"/openapi.json 返回 {e.code}")
+          print("tier=public, /openapi.json 404")
+          '
+          docker exec sdtm-rag-public-api python -m scripts.check_index_freshness
+
+      - name: 失败时停掉公开实例
+        if: (failure() || cancelled()) && steps.deploy.outputs.started == 'true'
+        run: |
+          IMAGE_TAG=x docker compose -f "$COMPOSE_PUBLIC" stop || true
+          echo "公开实例已停止 (公开站下线, 私有实例不受影响)；排查后手动重新部署"
+
+      - name: 退出镜像仓库
+        if: always()
+        run: docker logout "$REGISTRY" || true
