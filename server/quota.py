@@ -482,19 +482,29 @@ def _group_model(s, name: str) -> tuple[str, int | None]:
 
 @functools.lru_cache(maxsize=256)
 def _rates(model: str) -> tuple[float | None, float | None]:
-    """USD per 1M (input, output) tokens from cost.estimate_cost. Asked per million tokens because
-    it rounds to 6 decimals (a query embedding would otherwise price at $0)."""
+    """USD per 1M (input, output) tokens from cost.estimate_cost, for a model WITHOUT a pinned price
+    (_price asks the pinned table first). Asked per million tokens because it rounds to 6 decimals
+    (a query embedding would otherwise price at $0)."""
     from server.cost import estimate_cost
 
     return (estimate_cost(model, {"prompt_tokens": 1_000_000, "completion_tokens": 0}),
             estimate_cost(model, {"prompt_tokens": 0, "completion_tokens": 1_000_000}))
 
 
-def _price(s, model: str, pt: int, ct: int) -> float:
-    r_in, r_out = _rates(model)
-    if r_in is None and r_out is None:   # unknown model: never $0 — assume a conservative rate
-        r_in = float(cfg(s, "quota_fallback_in_usd_per_mtok"))
-        r_out = float(cfg(s, "quota_fallback_out_usd_per_mtok"))
+def _price(s, model: str, pt: int, ct: int, *, upper_bound: bool = False) -> float:
+    """USD of one call. A model with a pinned price (cost._PRICES) is priced from that table, by this
+    request's prompt size (a tiered model costs more above its threshold) and never from litellm.
+    upper_bound=True prices a tiered model at its highest tier whatever `pt` is."""
+    from server.cost import pinned_rates
+
+    pinned = pinned_rates(model, None if upper_bound else pt)
+    if pinned is not None:
+        r_in, r_out = pinned
+    else:
+        r_in, r_out = _rates(model)
+        if r_in is None and r_out is None:   # unknown model: never $0 — assume a conservative rate
+            r_in = float(cfg(s, "quota_fallback_in_usd_per_mtok"))
+            r_out = float(cfg(s, "quota_fallback_out_usd_per_mtok"))
     return (pt * (r_in or 0.0) + ct * (r_out or 0.0)) / 1_000_000
 
 
@@ -519,12 +529,14 @@ def _estimate_parts(s, purpose: str, kw: dict) -> tuple[float, str, int]:
 
 
 def round_estimate_usd(s, model_id: str) -> float:
-    """Worst-case reservation of ONE answer round on `model_id` (same pricing path as reserve):
-    prompt = full trimmed history + PROMPT_OVERHEAD_TOKENS, output = the deployment max_tokens."""
+    """Worst-case reservation of ONE answer round on `model_id` (same price source as reserve):
+    prompt = full trimmed history + PROMPT_OVERHEAD_TOKENS, output = the deployment max_tokens.
+    A tiered model is priced at its highest tier: a continue round resends the earlier rounds'
+    output, so a real prompt can be longer than this allowance and cross the tier threshold."""
     model, max_out = _group_model(s, model_id)
     pt = int(cfg(s, "quota_history_max_chars")) + PROMPT_OVERHEAD_TOKENS
     ct = int(max_out or cfg(s, "quota_default_max_output_tokens"))
-    return _price(s, model, pt, ct)
+    return _price(s, model, pt, ct, upper_bound=True)
 
 
 def _user_paid(ctx, purpose: str, kw: dict) -> bool:

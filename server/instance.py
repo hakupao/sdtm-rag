@@ -61,8 +61,12 @@ def check_startup(s) -> None:
 
 def _public_cost_problems(s) -> list[str]:
     """P2.9 (SR9/CR7): the free pool must bound EVERY public model's single answer round — the
-    built-in selectable list is the private Claude set at 128K output (one round ≈ $3+)."""
+    built-in selectable list is the private Claude set at 128K output (one round ≈ $3+).
+    Every selectable model must also have a PINNED price (cost._PRICES): without one the bound would
+    be computed from litellm's online price map (absent without network) or from the fallback rate,
+    and the meter would charge that same guess at run time."""
     from server import quota
+    from server.cost import pinned_rates
 
     out = []
     if "selectable_models" not in s.model_fields_set:
@@ -73,6 +77,12 @@ def _public_cost_problems(s) -> list[str]:
             continue
         if "max_output_tokens" not in m.model_fields_set:
             out.append(f"selectable model {m.id!r} has no explicit max_output_tokens")
+        model = quota._group_model(s, m.id)[0]
+        if pinned_rates(model, None) is None:
+            out.append(f"selectable model {m.id!r} ({model}): no pinned price — add the provider's "
+                       "official price to _PRICES in server/cost.py (public does not price a selectable "
+                       "model from litellm's price map or from the fallback rate)")
+            continue
         est = quota.round_estimate_usd(s, m.id)
         if est > budget:
             out.append(f"selectable model {m.id!r}: one answer round reserves ${est:.3f} > free "
