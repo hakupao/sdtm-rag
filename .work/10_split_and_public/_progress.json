@@ -1,9 +1,9 @@
 {
   "project": "10_split_and_public",
   "tier": 3,
-  "status": "P3_PRE_SWITCH_FIXES_ON_BRANCH_PENDING_MERGE",
-  "current_step": "P3: 3.1/3.2/3.3 完成; 1.9 私有正例完成; 3.4 / 3.4b 的配置与代码 + 公开腿实现已在 main, 私有站线上 = 镜像 613f048 + 指纹 477bac3ce565 / 4333 条。公开腿演练阶段 B (隧道演练第 1-4 步) 2026-11-28 已在虚拟机里做完, 结果都与方案预期一致: 公开网络重建为 10.201.8.0/24 (网桥 br-sdtmpub, 动态段 10.201.8.128/25); 隔离规则已装 (nft 表 inet sdtm_rag_public_isolation + 隔离单元 + 每分钟巡检定时器), 先红后绿 (装前 FAIL, 装后 PASS), 巡检能把被删 / 被清空的规则装回; 默认网桥容器对照全部可达, ISOLATION_LAN / ISOLATION_EGRESS 不用改; 私有站与同机其他容器未受影响 (启动时间、docker 规则表不变)。公开站仍未上线: 公开容器 = 已创建、从未启动 (镜像 099c2c9), 没有入口, 隧道没接, SDTM_RAG_PUBLIC_DEPLOY 未开, 公开 chroma 仍是旧 KB。详见 checkpoints/p3_stageB_network_isolation.md 「打开公开部署开关之前必须处理」的各项 2026-11-28 已在分支 hakupao/pre-switch-fixes 上修完并过了四轮独立安全审查 (产品代码最后一次改动那一轮 PASS): 集合名白名单收窄、容器日志带出之前先盖 key 再隐去 study 集合名、兜底不等僵尸、兜底测试的 SIGTERM 缺口、README 镜像下限判据; 另去掉了 kb-sync 的定时触发 (只留手动派发)。改动的文件都不在部署工作流的路径过滤里, 合并不触发构建和部署。详见 checkpoints/pre_switch_fixes.md",
-  "next_step": "以下每一步都要主人另行同意。把分支 hakupao/pre-switch-fixes 合进 main (只有 deploy/kbsync、kb-sync.yml、tests、文档; 不触发构建和部署; 「必须在打开公开部署开关之前处理」的各项都在这条分支上, 见 checkpoints/pre_switch_fixes.md) → (阶段 B 已完成, 2026-11-28) 开 SDTM_RAG_PUBLIC_DEPLOY → 阶段 C (kb-sync 公开腿补建候选) → 阶段 D/E (第一次公开部署, 容器保持停止 → 人工启动) → 阶段 F (隧道第 6-9 步: 连接器、Access 只放行主人、路由、验收、放开)。方案 = checkpoints/p3_public_leg_impl.md §5 + docs/plans/P3_4_tunnel_drill.md + docs/plans/P3_4_tunnel_owner_steps.md。公开部署只接受 319654c 之后构建的镜像 (镜像下限; 线上 613f048 满足)。回滚这次部署: dispatch tag=f798709476b75bfb8959cd1d0ca4b252cc122c5e deploy=true (同指纹, 不换数据; 只在变量未开时可用), 详见 checkpoints/p3_tunnel_leg_merge_deploy.md。阶段 B 留下的待办: 下一次计划内重启虚拟机后立刻重跑隔离探测 (3a + 3d), 并确认从未启动的公开容器没有被拉起; 虚拟机意外重启时同样先看这两条。撤掉阶段 B 的办法见 checkpoints/p3_stageB_network_isolation.md「回退办法」。KB 更新现在只靠手动派发 kb-sync (定时触发已去掉)",
+  "status": "P3_STAGE_C_PUBLIC_CANDIDATE_BUILT_SWITCH_ON",
+  "current_step": "P3: 3.1/3.2/3.3 完成; 1.9 私有正例完成; 3.4 / 3.4b 的配置与代码 + 公开腿实现已在 main, 私有站线上 = 镜像 613f048 + 指纹 477bac3ce565 / 4333 条 (没有变)。2026-11-28 公开站上线演练做到阶段 C: 阶段 B (公开网络 10.201.8.0/24 + 隔离规则 + 巡检) 已完成; 分支 hakupao/pre-switch-fixes 已快进合并进 main 并 push (4c0164d; 没有触发构建和部署); ⚠ 仓库变量 SDTM_RAG_PUBLIC_DEPLOY 现在是 true (2026-11-28T06:43:30Z 打开); 手动派发一次 kb-sync (run id 218): 私有腿 same 空跑, 公开腿建出候选并过闸 (基线 138 / 候选 138 满分, avg 0.9917, 4333 条, 集合恰为 sdtm_kb_v1) → 公开数据根里有 chroma_cand_477bac3ce565 / meta_cand_477bac3ce565, 等第一次公开部署换入。公开站仍未上线: 公开容器 = 已创建、从未启动 (镜像 099c2c9), 公开线上 chroma 仍是旧 KB (f863e454… / 4329 条, 没有变), 没有入口, 隧道没接。详见 checkpoints/p3_stageC_public_candidate.md",
+  "next_step": "以下每一步都要主人另行同意。⚠ 变量开着: 头提交不带 [skip ci]、又命中部署路径过滤的 main push, 以及手动派发 sdtm-rag 时没有取消勾选 deploy (默认勾选), 都会在私有部署成功之后带上公开部署 (deploy_public) 并换入候选; 只构建 (deploy 不勾) 不会 —— 文档 / 测试提交必须带 [skip ci]。下一步 = 阶段 D/E (第一次公开部署: 换入候选, 容器保持停止 → 人工 docker start) → 阶段 F (隧道第 6-9 步: 连接器、Access 只放行主人、路由、验收、放开)。方案 = checkpoints/p3_public_leg_impl.md §5 + docs/plans/P3_4_tunnel_drill.md + docs/plans/P3_4_tunnel_owner_steps.md。公开部署只接受 319654c 之后构建的镜像 (镜像下限; 线上 613f048 满足)。不想继续时: 关变量 (DELETE …/actions/variables/SDTM_RAG_PUBLIC_DEPLOY); 不想要候选: 两个 *_cand_477bac3ce565 目录改名成 *_failed_477bac3ce565_<UTC 时间戳> (不删) —— 见 checkpoints/p3_stageC_public_candidate.md「回退办法」。⚠ 变量开着时不能再用「dispatch tag=f798709… deploy=true」回滚私有站 (同一个 tag 也作用于公开站, 旧镜像过不了镜像下限)。阶段 B 留下的待办照旧: 下一次计划内重启虚拟机后立刻重跑隔离探测 (3a + 3d), 并确认从未启动的公开容器没有被拉起; 虚拟机意外重启时同样先看这两条。KB 更新只靠手动派发 kb-sync (定时触发已去掉)",
   "completed": [
     {
       "step": "recon",
@@ -137,11 +137,18 @@
       "artifact": "evidence/checkpoints/p3_stageB_network_isolation.md"
     },
     {
-      "step": "P3-pre-switch-fixes (分支上, 未合并)",
-      "status": "PASS_ON_BRANCH",
+      "step": "P3-pre-switch-fixes (2026-11-28 已快进合并进 main 并 push, 4c0164d)",
+      "status": "PASS_MERGED",
       "date": "2026-11-28",
       "artifact": "evidence/checkpoints/pre_switch_fixes.md",
       "note": "四个相关测试文件 541 passed (0e9e985; e4b33d3 上 539; 改之前 458); 变异 52 / 52 killed (44 个在 e4b33d3 的副本上, 8 个在 0e9e985 上重跑; 第 4 轮先是 49 / 52, 两个存活 + 一个变异写错, 已处理) (e4b33d3 的副本); 深度 1 克隆 + 独立 venv 全量 3564 passed / 0 failed / 61 skipped (e4b33d3); runner 镜像 (部署机一次性容器, 1 号进程 sleep) 三次: 完整 CI 命令 3539 / 3558 / 3564 passed, 0 failed, 与同一提交的浅克隆逐数相同; 真实僵尸被识别、主线程退出而线程还在的进程不被当成已结束; 去掉僵尸排除 / 不补发 SIGKILL / 只发 SIGTERM / 只结束组长的变异在 runner 里都红; 独立安全审查四轮: PASS-with-fixes (MEDIUM 1 + LOW 5) → PASS-with-fixes (LOW 1) → PASS (到 e4b33d3) → PASS-with-fixes (0e9e985 的那条测试到位; LOW 1 只在变异脚本, 已改)"
+    },
+    {
+      "step": "P3-stageC (合并修复分支 + 开公开部署开关 + 手动派发一次 kb-sync 建公开候选)",
+      "status": "PASS",
+      "date": "2026-11-28",
+      "artifact": "evidence/checkpoints/p3_stageC_public_candidate.md",
+      "note": "快进合并到 4c0164d; 主仓 pytest 3625 passed / 0 failed / 2 skipped (4c0164d), data/ 只有 data/chroma 下 9 个文件的修改时间变了; 推送前检查的两类命中由协调方放行; push 后无被触发的运行; 变量 06:43:30Z 设为 true 并读回; kb-sync run id 218 (run_number 24): private same 空跑, public 10 步全 success (key 检查通过, 基线镜像 = 公开容器的镜像 099c2c9, kb-only 通过, gate PASS 138 / 138 / 0.9917); 前后快照只差多出两个候选目录; 公开容器仍 created、从未启动, 公开线上 chroma / meta 的逐文件清单与内容摘要不变, 私有站未变; 无候选镜像残留; 没有独立审查 (派单不起子代理)"
     }
   ],
   "recovery_hint": "新会话在 /Volumes/DevSSD/Project/sdtm-rag 打开: 读本文件 → PLAN.md §2 P1 1.8/1.9 → 续跑",
@@ -162,16 +169,20 @@
     "并行分支合并前在深度 1 的克隆 + 独立 venv 里跑全量测试 (2026-11-28: 两条分支各自全绿, 合并后 4 条测试红; 见 checkpoints/p3_tunnel_leg_merge_deploy.md)。pre-switch-fixes 这条分支照做了, 每次改完代码都重跑 (checkpoints/pre_switch_fixes.md)",
     "公开腿安全审查的两条后续建议没有做: 数据根身份标记文件; --expect-source 只核对目录名不核对内容 (p3_public_leg_impl.md §6 第 8 条)",
     "网络隔离不是出站白名单; 公开实例以 root 运行并保留默认 capability (p3_step3.4_tunnel.md「没做到的, 和剩余风险」第 1、6 条)",
-    "(已处理 2026-11-28, 分支 hakupao/pre-switch-fixes, checkpoints/pre_switch_fixes.md; 合并要等主人另行同意, 合并不触发构建和部署) 原条目「必须在打开公开部署开关之前处理」的四项: LOW-1 集合名白名单收窄为 sdtm_kb_v<1-3 位数字> / study_st<2-3 位数字>[_docs]; LOW-2 补了测试 (日志末尾、失败原因、步骤摘要三个出口); LOW-3 选「隐去」—— 容器日志带出之前过 _sanitize_log (先盖 key、再隐去不按约定的 study 集合名; 配置项的名字照常写出), 挡不住的三种情形作为前提写进代码和 README; _end_process_group 不再等僵尸 (状态 Z 且线程数 1 才算, 判断不了按还在处理; 判成只剩僵尸时仍补发一次 SIGKILL)。独立安全审查四轮 (最后改产品代码的 e4b33d3 那一轮 PASS), runner 镜像里验过最后一个改 kbsync.py 的提交 (e4b33d3)",
-    "(已处理 2026-11-28, 分支 hakupao/pre-switch-fixes, checkpoints/pre_switch_fixes.md; 合并要等主人另行同意, 合并不触发构建和部署) 原条目: deploy/README.md 镜像下限的判据写准 (PUBLIC_EDGE_LEVEL >= 1 + 单主机可信代理检查);「公开实例」与「公开实例与隧道」两节互加引用 (合并审查 LOW-6)",
+    "(已处理 2026-11-28, 分支 hakupao/pre-switch-fixes, checkpoints/pre_switch_fixes.md; 2026-11-28 已快进合并进 main 并 push (4c0164d), 没有触发构建和部署) 原条目「必须在打开公开部署开关之前处理」的四项: LOW-1 集合名白名单收窄为 sdtm_kb_v<1-3 位数字> / study_st<2-3 位数字>[_docs]; LOW-2 补了测试 (日志末尾、失败原因、步骤摘要三个出口); LOW-3 选「隐去」—— 容器日志带出之前过 _sanitize_log (先盖 key、再隐去不按约定的 study 集合名; 配置项的名字照常写出), 挡不住的三种情形作为前提写进代码和 README; _end_process_group 不再等僵尸 (状态 Z 且线程数 1 才算, 判断不了按还在处理; 判成只剩僵尸时仍补发一次 SIGKILL)。独立安全审查四轮 (最后改产品代码的 e4b33d3 那一轮 PASS), runner 镜像里验过最后一个改 kbsync.py 的提交 (e4b33d3)",
+    "(已处理 2026-11-28, 分支 hakupao/pre-switch-fixes, checkpoints/pre_switch_fixes.md; 2026-11-28 已快进合并进 main 并 push (4c0164d), 没有触发构建和部署) 原条目: deploy/README.md 镜像下限的判据写准 (PUBLIC_EDGE_LEVEL >= 1 + 单主机可信代理检查);「公开实例」与「公开实例与隧道」两节互加引用 (合并审查 LOW-6)",
     "涉及进程 / 信号 / 文件系统语义的测试, 合并前在 runner 镜像 (docker.gitea.com/runner-images:ubuntu-latest, 1 号进程 /bin/sleep) 里跑一遍 (2026-11-28: 公开腿的一条测试只在 Linux runner 里红, 见 failures/p3_tunnel_leg_merge_build_attempt_1.md)。做法已有现成的: 部署机虚拟机里起一次性容器 (不挂数据、限内存、默认网桥、跑完即删), 脚本 checkpoints/pre_switch_fixes_runner_{a,b}.sh; 开发机没有 docker, 每次动手前要协调方同意",
-    "(已处理 2026-11-28, 分支 hakupao/pre-switch-fixes, checkpoints/pre_switch_fixes.md; 合并要等主人另行同意, 合并不触发构建和部署) 原条目: test_abort_first_ends_a_deploy_process_that_is_still_alive 的缺口 (只发 SIGTERM、不升级 SIGKILL 的变异不会变红) → 子进程忽略 SIGTERM 并在装好之后自己报就绪; 僵尸判断按字节读并要求线程数为 1; 现在这个变异在 macOS 和 runner 镜像里都红",
+    "(已处理 2026-11-28, 分支 hakupao/pre-switch-fixes, checkpoints/pre_switch_fixes.md; 2026-11-28 已快进合并进 main 并 push (4c0164d), 没有触发构建和部署) 原条目: test_abort_first_ends_a_deploy_process_that_is_still_alive 的缺口 (只发 SIGTERM、不升级 SIGKILL 的变异不会变红) → 子进程忽略 SIGTERM 并在装好之后自己报就绪; 僵尸判断按字节读并要求线程数为 1; 现在这个变异在 macOS 和 runner 镜像里都红",
     "(已查清并处理 2026-11-28, checkpoints/pre_switch_fixes.md 第 7 项) 定时触发的 kb-sync 从来没有跑过: 这台 Gitea (28.2.0) 只在「头提交不带跳过标记的 push 到 main」时登记定时任务, 而 kb-sync.yml 进 main 以来每次 push 的头提交都带 [skip ci]; 登记之后用的是那一刻的工作流内容和提交, 之后带标记的 push 不刷新 (协调方的只读调查; 与 v28.2.0 源码 services/actions/notifier_helper.go 相符)。处理: schedule 已从 kb-sync.yml 去掉, 只留手动派发 (协调方受托代裁); 测试钉住「本仓的 workflow 都没有 schedule 触发」。KB 更新 = pedia 发版后手动派发 kb-sync",
     "tests/test_kbsync_public.py 里还有两处带星号的打码形态假值 (sk-proj-****…), 这次扫描器没有报; 规则变严时同样改成运行时拼接。其它测试文件 (test_kbsync_deploy_public.py、test_p2_9_fixes.py、p3_public_leg_key_probe.py) 里完整形状的假密钥也没有处理",
-    "(已处理 2026-11-28, 分支 hakupao/pre-switch-fixes, checkpoints/pre_switch_fixes.md; 合并要等主人另行同意, 合并不触发构建和部署) 原条目: 阶段 B 之后过时的文档 —— deploy/README.md「公开实例与隧道」开头的状态说明、docs/plans/P3_4_tunnel_drill.md 开头的「全部未执行」、第 1 步的 systemctl is-active ufw (换成 sudo ufw status)。按 p3_stageB_network_isolation.md 的实测改的, 没有进虚拟机复查",
+    "(已处理 2026-11-28, 分支 hakupao/pre-switch-fixes, checkpoints/pre_switch_fixes.md; 2026-11-28 已快进合并进 main 并 push (4c0164d), 没有触发构建和部署) 原条目: 阶段 B 之后过时的文档 —— deploy/README.md「公开实例与隧道」开头的状态说明、docs/plans/P3_4_tunnel_drill.md 开头的「全部未执行」、第 1 步的 systemctl is-active ufw (换成 sudo ufw status)。按 p3_stageB_network_isolation.md 的实测改的, 没有进虚拟机复查",
     "阶段 B 未验证 (都要等虚拟机下一次重启): 隔离规则是否先于容器装入; 从未启动的公开容器在 unless-stopped 下是否保持不启动",
     "需要自动同步 KB 时的备选做法 (现在不做): 不要把 schedule 加回 kb-sync.yml; 用部署机上的系统定时器 (systemd timer 或 cron) 调用 Gitea 的手动派发接口 (POST …/actions/workflows/kb-sync.yml/dispatches, ref=main, inputs.ref 留空), 这样每次跑的都是当前 main 的工作流; 要先定: 派发用的 token 放哪、失败怎么告警、公开部署开关打开后公开腿无人值守写公开数据根是否接受",
-    "pre-switch-fixes 审查留下、没有改的 (checkpoints/pre_switch_fixes.md「清单之外的发现」): 别处带出容器输出的地方只脱敏不隐名 (_probe / ACCEPT_PY 的 stderr / via() / compose_model, 最后一处连脱敏都没有); ACCEPT_PY 那一处的脱敏没有测试钉住; 指纹 (sha256 前 10 位 + 长度) 对可猜的名字挡不住逐个试算; 类名里带 Study 的异常行会被隐名换掉、带不进失败原因; 全量测试会在仓库目录里建出 data/chroma/chroma.sqlite3"
+    "pre-switch-fixes 审查留下、没有改的 (checkpoints/pre_switch_fixes.md「清单之外的发现」): 别处带出容器输出的地方只脱敏不隐名 (_probe / ACCEPT_PY 的 stderr / via() / compose_model, 最后一处连脱敏都没有); ACCEPT_PY 那一处的脱敏没有测试钉住; 指纹 (sha256 前 10 位 + 长度) 对可猜的名字挡不住逐个试算; 类名里带 Study 的异常行会被隐名换掉、带不进失败原因; 全量测试会在仓库目录里建出 data/chroma/chroma.sqlite3",
+    "⚠ SDTM_RAG_PUBLIC_DEPLOY 开着期间 (2026-11-28 起): 只改文档 / 测试的 main push 必须带 [skip ci]; 不带标记又命中部署路径过滤的 push、以及手动派发 sdtm-rag 时没有取消勾选 deploy, 都会在私有部署之后带上公开部署并换入公开候选 (只构建不会)",
+    "阶段 C 之后已过时、没有改的文档 (留给协调方): deploy/README.md「公开实例与隧道」开头状态说明里「公开部署开关仍是关的」一句; docs/plans/P3_4_tunnel_drill.md 开头的执行状态; CLAUDE.md「⚠ 自动部署」一行没有提变量开着时公开部署会一起被触发",
+    "阶段 C 的发现 (checkpoints/p3_stageC_public_candidate.md「发现」): 候选目录里带着一个不再被引用的旧向量段目录 (约 25 MB, 每次 KB 更新多攒一份; 私有数据根大概同样, 未核实); kbsync candidate 的输出结束时才一次性刷出, 各小步用时和 embedding 用量都不进 job 日志 (公开站 embedding 的实际花费要在 OpenAI 后台看)",
+    "阶段 C 仍未验证: deploy_public 全部步骤; kb-sync 公开腿的任何一条失败路径 (key 无效 / 基线不配对 / kb-only 不过 / 闸不过) 在真机上的表现; always() 的另一半 (私有腿失败后公开腿照跑); concurrency 是否让 kb-sync 与部署排队; 这一步没有独立审查"
   ],
   "decisions_1_9": "2026-11-25 用户: CI 检测+闸+报告, 升级提交由本地「KB 更新」双推; pyproject 作者→hakupao; mini-home/lan-services 改名 .archived-20261125",
   "log": [
@@ -341,6 +352,18 @@
       ],
       "gates": "四个相关测试文件 541 passed (0e9e985; e4b33d3 上 539; 改之前 458); 变异 52 / 52 killed (44 个在 e4b33d3 的副本上, 8 个在 0e9e985 上重跑; 第 4 轮先是 49 / 52, 两个存活 + 一个变异写错, 已处理) (e4b33d3 的副本); 深度 1 克隆 + 独立 venv 全量 3564 passed / 0 failed / 61 skipped (e4b33d3); runner 镜像 (部署机一次性容器, 1 号进程 sleep) 三次: 完整 CI 命令 3539 / 3558 / 3564 passed, 0 failed, 与同一提交的浅克隆逐数相同; 真实僵尸被识别、主线程退出而线程还在的进程不被当成已结束; 去掉僵尸排除 / 不补发 SIGKILL / 只发 SIGTERM / 只结束组长的变异在 runner 里都红; 独立安全审查四轮: PASS-with-fixes (MEDIUM 1 + LOW 5) → PASS-with-fixes (LOW 1) → PASS (到 e4b33d3) → PASS-with-fixes (0e9e985 的那条测试到位; LOW 1 只在变异脚本, 已改)",
       "note": "协调方受托派出与代裁 (不是主人逐条裁定); 未 push、未合并、未部署; 改动的文件都不在部署工作流的路径过滤里 (README.md 这条模式只匹配仓库根的, 按 Gitea v28.2.0 源码查清); 虚拟机上只起过三个同名的一次性容器, 都已删除; 没有归档的失败 attempt (审查的两轮修正记在 checkpoint 的「独立审查」里); runner 里验过的最后一个提交是 e4b33d3 (最后一次改 kbsync.py), 其后 0e9e985 只改了一条读 YAML 的测试和变异脚本, 没有在 runner 里跑 (第 4 轮审查看过); 带主仓 .env 的副本里四个相关文件 541 passed; 浅克隆全量 2834d5e 上 3566 / 0 / 61"
+    },
+    {
+      "date": "2026-11-28",
+      "step": "P3-stageC-public-candidate",
+      "status": "PASS_SWITCH_ON",
+      "evidence": [
+        "checkpoints/p3_stageC_public_candidate.md",
+        "checkpoints/p3_stageC_snapshot.sh",
+        "checkpoints/p3_stageC_candidate_check.sh"
+      ],
+      "gates": "pytest -m 'not slow' 3625 / 0 / 2 (4c0164d, 主仓带本机数据); 全仓红线扫描 CLEAN; kb-sync run id 218: private same, public gate PASS (140 题, 基线满分 138, 候选满分 138, avg 0.9917, 回退 0); 候选 4333 条、集合恰为 sdtm_kb_v1; 快照前后 diff 只有候选两处",
+      "note": "SDTM_RAG_PUBLIC_DEPLOY=true 保持打开; 公开站未上线; deploy_public 仍从未真实运行"
     }
   ],
   "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)",
@@ -370,7 +393,9 @@
       "first_launch_owner_only": "问: 首次上线时, 要不要先加访问限制只放行你本人, 验完再对所有人开放? → 要 (取代原 M3_suggestion_pending 的协调方建议)。落实: P3_4_tunnel_owner_steps.md 第 6 步先建 Access 应用再加路由, 第 9 步放开",
       "two_layer_rate_limit": "问: 公开站要不要再加一层限流? → 两层都加 (应用里打开全局限流: 每访客 IP 每分钟 60 / 突发 20, 写在 compose.public.yml; 再建一条 Cloudflare 限速规则)",
       "drop_stale_trusted_proxy_line": "问: 公开站配置文件里那行已经不生效的旧「可信代理」设置, 演练时顺手删掉吗? → 删 (演练第 5 步 5b; 动虚拟机, 未执行)",
-      "merge_consent": "问:「把这两条分支合进 rag main、push，并重新部署一次私有站（行为不变），可以吗？」→ 原话「可以」 (选项说明: 做法同前两次：先只构建、测试端口验证，再部署；公开部署开关保持关闭)。只覆盖: 合并、push、私有站的构建与部署、一次 kb-sync 空跑核对。不覆盖: 重建公开网络、装隔离规则、开变量、公开部署、启动公开容器、建隧道"
+      "merge_consent": "问:「把这两条分支合进 rag main、push，并重新部署一次私有站（行为不变），可以吗？」→ 原话「可以」 (选项说明: 做法同前两次：先只构建、测试端口验证，再部署；公开部署开关保持关闭)。只覆盖: 合并、push、私有站的构建与部署、一次 kb-sync 空跑核对。不覆盖: 重建公开网络、装隔离规则、开变量、公开部署、启动公开容器、建隧道",
+      "merge_pre_switch_fixes_consent": "问:「可以把修复分支合并进 rag main 并推送吗（不触发构建和部署）？」→ 主人选「可以」。修复分支里「去掉 kb-sync 定时触发、只留手动派发」是协调方受托代裁, 主人在这个问题的说明里看到了并同意合并",
+      "stage_c_consent": "问:「合并成功后，可以打开公开部署开关并手动跑一次 kb-sync 建公开候选吗（公开站仍不启动）？」→ 主人选「可以，合并后接着做」。说明里写明: 公开站自己的 OpenAI key 第一次被真正使用 (embedding 约 0.05 美元); 公开数据根多出一份候选; 公开容器不启动、不对外, 公开站线上数据不变, 私有站不变; key 无效或额度不足表现为明确的失败。只覆盖: 合并、push、把变量设为开、手动派发一次 kb-sync。不覆盖: 公开部署 (sdtm-rag 工作流的任何派发)、换入候选、启动公开容器、连接器、隧道"
     }
   },
   "decisions_2026_11_27_delegated": {
@@ -435,6 +460,10 @@
       "rebase_and_stale_docs": "分支变基到本地 main 560213e; 阶段 B 做完后过时的三处文档一并改准, 以 p3_stageB_network_isolation.md 的实测为准",
       "runner_image_container": "允许在部署机虚拟机里起一次性 runner 容器做验证, 附 7 条条件 (限内存且留足余量; 不加特权 / capability / 宿主挂载 / docker socket / host 网络 / 端口, 不拉镜像; 只用默认网桥; 不带 .env 和 data; 跑完即删并前后核对私有站; 前后看 Actions; 如实记录)。本任务结束之前凡是又改了进程 / 信号相关的代码或测试, 可按同样的做法和条件再跑。实际跑了三次 (ce9c884 / b24dc21 / e4b33d3); 第三次的改动只涉及日志处理, 是执行者按这条同意自己判断后做的, 已在 checkpoint 里照实登记",
       "low3_choice": "LOW-3 在「隐去」和「写明前提」之间由执行者判断: 选隐去 (修在 kbsync 一侧, 不改 server/ 的报错文本), 挡不住的情形写成前提"
+    },
+    "stage_c_2026_11_28": {
+      "source": "2026-11-28 协调 bot 的判断 (不是主人裁定); 落实见 checkpoints/p3_stageC_public_candidate.md「推送前检查」",
+      "pre_push_hits_released": "推送前检查的两类命中放行: (1) 密钥形状正则命中的 4 行是隐名回归测试和审查记录里编出来的假集合名, 不是 key; (2) 与某个本地口令的片段重合 1 行 2 处, 是更长标识符的一部分, 已公开树里原有 10 处, 不是这次推送带出去的新信息。协调方会再提醒主人更换那个容易撞上常见字符串的口令"
     }
   }
 }
