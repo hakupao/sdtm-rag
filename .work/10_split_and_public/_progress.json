@@ -163,6 +163,13 @@
       "date": "2026-11-28",
       "artifact": "evidence/checkpoints/public_price_pin.md",
       "note": "根因复核与上一个会话一致, 另查出 litellm 的在线价格表对 Haiku 5.5 超过 10 万 token 的提示词只按低档算 (少记到五分之一); server/cost.py 固定 Claude 5.x 五个模型 + Haiku 5.5 两档 (Anthropic 官方定价页 2026-11-28; DeepSeek 那一行同日对官方页核实, 数值未改), 表内模型只认本名 / 日期后缀 / 本服务商前缀; server/quota.py 估算长度按高档预留、回报用量按实际档结算、回报了表里没有的名字不低于所预留模型的固定价; server/instance.py 公开档的可选模型没有固定价格 → 拒绝启动并报出模型 (私有档不变); tests/test_public_price_pin.py 46 条; 变异 32 / 32 killed (含整个换回修之前的字节 → 红出 run 219 的原句); 浅克隆 + 独立 venv 3612 / 0 / 61 (4a53fe5); 线上镜像 613f048 的无网络一次性容器: 修之前拒绝启动 ($0.700 > $0.300), 修之后与最终文件都通过 (单轮上限 0.07), 私有站前后无变化; 独立审查两轮: 第一轮 代码 PASS-with-fixes (HIGH 1 = 被审提交上 PRE 变异无效, 已修)、安全 PASS; 审查后的修正 (服务商前缀、结算下限) 送回复核: 安全 PASS、代码 PASS-with-fixes (只缺测试, 已补; 补的三条断言没有再送审); 改动命中部署路径过滤 (server/**), 但分支头提交带 [skip ci]: 快进合并后 push 不会触发构建, 要手动运行工作流; squash 或头提交不带该标记则 push 即构建 + 私有部署 + (开关开着) 公开部署 —— 都需要主人另行同意"
+    },
+    {
+      "step": "价格固定的扩展: 启动自检覆盖内部四档与 embedding, 预留与单轮上限覆盖回退模型; 修测试串扰 (分支 hakupao/public-price-pin; 没有 push / 合并 / 部署)",
+      "status": "BRANCH_ONLY_REVIEWED_NOT_MERGED",
+      "date": "2026-11-28",
+      "artifact": "evidence/checkpoints/public_price_pin_ext.md",
+      "note": "协调方裁定一 (bot 受托代裁)。公开档一轮答题里服务端 key 调得到的模型只有两类: 答题 / 续写 (可选模型组, Router 可回退到 default-fallback) 和 embedding; 查询扩写 (expansion_model) 与重排在 server/ 里没有接线 (只有评测脚本用), 判库 / 复核 / 对比 / 判分所在的功能或接口在公开档关闭或未注册 —— 这些不加检查。公开档启动自检: default / fallback / hard / light 四档和 embedding 的模型没有固定价格 → 拒绝启动并报出设置项与模型 (私有档不变); 单轮上限只算答题够得着的 (可选模型 + 它回退到的档), 取较贵的; 运行时的预留用同一个函数 (两档都生效; 内置配置和公开站现在的配置下数值不变)。text-embedding-3-small 固定为 0.02 美元 / 百万 token (OpenAI 官方定价页 2026-11-28)。按协调方转述的公开站模型配置自检通过; SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS 的实际值没有人读到, 回退档是 Haiku 5.5 时不超过 108000 才通过。tests/test_p3_4_public_https.py 的串扰 (只有一条测试、一个小写键, 上一轮写成两条是错的): 只改测试, 倒序命令 59 failed → 140 passed, 加守卫用例。测试 75 条; 变异 49 / 49 killed (a567626); 浅克隆 3642 / 0 / 61 (a567626); 线上镜像 613f048 的无网络一次性容器按那份模型配置: 镜像原样拒绝启动, 覆盖 a2c9374 的三个文件后成本自检与整个 check_startup 通过, 私有站前后无变化 (今天累计起了 5 次这类容器); 第三轮独立审查 (固定提交 a2c9374): 代码 PASS、安全 PASS; 复核后补的一条断言没有再送审"
     }
   ],
   "recovery_hint": "新会话在 /Volumes/DevSSD/Project/sdtm-rag 打开: 读本文件 → PLAN.md §2 P1 1.8/1.9 → 续跑",
@@ -200,7 +207,7 @@
     "⚠ 阻塞公开站上线 (2026-11-28, run id 219): 公开档启动自检依赖联网取到的 litellm 价格表, 没有网络的临时验收容器过不去; 正式公开容器每次启动也有同样的依赖 (取不到就拒绝启动)。修法由协调方定为把可选模型的价格固定进代码, 另一个会话在分支上做; 修完用 checkpoints/p3_stageDE_price_probe.py 在 --network none 下复核, 最好补一条「没有网络也能过启动自检」的测试",
     "阶段 D 之后仍未验证 (checkpoints/p3_stageDE_first_public_deploy.md「仍未验证的事项」): deploy_public 在临时验收之后的全部步骤 (答题 key 探测 —— 公开站的 Anthropic key 仍然一次都没有被验证过 / 换入 / up --no-start / finish); 没有网络的临时容器能否起到 healthy、要多久; 阶段 E 的全部核对与 5a / 5b; 其余失败路径; 这一步没有独立审查",
     "阶段 D 的发现: p3_public_leg_impl.md §7 第 2 条「lifespan 没有出站调用」的依据不成立 (已加更正); 派发前可以用不挂数据的一次性容器先试「应用在没有网络的容器里能不能过启动自检」, 这次没有试; 隔离核对串行等满超时约 30 秒, 嫌慢可并行; 公开 env 文件所在目录里有一个协调方留下的旧备份 (未读未动, 协调方说等公开站的 Anthropic key 验证通过后处理)",
-    "价格固定 (checkpoints/public_price_pin.md) 之后留下的: ① 合并 + 新镜像 + 部署要主人同意, 合并后第一次公开部署才会知道「没有网络的临时容器能否起到 healthy」; ② 启动自检只覆盖可选模型, 内部四档 / embedding / Router 回退到的模型没有纳入 (两位审查者都建议扩, 待协调方定); ③ provider registry 的模型能力位依赖 litellm 在线价格表, 取不到时 Claude 5.x 的联网检索 / 图像 / 研读包自动挂载全部降级, 私有站也受影响 (没有改); ④ tests/test_p3_4_public_https.py 的两条测试把环境变量留给后面的测试 (倒序跑 59 failed, 0a85a43 上就有; 没有改); ⑤ 上游中途断流时输出量是 litellm 估的 (改之前就有); ⑥ 固定表是 2026-11-28 的官方价, 调价后要人工更新表和测试里的字面量"
+    "价格固定 (checkpoints/public_price_pin.md + public_price_pin_ext.md) 之后留下的: ① 合并 (协调方定: 快进、头提交带 [skip ci], push 不触发) + 手动「只构建 → 测试端口验证 → 部署」要主人同意; 合并后第一次公开部署才会知道「没有网络的临时容器能否起到 healthy」; ② 对照部署机上 SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS 的实际值: 回退档是 Haiku 5.5 时不超过 108000 才能通过扩之后的启动自检 (旧记录是 16000, 这次没有人读到实际值); ③ (协调方裁定这次不做) provider registry 的模型能力位依赖 litellm 在线价格表: 取不到时 Claude 5.x 的联网检索 / 图像 / 研读包自动挂载全部降级。要和「镜像里固定用包内价格表 (LITELLM_LOCAL_MODEL_COST_MAP)」一起做 —— 只做后者, 线上的能力位会全部落到保守默认值; 能力位按官方资料核对; 私有站也受影响; 方向是保守降级, 不挡上线; ④ 一次预留对应多次实际调用时 (Router 重试、流中途回退) 费用之和可以超过预留; litellm 合并流中途回退的用量时丢掉主模型那一段 (安全审查实测), 上游中途断流时输出量是 litellm 估的 —— 都是改之前就有; ⑤ 固定表是 2026-11-28 的官方价, 调价后要人工更新表和测试里的字面量; 联网检索的单价 quota_web_search_usd 在代码里一直标着未核实"
   ],
   "decisions_1_9": "2026-11-25 用户: CI 检测+闸+报告, 升级提交由本地「KB 更新」双推; pyproject 作者→hakupao; mini-home/lan-services 改名 .archived-20261125",
   "log": [
@@ -409,6 +416,19 @@
       ],
       "gates": "pytest -m 'not slow' 浅克隆 3612 / 0 / 61 (4a53fe5); 变异 32 / 32; 线上镜像无网络容器 修之前 REFUSES / 修之后与最终文件 PASS; 审查两轮: 代码 PASS-with-fixes ×2 (已处理)、安全 PASS ×2",
       "note": "没有 push、没有合并、没有部署; SDTM_RAG_PUBLIC_DEPLOY 仍是 true (没有动); 公开站没有被碰过"
+    },
+    {
+      "date": "2026-11-28",
+      "step": "public-price-pin-ext",
+      "status": "BRANCH_ONLY_REVIEWED_NOT_MERGED",
+      "evidence": [
+        "checkpoints/public_price_pin_ext.md",
+        "checkpoints/public_price_pin_mutations.py",
+        "checkpoints/public_price_pin_offline_probe.py",
+        "subagent_prompts/public_price_pin_reviewers.md"
+      ],
+      "gates": "pytest -m 'not slow' 浅克隆 3642 / 0 / 61 (a567626); 变异 49 / 49; 线上镜像无网络容器 (公开站的模型配置) 镜像原样 REFUSES / 覆盖最新文件 PASS; 审查 代码 PASS、安全 PASS (a2c9374)",
+      "note": "没有 push、没有合并、没有部署; SDTM_RAG_PUBLIC_DEPLOY 仍是 true (没有动); 公开站没有被碰过; 合并方式协调方已定 (快进、头提交带 [skip ci], 之后手动只构建 → 测试端口验证 → 部署)"
     }
   ],
   "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)",
@@ -512,6 +532,7 @@
       "pre_push_hits_released": "推送前检查的两类命中放行: (1) 密钥形状正则命中的 4 行是隐名回归测试和审查记录里编出来的假集合名, 不是 key; (2) 与某个本地口令的片段重合 1 行 2 处, 是更长标识符的一部分, 已公开树里原有 10 处, 不是这次推送带出去的新信息。协调方会再提醒主人更换那个容易撞上常见字符串的口令"
     },
     "stage_d_failure_2026_11_28": "run id 219 公开腿失败之后, 协调方答复 (协调方的决定, 不是主人逐条裁定): 停在这里; 修法定为「把公开档可选模型的价格固定进代码, 启动自检不依赖联网」, 由协调方另开子工作区的会话在分支上做; 公开 env 文件所在目录里的旧备份先不动, 等公开站的 Anthropic key 验证通过后由协调方处理",
-    "public_price_pin_2026_11_28": "阶段 D 失败后的修法「把公开档可选模型的价格固定进代码, 启动自检不依赖联网」是协调方受托代裁 (见 stage_d_failure_2026_11_28), 不是主人裁定; 由子工作区的会话在分支 hakupao/public-price-pin 上实现, 协调方预先同意在部署机用线上镜像起一次性的无网络容器做修之前 / 修之后的对照 (只调用成本自检函数; 不挂数据、不带 key)。实现里的四个取舍是实现者的判断, 已交独立审查, 协调方或主人可以改: ① Haiku 5.5 两档价都固定, 预留和启动自检的上限按高档, 结算拿到服务商回报的用量才按实际档; ② 公开档遇到没有固定价格的可选模型拒绝启动并报出模型, 私有档不变, 运行时遇到给不出价的模型仍按回退费率; ③ 检查只覆盖可选模型, 没有扩到内部四档和 embedding; ④ 表内模型只匹配本名或 -YYYYMMDD 后缀 (两档都生效)。合并、构建新镜像、部署都要等主人另行同意"
+    "public_price_pin_2026_11_28": "阶段 D 失败后的修法「把公开档可选模型的价格固定进代码, 启动自检不依赖联网」是协调方受托代裁 (见 stage_d_failure_2026_11_28), 不是主人裁定; 由子工作区的会话在分支 hakupao/public-price-pin 上实现, 协调方预先同意在部署机用线上镜像起一次性的无网络容器做修之前 / 修之后的对照 (只调用成本自检函数; 不挂数据、不带 key)。实现里的四个取舍是实现者的判断, 已交独立审查, 协调方或主人可以改: ① Haiku 5.5 两档价都固定, 预留和启动自检的上限按高档, 结算拿到服务商回报的用量才按实际档; ② 公开档遇到没有固定价格的可选模型拒绝启动并报出模型, 私有档不变, 运行时遇到给不出价的模型仍按回退费率; ③ 检查只覆盖可选模型, 没有扩到内部四档和 embedding; ④ 表内模型只匹配本名或 -YYYYMMDD 后缀 (两档都生效)。合并、构建新镜像、部署都要等主人另行同意",
+    "public_price_pin_ext_2026_11_28": "价格固定的汇报之后, 协调方对留下的两项的裁定 (bot 受托代裁, 不是主人逐条裁定): ① 启动自检扩到公开档会走服务端 key 的全部答题模型 —— 做: 内部四档 (default / hard / light / fallback) 的模型都要有固定价格, 单轮预留上限覆盖回退模型和它的输出上限 (做法由实现者判断并送审), 列全公开档一轮答题里走服务端 key 的模型调用, 会被调用又没有固定价格的纳入检查 (embedding 按 OpenAI 官方定价页固定), 根本不会被调用的写明依据不加检查; ② provider registry 的模型能力位依赖在线表 —— 这次不做, 记 todo_later; ③ tests/test_p3_4_public_https.py 的测试串扰 —— 修, 只改测试; ④ 合并方式: 快进合并、头提交带 [skip ci], push 不触发, 之后手动「只构建 → 测试端口验证 → 部署」, 分支上此后每个提交都带 [skip ci]。协调方只读看过部署机上公开站 env 里与模型有关的非密钥设置并转述给实现者 (四档与可选模型都是 anthropic/claude-haiku-5-5, 可选模型输出上限 16000, embedding text-embedding-3-small, 重排关, 只有 Anthropic 和 OpenAI 两把 key); SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS 等几项的值没有读"
   }
 }

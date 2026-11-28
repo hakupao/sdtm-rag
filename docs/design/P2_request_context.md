@@ -224,7 +224,7 @@ export SDTM_RAG_CHROMA_DIR_OVERRIDE=/Volumes/DevSSD/Project/sdtm-rag/data/chroma
 | `SDTM_RAG_VISITOR_COOKIE_SECURE` 不为假 (P3.4) | 公开站只走 HTTPS; 不带 `Secure` 的访客 cookie 会随同主机名的明文请求发出 |
 | `SDTM_RAG_RATE_LIMIT_TRUST_FORWARDED` 不为真 | `X-Forwarded-For` 穿过隧道可被访客伪造; 公开档全局限流按 `CF-Connecting-IP` (仅可信代理来源) 计 |
 | `SDTM_RAG_SELECTABLE_MODELS` 显式设置, 每个模型显式写 `max_output_tokens`, 且单轮预留 ≤ 免费池 / 10 (`quota.round_estimate_usd`: 历史上限 + 40k token prompt 余量 + max_output) | 内置清单是私有站的 Claude 128K 输出 (一轮 ≈ $3); 例: DeepSeek v4-pro 32000 输出 ≈ $0.21 ≤ $0.30 |
-| 每个可选模型在 `server/cost.py` 的固定价格表里有价格 (2026-11-28; `.work/10_split_and_public/evidence/checkpoints/public_price_pin.md`) | 没有固定价格时, 上一行的单轮预留和运行时的记账用的是 litellm 联网取的价格表 (没有网络时取不到) 或回退费率, 都不是核对过的数; 按提示词长度分档的模型, 预留和这条上限按高档算 |
+| 走服务端 key 的每个模型在 `server/cost.py` 的固定价格表里有价格: 可选模型、内部四档、embedding (2026-11-28; `.work/10_split_and_public/evidence/checkpoints/public_price_pin.md`、`public_price_pin_ext.md`) | 没有固定价格时, 记账用的是 litellm 联网取的价格表 (没有网络时取不到) 或回退费率, 都不是核对过的数; 按提示词长度分档的模型, 预留和上一行的上限按高档算。上一行的单轮预留取「可选模型」与「它回退到的档」里较贵的, 运行时的预留相同 |
 | `security_headers_enabled=true` | BYOK key 在浏览器 localStorage, CSP 是 XSS 的第二道防线 |
 
 **部署要求 (P3.2 / P3.4 compose 落实)**: 公开容器不发布宿主端口, 只在专用 docker 网络 `sdtm-rag-public` (固定子网) 上;

@@ -54,3 +54,56 @@ sdtm-rag 是 FastAPI RAG 服务，有私有档和公开档（`SDTM_RAG_INSTANCE=
 
 ### 汇报格式
 按严重度分级（CRITICAL / HIGH / MEDIUM / LOW / 备注），每条给：文件与行号、攻击或失效场景（具体到输入与数字）、你怎么验证的（命令与真实输出的关键行，或逐行推演）、是这次改动引入 / 改之前就有 / 被这次改动修好、建议改法。最后给总评：PASS / PASS-with-fixes / FAIL，并单列「我没能核实的事项」。不要客套，不要复述代码。
+
+---
+
+# 第二轮: 审查之后的修正送回复核 (同两位审查者, 续用各自的上下文; 范围 `git diff 97d6aa0..769f03f -- server/ tests/test_public_price_pin.py`)
+
+## 代码审查
+
+请复核审查之后的修正（只读，规则同上次；中文简短汇报）。范围：`git diff 97d6aa0..HEAD -- server/ tests/test_public_price_pin.py`（HEAD 现在是 769f03f；代码最后一次改动在 a464243）。
+改了什么（请自己看 diff 核对，不要采信这段描述）：① `server/cost.py::_pinned_key` 加了服务商前缀限制；② `server/quota.py` 新增 `_settle_price`，`settle` 的两个分支改用它——注意它没有照你建议的「直接改用 entry.model 的固定价」，而是在回报的名字不在表里、所预留模型在表里时取两者中较高的；③ `server/instance.py` 报错文字；④ 测试补了你那两条存活变异（X2、X3）对应的断言，变异脚本加了 9 条。
+只回答三个问题，每个给证据（命令和关键输出，或逐行推演）：
+1. 这段 diff 有没有引入新的「实际计费高于系统记账」的路径？特别看 `_settle_price` 的条件（`model and model != reserved_model and …`）在这些情形下的结果：回报名字是所预留模型的日期快照；Router 回退到在表里的另一个模型；回退到不在表里的模型；`model` 为 None；回报名字带服务商前缀（如 `anthropic/claude-haiku-5-5` 对所预留的 `anthropic/claude-haiku-5-5`，以及回报裸名对所预留带前缀名）。取「较高者」相对于你原来的建议，有没有哪种情形反而更差？
+2. 相对 97d6aa0，私有档（含开了计量的私有档）有什么新的可观察差异？
+3. 新增的测试和变异有没有不在测东西的；你另想 3 个针对这段 diff 的变异在副本上试，报告存活的。
+最后给：PASS / PASS-with-fixes / FAIL。
+
+## 安全审查
+
+请复核审查之后的修正（只读，规则同上次；中文简短汇报）。范围：`git diff 97d6aa0..HEAD -- server/ tests/test_public_price_pin.py`（HEAD 现在是 769f03f；代码最后一次改动在 a464243）。
+改了什么（请自己看 diff 核对，不要采信这段描述）：① 针对你的 LOW-4，`server/cost.py::_pinned_key` 加了服务商前缀限制；② `server/quota.py` 新增 `_settle_price`，`settle` 的两个分支改用它：服务商回报的模型名不在固定表里、而这次调用所预留的模型在表里时，取「按回报名字算出的价」与「所预留模型的固定价」中较高的；③ `server/instance.py` 报错文字。
+只回答三个问题，每个给证据（命令和关键输出，或逐行推演）：
+1. 前缀限制能否被绕过或误伤：大小写、空白、多段前缀（`a/b/claude-…`）、空前缀（`/claude-…`）、`_PINNED_PROVIDERS[key.split("-", 1)[0]]` 会不会抛异常（例如将来加了别家的行）；公开站现在的模型串 `anthropic/claude-haiku-5-5` 和服务商在响应里可能回报的裸名 `claude-haiku-5-5` 是否都仍命中。
+2. `_settle_price` 有没有引入新的少记路径，或让攻击者能影响记账的输入（`model` 来自上游响应）；它在「回报名字带前缀 / 不带前缀与所预留名字不一致」时的行为；取较高者会不会造成值得在意的多记（例如把免费池更快耗尽）。
+3. 这段 diff 有没有新的敏感信息或危险写法。
+最后给：PASS / PASS-with-fixes / FAIL。
+
+---
+
+# 第三轮: 扩展部分 (固定提交 `a2c9374`, 审查期间分支不动; 结论见 `../checkpoints/public_price_pin_ext.md` 文末「复核」)
+
+## 代码审查 (范围 `git diff ccac8eb..a2c9374 -- server/ tests/ .work/10_split_and_public/evidence/checkpoints/public_price_pin_mutations.py`)
+
+请复核这次新增的部分（只读，规则同前两次；中文汇报）。固定提交：`a2c9374`；范围见上。审查期间分支不会动。
+背景（协调方的裁定，事实）：上一轮你和安全审查者都建议把公开档启动自检扩到「会走服务端 key 的全部模型」，并指出预留是按可选模型算的、Router 回退到的模型可能更贵或输出上限更大。这次照此做了，另外顺带修了 `tests/test_p3_4_public_https.py` 把环境变量留给后面测试的问题（只改测试）。公开站实际的模型配置（协调方只读看过部署机 env 的非密钥项）：default/hard/light/fallback 四档都是 `anthropic/claude-haiku-5-5`；可选模型只有 `haiku-5-5`（同一模型串，max_output_tokens 16000）；embedding `text-embedding-3-small`；rerank 关；env 里设了 `SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS`（值没有读，旧记录是 16000）；DEFAULT/HARD/LIGHT 的输出上限没有设（内置 128000）；没有 DeepSeek 的 key；没有设 EXPANSION_MODEL / JUDGE_MODEL / COMPARE_MODELS。
+请回答（每条给证据：命令与关键输出，或逐行推演；不要采信代码注释和提交信息）：
+1. **在上面那份公开站配置下，扩之后的启动自检会不会拒绝启动？** 自己构造这份 Settings 跑 `instance.check_startup`；并算出 `SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS` 取多大时会被拒（这个值协调方没读到）。
+2. **公开档一轮答题里走服务端 key 的模型调用是否列全了？** 实现者的结论是：只有「答题 / 续写（可选模型组，Router 可回退到 default-fallback 组）」和「embedding」两种；查询扩写（expansion_model，hyde / multiquery）、判库（light）、重答（regen）、review（hard）、compare / judge、rerank 在公开档都调用不到；联网检索（Tavily）不是模型，按固定设置计价。请独立从 `server/outbound.py` 的 PURPOSES 和各调用点往回追，逐项确认或反驳，并找有没有不经 `outbound` 的付费调用。特别核对：`server/main.py` 构造 `RAGEngine` 时是否把 `query_expansion` / `rerank_enabled` 传进去；公开档对 `model="default"` 等内部组名的请求是否确实被拒。
+3. **预留覆盖回退（`quota._call_candidates` / `_estimate_parts` / `round_estimates`）对不对？** 预留时 `kw["model"]` 是不是组名（`providers.resolve` 之后）；回退表是否确实取自 `llm_config._fallback_map`、与 `create_router` 给 Router 的是同一张；per-call `max_tokens` 存在时的行为；BYOK、embedding、不经 Router 的直连调用（llm_router=None）会不会被错误地加上回退候选；有没有哪条路径预留反而变小了。
+4. **私有档行为差异**（含开了计量的私有档）：相对 `ccac8eb` 有哪些可观察差异？`_public_cost_problems` 里新增的「可选模型 id 与内部组撞名」那一条会不会影响私有档或改变原有报错。
+5. **embedding 的固定价**：自己取 OpenAI 官方定价页核对 `text-embedding-3-small`（`https://platform.openai.com/docs/pricing`，会跳到 developers.openai.com；取不到就明说未核实）；`_pinned_provider` 的匹配有没有漏洞。
+6. **测试与变异**：新增用例有没有不在测东西的；在副本上跑变异脚本（跑法见脚本文件头；这次应是 48 条含 PRE 和 XT）；自己另想至少 5 个针对这段 diff 的变异，报告存活的。`tests/test_p3_4_public_https.py` 的修正是否只改了测试、原有断言的意图是否保留；守卫用例 `test_this_file_leaves_no_sdtm_rag_env_behind` 有没有误报 / 漏报的情形；倒序命令 `pytest tests/test_p3_4_public_https.py tests/test_p2_l3_instance.py tests/test_p2_9_public_e2e.py` 在 ccac8eb 与 a2c9374 上各是什么结果。
+最后给：PASS / PASS-with-fixes / FAIL，并单列「我没能核实的事项」。
+
+## 安全审查 (范围 `git diff ccac8eb..a2c9374 -- server/ tests/`)
+
+请复核这次新增的部分（只读，规则同前两次；中文汇报）。固定提交：`a2c9374`；范围见上。审查期间分支不会动。
+背景（协调方的裁定，事实）：上一轮你的 LOW-1 建议把公开档启动自检扩到会走服务端 key 的全部模型；代码审查者另指出预留按可选模型算、Router 回退到的模型可能更贵或输出上限更大。这次照此做了。公开站实际的模型配置（同上一份任务书的那一段）。
+攻击者视角，请回答（每条给证据：命令与关键输出，或逐行推演）：
+1. **公开档上，匿名访客还能让服务端 key 调用到哪些模型？** 实现者的结论：只有「答题 / 续写（可选模型组，Router 可回退到 default-fallback 组）」和「embedding」；查询扩写（expansion_model）、判库（light）、重答（regen）、review（hard）、compare / judge、rerank 都调用不到；联网检索对免费题关闭、对自带 key 的请求按固定设置计价并有每访客每日次数上限。请独立核对：有没有请求参数（`model`、`corpus`、`dossier`、`web`、自带 key 的各种组合、畸形输入）能让公开档走到这些内部档或别的付费调用；有没有不经 `server/outbound.py` 的付费调用。
+2. **预留覆盖回退之后，还有没有「实际计费高于预留」的路径？** 看 `quota._call_candidates` / `_estimate_parts`：Router 回退（含 num_retries=1 的重试、流中途回退）时一次预留对应的实际调用可能不止一次——主模型已经生成了一部分再回退，这部分费用在不在账里、会不会超出预留；结算是按回报的模型名和用量记的，哪种情形下记的账会少于实际。区分这次引入 / 改之前就有 / 被这次修好。
+3. **扩之后的检查能不能被配置绕过或造成误拒？** 例如模型串的各种写法（前缀、大小写、空白）、`SDTM_RAG_SELECTABLE_MODELS` 里与内部组撞名的 id、把 fallback 设成比可选模型贵得多的模型并配很大的输出上限、`quota_site_cap_usd` / `quota_byok_side_budget_usd` 的极端取值。在上面那份公开站配置下它会不会拒绝启动；`SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS` 取多大会被拒。
+4. **拒绝服务**：预留现在取候选里最贵的。按公开站配置（回退档与可选模型相同）这一条不改变预留额；请确认，并说明如果站长把回退档换成默认的 DeepSeek（32000 输出）会变成多少、占满免费池需要的并发是多少。
+5. 新增报错把设置项名和模型串写进 RuntimeError（会经 `_sanitize_log` 进 CI 日志）；embedding 的固定价与 `_pinned_provider`；`tests/test_p3_4_public_https.py` 的修正（只改测试）——有没有敏感信息或危险写法。
+最后给：PASS / PASS-with-fixes / FAIL，并单列「我没能核实的事项」。
