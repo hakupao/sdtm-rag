@@ -54,7 +54,7 @@ OLD_CHAIN = "test_settle_keeps_the_old_price_chain_when_the_reserved_model_is_no
 HAIKU_ROW = '    "claude-haiku-5-5": (0.10, 0.50),      # prompts up to 100,000 tokens; above: _LONG_PROMPT_PRICES\n'
 LONG_ROW = '    "claude-haiku-5-5": (100_000, 0.50, 2.50),\n'
 MATCH = "        (k for k in _PRICES if norm.startswith(k) and _DATE_SUFFIX.fullmatch(norm[len(k):])), None)\n"
-PREFIX = "    if key is None or (sep and prefix != _PINNED_PROVIDERS[key.split(\"-\", 1)[0]]):\n"
+PROVIDER_IF = "    if key is None or (sep and prefix != _PINNED_PROVIDERS[key.split(\"-\", 1)[0]]):\n"
 LONG_GET = "    long_prompt = _LONG_PROMPT_PRICES.get(key)\n"
 FLOOR_IF = "            and pinned_rates(reserved_model, None) is not None:\n"
 FLOOR_MAX = "        price = max(price, _price(s, reserved_model, pt, ct, reported=reported))\n"
@@ -81,8 +81,8 @@ MUTATIONS = [
     ("C8", COST, MATCH, MATCH.replace("_DATE_SUFFIX.fullmatch", "_DATE_SUFFIX.match"), "日期后缀只匹配开头 (9 位数字也放行)", SUFFIX),
     ("C13", COST, '_DATE_SUFFIX = re.compile(r"-\\d{8}")', '_DATE_SUFFIX = re.compile(r"[-@]\\d{8}")',
      "后缀放宽到 @YYYYMMDD (审查者的存活变异 X3)", SUFFIX),
-    ("C14", COST, PREFIX, "    if key is None:\n", "不看服务商前缀 (bedrock/… 也按第一方价; 安全审查 LOW-4)", SUFFIX),
-    ("C15", COST, PREFIX, PREFIX.replace("(sep and prefix != ", "(sep and prefix == "), "前缀判断写反", SUFFIX),
+    ("C14", COST, PROVIDER_IF, "    if key is None:\n", "不看服务商前缀 (bedrock/… 也按第一方价; 安全审查 LOW-4)", SUFFIX),
+    ("C15", COST, PROVIDER_IF, PROVIDER_IF.replace("(sep and prefix != ", "(sep and prefix == "), "前缀判断写反", SUFFIX),
     # ── 分档 ──
     ("C9", COST, LONG_ROW, "", "拿掉 haiku-5-5 超过 10 万 token 的那一档 (低估 5 倍)", TIER),
     ("C10", COST, TIER_IF, TIER_IF.replace("> long_prompt[0]", ">= long_prompt[0]"), "分档边界写成大于等于", TIER),
