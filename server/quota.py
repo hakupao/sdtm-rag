@@ -491,13 +491,15 @@ def _rates(model: str) -> tuple[float | None, float | None]:
             estimate_cost(model, {"prompt_tokens": 0, "completion_tokens": 1_000_000}))
 
 
-def _price(s, model: str, pt: int, ct: int, *, upper_bound: bool = False) -> float:
-    """USD of one call. A model with a pinned price (cost._PRICES) is priced from that table, by this
-    request's prompt size (a tiered model costs more above its threshold) and never from litellm.
-    upper_bound=True prices a tiered model at its highest tier whatever `pt` is."""
+def _price(s, model: str, pt: int, ct: int, *, reported: bool = False) -> float:
+    """USD of one call. A model with a pinned price (cost._PRICES) is priced from that table and
+    never from litellm. A tiered model (dearer above a prompt-size threshold) is priced at its
+    HIGHEST tier unless `reported`: reservations and the startup bound only have an estimate of the
+    prompt size (_text_tokens), and an estimate just under the threshold must not reserve at the
+    cheap tier. reported=True = `pt` is the provider's own usage count: the tier that request paid."""
     from server.cost import pinned_rates
 
-    pinned = pinned_rates(model, None if upper_bound else pt)
+    pinned = pinned_rates(model, pt if reported else None)
     if pinned is not None:
         r_in, r_out = pinned
     else:
@@ -529,14 +531,14 @@ def _estimate_parts(s, purpose: str, kw: dict) -> tuple[float, str, int]:
 
 
 def round_estimate_usd(s, model_id: str) -> float:
-    """Worst-case reservation of ONE answer round on `model_id` (same price source as reserve):
+    """Worst-case reservation of ONE answer round on `model_id` (same pricing path as reserve):
     prompt = full trimmed history + PROMPT_OVERHEAD_TOKENS, output = the deployment max_tokens.
-    A tiered model is priced at its highest tier: a continue round resends the earlier rounds'
-    output, so a real prompt can be longer than this allowance and cross the tier threshold."""
+    A tiered model is priced at its highest tier, as in reserve: a continue round resends the earlier
+    rounds' output, so a real prompt can be longer than this allowance and cross the threshold."""
     model, max_out = _group_model(s, model_id)
     pt = int(cfg(s, "quota_history_max_chars")) + PROMPT_OVERHEAD_TOKENS
     ct = int(max_out or cfg(s, "quota_default_max_output_tokens"))
-    return _price(s, model, pt, ct, upper_bound=True)
+    return _price(s, model, pt, ct)
 
 
 def _user_paid(ctx, purpose: str, kw: dict) -> bool:
@@ -629,7 +631,7 @@ def settle(ctx, purpose: str, handle, usage, model, *, streamed_text: str | None
     s = _settings(ctx)
     tokens = _usage_tokens(usage) if purpose != "web" else None
     if tokens is not None:
-        actual = _price(s, model or entry.model, *tokens)
+        actual = _price(s, model or entry.model, *tokens, reported=True)
     elif streamed_text is not None and purpose != "web":
         n = _text_tokens(streamed_text)
         out = math.ceil(1.5 * n)

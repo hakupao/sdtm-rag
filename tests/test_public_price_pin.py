@@ -128,13 +128,53 @@ def test_haiku_5_5_is_priced_by_prompt_length():
     assert cost.estimate_cost(HAIKU, u) == pytest.approx(0.0775)   # 150000 x 0.50 + 1000 x 2.50
 
 
-def test_the_meter_uses_the_same_tier_as_the_request(tmp_path):
+def test_the_meter_reserves_at_the_upper_tier_and_settles_at_the_reported_one(tmp_path):
     s = _settings(tmp_path, "public", HAIKU)
-    assert quota._price(s, "claude-haiku-5-5", 60_000, 16_000) == pytest.approx(0.014)
-    assert quota._price(s, "claude-haiku-5-5", 150_000, 1_000) == pytest.approx(0.0775)
-    assert quota._price(s, "claude-haiku-5-5", 60_000, 16_000, upper_bound=True) == pytest.approx(0.07)
-    # the startup bound is the upper tier: 60000 x 0.50 + 16000 x 2.50
+    # an estimated prompt size (reserve, the startup bound): the upper tier, whatever the estimate is
+    assert quota._price(s, "claude-haiku-5-5", 60_000, 16_000) == pytest.approx(0.07)     # 0.03 + 0.04
+    assert quota._price(s, "claude-haiku-5-5", 1_000, 16_000) == pytest.approx(0.0405)
     assert quota.round_estimate_usd(s, "m1") == pytest.approx(0.07)
+    # the provider's usage (settle): the tier that request paid
+    assert quota._price(s, "claude-haiku-5-5", 60_000, 16_000, reported=True) == pytest.approx(0.014)
+    assert quota._price(s, "claude-haiku-5-5", 100_000, 1_000, reported=True) == pytest.approx(0.0105)
+    assert quota._price(s, "claude-haiku-5-5", 100_001, 1_000, reported=True) == pytest.approx(0.0525005)
+    assert quota._price(s, "claude-haiku-5-5", 150_000, 1_000, reported=True) == pytest.approx(0.0775)
+    # a model without tiers: the same either way
+    assert quota._price(s, "claude-opus-5-5", 60_000, 16_000) == pytest.approx(0.56)
+    assert quota._price(s, "claude-opus-5-5", 60_000, 16_000, reported=True) == pytest.approx(0.56)
+
+
+def _ctx(s, tmp_path):
+    from types import SimpleNamespace
+
+    app = SimpleNamespace(state=SimpleNamespace(settings=s))
+    request = SimpleNamespace(app=app, cookies={}, headers={}, client=SimpleNamespace(host="203.0.113.9"))
+    st = quota._ReqState(visitor="v1", ip="203.0.113.9", byok=False, day=quota._day())
+    return SimpleNamespace(request=request, tier="public", credentials=None, quota=st, endpoint="ask",
+                           model="m1", provider=None)
+
+
+def test_reserve_and_settle_through_the_store_use_those_tiers(tmp_path):
+    """reserve() books the upper tier from the estimated prompt; settle() replaces it with the price
+    of the usage the provider reported, at that usage's own tier."""
+    s = _settings(tmp_path, "public", HAIKU)
+    ctx = _ctx(s, tmp_path)
+    store = quota._store(s)
+    kw = {"model": "m1", "max_tokens": 16_000, "messages": [{"role": "user", "content": "a" * 3000}]}
+    h = quota.reserve(ctx, "answer", kw)
+    assert store.spent(quota._day()) == pytest.approx((1004 * 0.50 + 16_000 * 2.50) / 1e6)
+    quota.settle(ctx, "answer", h, {"prompt_tokens": 2_000, "completion_tokens": 1_000}, "claude-haiku-5-5")
+    assert store.spent(quota._day()) == pytest.approx((2_000 * 0.10 + 1_000 * 0.50) / 1e6)
+    h = quota.reserve(ctx, "continue", kw)
+    quota.settle(ctx, "continue", h, {"prompt_tokens": 120_000, "completion_tokens": 1_000}, "claude-haiku-5-5")
+    assert store.spent(quota._day()) == pytest.approx(0.0007 + (120_000 * 0.50 + 1_000 * 2.50) / 1e6)
+    # a stream that ended without usage: the prompt size is still only the estimate => upper tier
+    h = quota.reserve(ctx, "continue", kw)
+    before = store.spent(quota._day())
+    est = (1004 * 0.50 + 16_000 * 2.50) / 1e6
+    quota.settle(ctx, "continue", h, None, "claude-haiku-5-5", streamed_text="b" * 300)
+    assert store.spent(quota._day()) - (before - est) == pytest.approx((1004 * 0.50 + 150 * 2.50) / 1e6)
+    quota.finalize(ctx)
 
 
 # ── a pinned model never asks litellm ────────────────────────────────────
@@ -152,7 +192,7 @@ def _break_litellm(monkeypatch):
 def test_a_pinned_model_is_priced_without_litellm(tmp_path, monkeypatch, tier):
     _break_litellm(monkeypatch)
     s = _settings(tmp_path, tier, HAIKU)
-    assert quota._price(s, HAIKU, 60_000, 16_000) == pytest.approx(0.014)
+    assert quota._price(s, HAIKU, 60_000, 16_000, reported=True) == pytest.approx(0.014)
     assert quota.round_estimate_usd(s, "m1") == pytest.approx(0.07)
     assert cost.estimate_cost(HAIKU, {"prompt_tokens": 1000, "completion_tokens": 1000}) == pytest.approx(0.0006)
     assert _startup_error(s) is None
@@ -192,7 +232,7 @@ def test_an_unpriced_model_still_meters_at_the_fallback_rate(tmp_path, monkeypat
     monkeypatch.setattr(quota, "_rates", lambda model: (None, None))
     s = _settings(tmp_path, tier, HAIKU)
     assert quota._price(s, "zz-unknown", 60_000, 16_000) == pytest.approx(0.70)     # 5 / 25 per MTok
-    assert quota._price(s, "zz-unknown", 60_000, 16_000, upper_bound=True) == pytest.approx(0.70)
+    assert quota._price(s, "zz-unknown", 60_000, 16_000, reported=True) == pytest.approx(0.70)
 
 
 def test_an_unpinned_model_still_takes_its_price_from_the_old_chain(tmp_path, monkeypatch):
@@ -241,7 +281,7 @@ for name, tier, model, max_out in json.loads(sys.argv[1]):
         err = str(e)
     out["cases"][name] = {"litellm_prices": litellm_prices, "startup_error": err,
                           "round_estimate": quota.round_estimate_usd(s, "m1"),
-                          "price_60k_16k": quota._price(s, model, 60000, 16000)}
+                          "price_60k_16k": quota._price(s, model, 60000, 16000, reported=True)}
 print("PROBE_JSON " + json.dumps(out))
 '''
 _CASES = [("public_haiku", "public", HAIKU, HAIKU_MAX_OUT),

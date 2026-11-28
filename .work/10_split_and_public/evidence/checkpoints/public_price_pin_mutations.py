@@ -39,7 +39,8 @@ BUILTIN = "test_every_builtin_server_model_has_a_pinned_price"
 SUFFIX = "test_a_pinned_row_matches_the_id_or_a_dated_snapshot_only"
 SHORTER = "test_a_missing_row_is_not_covered_by_a_shorter_key"
 TIER = "test_haiku_5_5_is_priced_by_prompt_length"
-METER = "test_the_meter_uses_the_same_tier_as_the_request"
+METER = "test_the_meter_reserves_at_the_upper_tier_and_settles_at_the_reported_one"
+STORE = "test_reserve_and_settle_through_the_store_use_those_tiers"
 NO_LITELLM = "test_a_pinned_model_is_priced_without_litellm"
 REFUSE = "test_public_refuses_a_selectable_model_without_a_pinned_price"
 PRIVATE_OK = "test_private_starts_with_the_same_unpinned_model"
@@ -52,8 +53,8 @@ HAIKU_ROW = '    "claude-haiku-5-5": (0.10, 0.50),      # prompts up to 100,000 
 LONG_ROW = '    "claude-haiku-5-5": (100_000, 0.50, 2.50),\n'
 MATCH = "        if norm.startswith(key) and _DATE_SUFFIX.fullmatch(norm[len(key):]):\n"
 TIER_IF = "    if long_prompt is not None and (prompt_tokens is None or prompt_tokens > long_prompt[0]):\n"
-PINNED = "    pinned = pinned_rates(model, None if upper_bound else pt)\n"
-BOUND = "    return _price(s, model, pt, ct, upper_bound=True)\n"
+PINNED = "    pinned = pinned_rates(model, pt if reported else None)\n"
+SETTLE = "        actual = _price(s, model or entry.model, *tokens, reported=True)\n"
 GATE = "        if pinned_rates(model, None) is None:\n"
 PUBLIC_ONLY = '    if s.instance != "public":\n        return\n    from server.config import PUBLIC_FORCED_OFF\n'
 
@@ -80,15 +81,22 @@ MUTATIONS = [
     ("C12", COST, LONG_ROW, LONG_ROW.replace("0.50, 2.50", "0.50, 0.50"), "高档的输出价写成低档的", TABLE),
     # ── 计量走固定表 ──
     ("Q1", QUOTA, PINNED, "    pinned = None\n", "计量不查固定表 (修之前的行为)", NO_LITELLM),
-    ("Q2", QUOTA, PINNED, "    pinned = pinned_rates(model, pt)\n", "upper_bound 不起作用", METER),
-    ("Q3", QUOTA, BOUND, "    return _price(s, model, pt, ct)\n", "启动自检的上限按低档估", METER),
-    ("Q4", QUOTA, PINNED, "    pinned = pinned_rates(model, None)\n", "计量一律按高档 (多扣 5 倍)", METER),
+    ("Q2", QUOTA, PINNED, "    pinned = pinned_rates(model, pt)\n",
+     "估算出来的提示词长度也按它自己的档位算 (贴着分档线时预留偏低; 启动自检的上限也跟着按低档)", METER),
+    ("Q3", QUOTA, SETTLE, "        actual = _price(s, model or entry.model, *tokens)\n",
+     "结算时不告诉计价「这是服务商回报的用量」(一律按高档扣, 多扣 5 倍)", STORE),
+    ("Q4", QUOTA, PINNED, "    pinned = pinned_rates(model, None)\n", "计价一律按高档 (reported 不起作用)", METER),
+    ("Q5", QUOTA, "        actual = min(entry.est, _price(s, model or entry.model, entry.pt, out))\n",
+     "        actual = min(entry.est, _price(s, model or entry.model, entry.pt, out, reported=True))\n",
+     "没有用量的流式结算把估算长度当成回报的用量 (按低档扣)", STORE),
     # ── 公开档启动自检 ──
     ("I1", INST, GATE, "        if False:\n", "公开档不再要求固定价格", REFUSE),
     ("I2", INST, GATE, "        if pinned_rates(m.id, None) is None:\n",
      "拿模型的 id 而不是模型串去查固定表 (公开站现在的配置会被拒)", OFFLINE),
-    ("I3", INST, PUBLIC_ONLY, PUBLIC_ONLY.replace('if s.instance != "public":', "if False:"),
-     "私有档也跑公开档的启动自检", PRIVATE_OK),
+    # 不写成「私有档一律跑」: server.main 在导入时就用默认配置建一次应用, 那样整份测试收集不起来 (判 INVALID)
+    ("I3", INST, PUBLIC_ONLY, PUBLIC_ONLY.replace(
+        'if s.instance != "public":', 'if s.instance != "public" and "selectable_models" not in s.model_fields_set:'),
+     "显式配了可选模型的私有档也跑公开档的启动自检", PRIVATE_OK),
 ]
 
 
