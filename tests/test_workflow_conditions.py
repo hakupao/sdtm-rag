@@ -6,6 +6,7 @@ workflow 的 job 只在 main 上执行, 分支上跑不了; 这里用一个只�
 ⚠ 这是语义模型, 不是 act_runner 本身: Gitea 对 job 级 `always()`、`vars`、`needs` 的真实行为要在合并后的演练里确认。"""
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -497,14 +498,17 @@ def test_private_deploy_job_uses_the_tag_only_through_env():
         assert login["env"]["ACTOR"] == "${{ gitea.actor }}" and '-u "$ACTOR"' in login["run"]
 
 
+# 基点 9a8ad43 里两个 workflow 的 git blob 号 (`git rev-parse 9a8ad43:.gitea/workflows/<名>.yml`)。写死在这里, 不靠 git 历史:
+# CI 的 checkout 深度是 1, 取不到基点提交; 只在「取得到时」核对的话, CI 里 fixture 与 workflow 被一起改就发现不了。
+BASE_BLOBS = {"sdtm-rag": "f8feecb20367d95b0a5dec40d6eb11f453360546", "kb-sync": "7a31434773d222a7764144c81eff20f523cf743d"}
+
+
 def _base_workflow(name: str) -> dict:
-    """基点 9a8ad43 的 workflow 原文, 冻在 fixture 里: CI 的 checkout 深度是 1, 取不到基点提交。
-    取得到基点的地方 (本机) 顺带核对 fixture 与 `git show` 逐字相同。"""
-    text = (ROOT / "tests/fixtures/workflows" / f"base_9a8ad43_{name}.yml").read_text()
-    r = subprocess.run(["git", "show", f"9a8ad43:.gitea/workflows/{name}.yml"], cwd=ROOT, capture_output=True, text=True)
-    if r.returncode == 0:
-        assert r.stdout == text, "fixture 与基点提交里的 workflow 不一致"
-    return yaml.safe_load(text)
+    """基点 9a8ad43 的 workflow 原文, 冻在 fixture 里; 先核对 fixture 的 blob 号就是基点提交里那个文件的 (逐字节相同)。"""
+    raw = (ROOT / "tests/fixtures/workflows" / f"base_9a8ad43_{name}.yml").read_bytes()
+    blob = hashlib.sha1(b"blob %d\0" % len(raw) + raw).hexdigest()
+    assert blob == BASE_BLOBS[name], f"fixture 与基点提交里的 workflow 不一致: {blob}"
+    return yaml.safe_load(raw.decode("utf-8"))
 
 
 def test_private_deploy_job_changed_only_where_intended():
