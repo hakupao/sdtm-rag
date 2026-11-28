@@ -9,7 +9,7 @@
 - 判据用内容指纹 `kb_fingerprint` 而非 SHA: 现钉 ebf0c8a vs A 1c0495a KB diff 为空 → 必须判 no-op (首个免费测试)。
 
 ## 流程
-1. **检测** (Gitea 定时 workflow, 每天): `git ls-remote https://github.com/hakupao/sdtm-pedia main` → 浅拉 → 算 `kb_fingerprint` vs 当前钉的 KB 指纹; 相同 → 退出 (no-op)。
+1. **检测** (Gitea 定时 workflow, 每天 —— **2026-11-28 更正: 实际只有手动派发**。定时触发在这台 Gitea 上从来没有被登记过, 已从 `kb-sync.yml` 里去掉, 原因写在该文件头; 需要自动同步时另行设计): `git ls-remote https://github.com/hakupao/sdtm-pedia main` → 浅拉 → 算 `kb_fingerprint` vs 当前钉的 KB 指纹; 相同 → 退出 (no-op)。
 2. **候选 + 闸** (同 workflow, 指纹不同时): 用当前镜像 + 新 KB 挂载, 在 `deploy-data/sdtm-rag/chroma_candidate` (= 生产 chroma 副本) 上只重建 `sdtm_kb_v1`; 重新生成 meta.yaml 候选; 跑 CDISC 140q retrieval-only, 与基线比 recall 差 ≤ 1 题; 结果 (只含计数 / 题号) 写到 workflow 日志 + 摘要。不达标 → 失败, 不换任何东西。
 3. **本地「KB 更新」** (人): 升 submodule → 本机 build_meta (meta.yaml 有 diff 则一并提交) → 本机两条检索闸 + pytest → 提交 + 双推。
 4. **部署** (现有 workflow 扩展): 若镜像 KB 指纹 ≠ 生产 stamp → 换上已过闸的候选 chroma + meta.yaml (stop → 换目录 → start → 健康检查 + freshness rc=0); 回滚 = 镜像 **和** chroma/meta 一起退回; 旧 chroma 保留最近 2 份 (VM 盘曾满)。

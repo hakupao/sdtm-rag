@@ -20,8 +20,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(os.environ.get("PSF_MUT_ROOT") or Path(__file__).resolve().parents[4]).resolve()
-TESTS = ["tests/test_kbsync.py", "tests/test_kbsync_public.py", "tests/test_kbsync_deploy_public.py"]
+TESTS = ["tests/test_kbsync.py", "tests/test_kbsync_public.py", "tests/test_kbsync_deploy_public.py",
+         "tests/test_workflow_conditions.py"]
 KS = "deploy/kbsync/kbsync.py"
+KBWF, DEPWF = ".gitea/workflows/kb-sync.yml", ".gitea/workflows/sdtm-rag.yml"
 
 NAMES = "test_only_conventional_collection_names_are_printed"
 SCRUB = "test_startup_error_is_scrubbed_before_it_is_carried_out"
@@ -34,6 +36,8 @@ ZONE = "test_only_zombies_left_for_a_single_process"
 ZPROC = "test_only_zombies_left_refuses_without_a_usable_proc"
 ZABORT = "test_abort_does_not_wait_on_zombies_but_still_waits_on_a_live_process"
 ALIVE = "test_abort_first_ends_a_deploy_process_that_is_still_alive"
+NOSCHED = "test_no_workflow_has_a_schedule_trigger"
+CRON = '  schedule:\n    - cron: "17 3 * * *"\n'
 
 SAFE = 'SAFE_COLLECTION_RE = re.compile(r"study_st[0-9]{2,3}(_docs)?|sdtm_kb_v[0-9]{1,3}")'
 LOGS = '        text = _hide_study_names(scrub((logs.stdout + logs.stderr).decode("utf-8", "replace")))\n'
@@ -101,6 +105,14 @@ MUTATIONS = [
      "只结束组长, 不整组结束 (run 214 那次用过的变异)", ALIVE),
     ("T3", KS, "        for sig in (signal.SIGTERM, signal.SIGKILL):\n", "        for sig in (0,):\n",
      "兜底一个结束信号都不发", ALIVE),
+    # ── kb-sync 不留定时触发 ──
+    ("W1", KBWF, "on:\n  workflow_dispatch:\n", "on:\n" + CRON + "  workflow_dispatch:\n", "kb-sync 的定时触发被加回来", NOSCHED),
+    ("W2", DEPWF, "  workflow_dispatch:\n    inputs:\n      tag:\n", CRON + "  workflow_dispatch:\n    inputs:\n      tag:\n",
+     "部署工作流被加上定时触发", NOSCHED),
+    ("W3", KBWF, "on:\n  workflow_dispatch:\n", "on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n",
+     "kb-sync 多了手动派发以外的触发 (push)", NOSCHED),
+    ("W4", KBWF, "on:\n  workflow_dispatch:\n", "on:\n  \"schedule\":\n    - \"cron\": \"17 3 * * *\"\n  workflow_dispatch:\n",
+     "定时触发换个写法加回来 (带引号的键)", NOSCHED),
 ]
 
 

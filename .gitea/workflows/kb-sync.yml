@@ -1,7 +1,19 @@
-# KB→RAG 同步（P1 step 1.9）：每天检测 A 仓（hakupao/sdtm-pedia）最新 kb-* tag 的 KB 指纹。
+# KB→RAG 同步（P1 step 1.9）：检测 A 仓（hakupao/sdtm-pedia）某个 kb-* tag 的 KB 指纹（ref 留空 = 最新的 kb-* tag）。
 # 如果与数据根里 chroma 的 stamp 不同，就在该数据根的数据副本上入库并运行 CDISC 140 题闸（逐题回退不超过 1 题）；
 # 通过闸的候选目录保留在数据根，等「KB 更新」（本地升级 submodule 并 push）触发部署时，由 sdtm-rag.yml 换入。
 # 本工作流不修改 main，也不改动线上目录。
+#
+# 触发只有手动派发（workflow_dispatch）：pedia 发了新的 kb-* tag 之后派发一次，ref 留空即可。
+# 不用 Gitea 的定时触发（schedule）。2026-11-28 去掉（协调方受托代裁），原因是它在这台 Gitea（28.2.0）上的两个行为：
+#   - 登记时机受跳过标记影响：定时任务只在「头提交不带跳过标记的 push 到 main」时登记（另一个入口是在仓库设置里保存
+#     Actions 开关）。本仓只改文档 / 测试的 push 都带 [skip ci]，所以原先写在这里的每天 03:17 从来没有被登记、一次也没跑过；
+#     而今后哪一次不带标记的 push 会让它悄悄登记上，从此每天无人值守运行。
+#   - 登记之后内容不刷新：定时运行用的是登记那一刻的工作流内容和提交，之后带标记的 push 不会更新它，跑的会是旧代码。
+#     公开部署开关打开后，这意味着公开腿可能用旧代码无人值守地写公开数据根。
+#   （服务端源码 services/actions/notifier_helper.go：skipWorkflows 在 handleSchedules 之前返回。）
+# 需要自动同步时另行设计（倾向：系统定时器调用手动派发接口，这样每次用的都是当前 main），不要把 schedule 加回来；
+# tests/test_workflow_conditions.py 钉着「本仓的 workflow 都没有 schedule 触发」。
+# job 里没有只为定时事件写的分支（没有任何一处读 event_name；ref 留空取最新 tag 的分支手动派发同样在用），所以除了触发方式什么都没改。
 #
 # 两条腿、两个 job（P3）：private（私有数据根）→ public（公开数据根）。
 #   - 公开腿排在私有腿之后串行执行；私有腿失败不挡公开腿（always()），公开腿失败不影响私有腿。
@@ -14,8 +26,6 @@
 # p1_step1.9_design.md 与 p3_public_kb_update_design.md
 name: kb-sync
 on:
-  schedule:
-    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
       ref:

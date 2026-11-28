@@ -1,6 +1,9 @@
 # 公开站隧道与网络隔离：合并后的演练方案
 
-> 写于 2026-11-28，**全部未执行**。每一步都会动虚拟机，执行前由协调方取得主人同意。
+> 写于 2026-11-28。**第 1–4 步已于 2026-11-28 执行**，结果都与预期一致，记录在
+> `.work/10_split_and_public/evidence/checkpoints/p3_stageB_network_isolation.md`；**第 5 步起未执行**。
+> 所以第 1 步「预期」里写的是执行之前的现状，现在的现状见该步末尾的补充。
+> 每一步都会动虚拟机，执行前由协调方取得主人同意。
 > 主人在 Cloudflare 后台做的部分见 `docs/plans/P3_4_tunnel_owner_steps.md`（下称「操作说明」）。
 > 配置文件一律经标准输入传给虚拟机里的命令，虚拟机上不落 compose 文件。
 >
@@ -65,14 +68,22 @@ VM "sh -c 'printf \"Host: a\nfoo: b\nCF-Visitor: c\n\" | grep -a -i -E --line-bu
 VM "docker network inspect sdtm-rag-public --format '{{range .IPAM.Config}}{{.Subnet}} {{.IPRange}} {{.Gateway}}{{end}} {{.Options}}'"
 VM "docker ps -a --filter name=sdtm-rag-public --format '{{.Names}} {{.Status}} {{.Image}}'"
 VM "sudo nft list tables"
-VM "sh -c 'grep -v \"^#\" /etc/nftables.conf | head -3; systemctl is-enabled nftables.service; systemctl is-active ufw'"
+VM "sh -c 'grep -v \"^#\" /etc/nftables.conf | head -3; systemctl is-enabled nftables.service'"
+VM "sudo ufw status"
 ```
 
-最后一条看系统自带的防火墙配置：2026-11-28 查到 `/etc/nftables.conf` 的第一条语句是 `flush ruleset`，`nftables.service` 是 `disabled`。
+最后两条看系统自带的防火墙配置：2026-11-28 查到 `/etc/nftables.conf` 的第一条语句是 `flush ruleset`，`nftables.service` 是 `disabled`。
 它必须保持 `disabled`：一旦被启用，它会清空整个规则集，docker 的规则和隔离表一起消失（隔离表一分钟内会被巡检装回，docker 的不会）。
+`sudo ufw status` 的预期是 `Status: inactive`（2026-11-28 实测；docker 的 5 张表里也没有 ufw 的链）。
+不要用 `systemctl is-active ufw` 来看：它打印的是 `active`，那只是 systemd 单元的状态（开机时执行一次就退出的单元），
+不代表防火墙开着——这条方案原先写的就是它，执行时被它误导过一次，所以换掉。
 
 预期（2026-11-28 查到的）：网段 `172.18.0.0/16`（自动分配，没有地址段，那一栏显示 `invalid Prefix`），选项为空；公开容器 `Exited`，镜像是 `099c2c9…`；nft 只有 docker 的 5 张表
 （`ip nat`、`ip filter`、`ip6 nat`、`ip6 filter`、`ip raw`）。把看到的镜像 SHA 记下来，回退要用。
+
+第 1–4 步执行之后（2026-11-28）再跑这几条，看到的是：网段 `10.201.8.0/24`、地址段 `10.201.8.128/25`、网关 `10.201.8.1`，
+选项里有 `com.docker.network.bridge.name:br-sdtmpub`；公开容器 `Created`（从未启动），镜像仍是 `099c2c9…`；
+nft 是 docker 的 5 张表加 `inet sdtm_rag_public_isolation`；`nftables.service` 仍是 `disabled`，`ufw` 仍是 inactive。
 
 ## 第 2 步：重建公开网络
 

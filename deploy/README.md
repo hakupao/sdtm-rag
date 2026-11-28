@@ -11,7 +11,7 @@
 | `container/Dockerfile.dockerignore` | 只放镜像需要的目录 |
 | `container/compose.yml` | `api` 8000 + `ui` Streamlit 8501 (只转发到 mini 本机); `data/` → `$APP_DIR/data`, `.env` → `$APP_DIR/.env` (只读; `APP_DIR` 缺省 `/app`) |
 | `../.gitea/workflows/sdtm-rag.yml` | push main → 测试 → 构建 → 推镜像 → 部署 → 健康检查; checkout `submodules: true` (公开 GitHub 仓, 无需凭据) |
-| `../.gitea/workflows/kb-sync.yml` + `kbsync/kbsync.py` | KB→RAG 同步（step 1.9）：每天检测 A 仓最新的 `kb-*` tag，在生产数据副本上入库并运行 CDISC 闸；详见下文「KB 同步」 |
+| `../.gitea/workflows/kb-sync.yml` + `kbsync/kbsync.py` | KB→RAG 同步（step 1.9）：手动派发时检测 A 仓的 `kb-*` tag（留空 = 最新的），在生产数据副本上入库并运行 CDISC 闸；详见下文「KB 同步」 |
 | `container/compose.public.yml` + `container/compose.tunnel.yml` + `public-net/` | 公开实例、Cloudflare 隧道连接器、网络隔离规则；详见下文「公开实例与隧道」 |
 | `deploy.sh` + `.env.service.template` | **遗留** (launchd 时代服务目录同步), 删除候选 |
 
@@ -37,7 +37,16 @@ push 到 Gitea `main` (路径过滤见 workflow) → 自动部署, 镜像标签 
 | `chroma_prev_<fp12>_<ts>/` `meta_prev_*` | 被换下的旧生产数据，用于回滚；部署成功后保留最新 2 份 |
 | `chroma_failed_<fp12>_<ts>[_stale]/` `meta_failed_*` | 未通过闸或中途中断的候选，**永不自动删除**（规则 B）；磁盘空间紧张时人工清理 |
 
-1. **kb-sync**（每天 03:17 定时运行，也可手动指定 `ref`）：如果 A 仓 KB 指纹与生产 stamp 相同，或该指纹已有过闸候选，
+1. **kb-sync**（**只有手动派发**，没有定时触发）。什么时候派发：pedia 发了新的 `kb-*` tag 之后派发一次；想确认现状时也可以
+   派发（指纹没变就是 no-op，不入库、不花 embedding 费用）。怎么派发：Gitea 的 Actions 页面里选 `kb-sync` → 运行工作流，
+   `ref` 留空 = 取 A 仓最新的 `kb-*` tag，也可以填某个 tag 或 40 位 commit；`public_baseline_image` 只有公开腿选不出基线镜像
+   时才填（见下文「公开实例」）。
+   不用 Gitea 的定时触发（2026-11-28 从工作流里去掉；协调方受托代裁）：这台 Gitea 只在「头提交不带跳过标记的 push 到 main」
+   时登记定时任务，而且登记之后用的是那一刻的工作流内容和提交，之后带 `[skip ci]` 的 push 不刷新。原先写的每天 03:17 因此
+   从来没有被登记、一次也没跑过；留着它，哪一次不带标记的 push 就会让它悄悄登记上，从此每天用旧代码无人值守运行。
+   需要自动同步时另行设计（倾向：系统定时器调用手动派发接口，每次用的都是当前 main），不要把 `schedule` 加回工作流
+   （`tests/test_workflow_conditions.py` 钉着）。
+   派发之后：如果 A 仓 KB 指纹与生产 stamp 相同，或该指纹已有过闸候选，
    则不做任何操作（no-op）。否则，先在本机构建候选镜像（不推送），再复制生产 chroma/meta 作为副本；用**当前生产镜像**
    在副本上运行 CDISC 140 题 retrieval-only 评测，结果作为基线；然后用候选镜像运行 `scripts.ingest --no-backup`
    （只重建 `sdtm_kb_v1`）和 `scripts.build_meta`，再运行同一评测。
@@ -128,8 +137,13 @@ kbsync 每次调用只接受一个数据根，复制和改名都在这个数据�
 
 ## 公开实例与隧道
 
-> **状态（2026-11-28）：配置已写好，还没有上线。** 隧道没有接，虚拟机里的网络还是旧的自动网段，隔离规则没有装。
-> 本节描述的是按演练方案做完之后的样子；其中「网络隔离」在演练方案第 3 步的探测结论为 PASS 之前不成立。
+> **状态（2026-11-28）：还没有上线，演练方案做到第 4 步。** 已经做完的（记录在
+> `.work/10_split_and_public/evidence/checkpoints/p3_stageB_network_isolation.md`）：公开网络重建为固定网段
+> `10.201.8.0/24`（网桥 `br-sdtmpub`）；隔离规则（nft 表 `inet sdtm_rag_public_isolation`）和每分钟一次的巡检定时器已装并启用，
+> 第 3 步的探测结论是 PASS；公开容器 `sdtm-rag-public-api` 已创建、**从未启动**（镜像还是旧的 `…:099c2c9…`）。
+> 还没有做的：部署公开实例并启动（第 5 步）、连接器和隧道（第 6 步起）；公开部署开关 `SDTM_RAG_PUBLIC_DEPLOY` 仍是关的。
+> 所以本节里凡是讲连接器、隧道、Cloudflare 一侧的内容，描述的都是按演练方案做完之后的样子。
+> 「网络隔离」这一条现在成立的范围以那份记录为准（只验了 TCP、7 个内网目标；规则先于容器装入的开机顺序还没有验）。
 > 上线后把这段状态说明改掉。
 
 本节讲入口这一侧。公开数据怎么来、公开部署每一步做什么（红线检查、镜像下限、临时容器验收、失败后停机、中断兜底）

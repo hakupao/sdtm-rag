@@ -543,7 +543,31 @@ def test_kb_sync_private_leg_changed_only_where_intended():
     assert base["env"]["KB_REPO"] == WF["kb-sync"]["env"]["KB_REPO"]
     for key in ("if", "runs-on", "timeout-minutes"):
         assert base["jobs"]["kbsync"].get(key) == _job("kb-sync", "private").get(key)
-    assert base[True]["schedule"] == WF["kb-sync"][True]["schedule"] and base["concurrency"] == WF["kb-sync"]["concurrency"]
+    assert base["concurrency"] == WF["kb-sync"]["concurrency"]
+    # 触发方式是有意改的 (2026-11-28 去掉定时, 见 test_no_workflow_has_a_schedule_trigger): 基点是 schedule + 手动派发,
+    # 现在只有手动派发; 手动派发原有的 ref 输入逐字未变
+    assert set(base[True]) == {"schedule", "workflow_dispatch"} and set(WF["kb-sync"][True]) == {"workflow_dispatch"}
+    assert base[True]["workflow_dispatch"]["inputs"]["ref"] == WF["kb-sync"][True]["workflow_dispatch"]["inputs"]["ref"]
+
+
+def test_no_workflow_has_a_schedule_trigger():
+    """本仓的 workflow 都没有定时触发 (协调方 2026-11-28 受托代裁)。这台 Gitea 只在「头提交不带跳过标记的 push 到 main」时
+    登记定时任务, 登记后用的是那一刻的工作流内容和提交, 之后带 [skip ci] 的 push 不刷新: 留着 schedule, 哪一次不带标记的
+    push 就会让它悄悄登记上, 从此每天用旧代码无人值守运行 (公开部署开关打开后, 公开腿会写公开数据根)。
+    需要自动同步时另行设计 (系统定时器调用手动派发接口), 不要把 schedule 加回来。"""
+    files = sorted((ROOT / ".gitea/workflows").glob("*.y*ml"))
+    assert {f.name for f in files} >= {"kb-sync.yml", "sdtm-rag.yml"}  # 目录没找对的话, 下面的循环什么都不验
+    for f in files:
+        raw = f.read_text(encoding="utf-8")
+        on = yaml.safe_load(raw)[True]  # YAML 把键 `on` 读成 True
+        triggers = {on} if isinstance(on, str) else set(on)  # `on: push` / `on: [push, …]` / `on: {…}` 三种写法
+        assert "schedule" not in triggers, f.name
+        # 文本层面也不留 (注释之外): 写在别的层级、或 `on` 被重复定义时, 上面的解析结果看不到
+        code = "\n".join(ln.split(" #", 1)[0] for ln in raw.splitlines() if not ln.lstrip().startswith("#"))
+        assert not re.search(r"(?m)^\s*(-\s*)?[\"']?(schedule|cron)[\"']?\s*:", code), f.name
+    assert set(WF["kb-sync"][True]) == {"workflow_dispatch"}  # kb-sync 只有手动派发
+    assert set(WF["kb-sync"][True]["workflow_dispatch"]["inputs"]) == {"ref", "public_baseline_image"}
+    assert set(WF["sdtm-rag"][True]) == {"push", "workflow_dispatch"}
 
 
 def _bash_accepts(condition: str, var: str, value: str) -> bool:
