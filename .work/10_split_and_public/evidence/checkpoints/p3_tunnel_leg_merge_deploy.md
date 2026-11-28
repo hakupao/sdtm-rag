@@ -84,8 +84,46 @@
 审查者确认过、没有问题的: 两个 squash 忠实 (对公开腿用的是逐补丁比较 `diff <(git diff 9a8ad43 hakupao/public-kb-leg) <(git diff 319654c 781521d)`, 只差 README 的上下文和那两行路径); README 冲突处理; 快照与 compose 一致; 两条线的接缝 (脚本路径、probe / judge 的命令行、镜像下限的判法与输出、网段常量、隔离目标清单与演练第 3 步); 私有档 (HSTS 只在公开档; cookie 的 `Secure` 私有档不变; 大小写变体检查只在公开档; `_resolve_ip` 只在对端是可信代理时走到); 私有 deploy job 与 kb-sync 私有腿在两种合法输入下与基点等价; 变量未开时两个公开 job 一定跳过; 新增行与提交信息里没有用户名 / home 路径 / 真名 / 邮箱 / 真实密钥。
 审查者下不了结论的: Gitea 对 `[skip ci]` 与 `needs` + `always()` 的真实行为、runner 的 shell、私有站 `.env` 的内容、默认网桥上的对照容器能否连到各内网目标。
 
-## 第 3–7 步
-(push、只构建、测试端口、部署、kb-sync 空跑核对、收尾: 各步完成后续写)
+## 推送前检查 (第一次 push; 范围 = `9a8ad43..5556687`)
+逐提交扫 `git log -p` 的新增行 (10322 行, 53 个文件) 和 4 条提交信息 —— 不只扫净 diff, 净 diff 看不到「先加后删」的内容。
+| 口径 | 新增行 | 提交信息 |
+|---|---|---|
+| home 路径 (`/Users/<名>`、`/home/<名>`) | 0 | 0 |
+| 本机账号名、真名 / 作者名、提交者邮箱原值 | 0 | 0 |
+| 邮箱 (`noreply@anthropic.com` 与示例域除外) | 0 | 0 |
+| 密钥形状 (`sk-` / `tvly-` / `ghp_` / `github_pat_` / `AKIA` / `xox*-` / `PRIVATE KEY` / `Bearer …`) | 5 行 | 0 |
+| JWT 形状 (隧道 token 的外形) | 6 行 | 0 |
+| 口令赋值形状、`curl -u 名:字面量` | 2 行 | 0 |
+- 密钥 / JWT / 口令赋值形状的 13 行都是脱敏与 key 探测测试里的假值 (`sk-invalid-0000…`、`sk-ant-api03-ShouldNeverLeak` 之类; JWT 解码出来是 `{"a":"abcdefghijklmnop"}`、`fake-for-test`), 独立审查者也解码核对过。
+- 另有一处与某个本地口令的片段偶然重合, 已核实不是泄漏 (重合的是测试里的通用示例串, 同样的串在已公开的基点树里早就有)。
+- 含本机路径的旧提交 `a6f987d`、`9b7e0aa`、`5021cc3` 以及两条分支的 HEAD 都不是 main 的祖先。4 个待推送提交都带 `[skip ci]`。
+- 以上命中报给协调方确认后才 push。不拦截、只计数 (净 diff): 内网 / 公开网段地址 154 行, `bojiang` 52 行, 不含用户名的机器路径 65 行。
+
+## 第 3 步: push (第一次)
+- `git push origin main` (非强推): Gitea 与 GitHub 都是 `9a8ad43..5556687`; 两个远端的 main = `5556687e162c3de268f07f4aa95cfb146d7d7998`。
+- 推后观察 90 秒 (30 / 60 / 90 秒各看一次运行列表): 没有被这次 push 触发的运行, 最新仍是 212。
+
+## 第 4 步 attempt 1: 只构建 run 214 —— 测试步骤失败 (规则 B: `failures/p3_tunnel_leg_merge_build_attempt_1.md`)
+- run 214 / job 455 (tag 空, deploy=false, head `5556687`): checkout → **测试 failure** (1 failed / 3482 passed / 61 skipped) → 构建、部署类步骤全部 skipped; `deploy_public` (job 456) skipped。没有镜像, 线上没变, 没有重试。
+- 失败的是公开腿带来的 `test_abort_first_ends_a_deploy_process_that_is_still_alive`。之前预判的 4 条在真实 CI 里都通过。
+- **第三种「合并后才红」: 只在 Linux runner 里红。** CI 的 job 容器 1 号进程是 `/bin/sleep 3600`, 不回收孤儿进程; 兜底把进程组结束之后, 子进程已经死了但停在僵尸状态, `kill(pid, 0)` 对僵尸仍然成功, 测试把它当成「还活着」。macOS 会回收, 所以本机和浅克隆模拟 (都在 macOS 上) 测不出来; 公开腿的测试合并前从没有在 Linux runner 里跑过。
+- 修法 (只改这一条测试, 协调方裁定): `alive()` 里把僵尸 (`/proc/<pid>/stat` 状态 `Z`) 算作已结束; 没有 `/proc` 的系统上读不到就算「不是僵尸」, 行为与改之前相同。
+- 在与 CI 相同的镜像 (`docker.gitea.com/runner-images:ubuntu-latest`, 1 号进程 `/bin/sleep`, 按 workflow 的命令装依赖) 里的验证:
+
+| 做法 | 结果 |
+|---|---|
+| 原测试 (`5556687`) | 1 failed, 报错与 run 214 相同 |
+| 换上修后的测试 (容器内外 sha256 相同) | 1 passed |
+| 变异: `_end_process_group` 只结束组长、不整组结束 (`whole = False`; 改完用 `cmp` 确认打上了) | 1 failed, 「编排进程起的子进程还活着」 —— 子进程真的还在跑时照样抓得住 |
+| 还原 (sha256 与仓库相同), 合并带来的 8 个测试文件 | 648 passed |
+
+- **独立审查 (窄范围, 同一位审查者)**: `oh-my-claudecode:security-reviewer`, 任务书 `subagent_prompts/review_tunnel_leg_merge_round2.md`。结论 **PASS**: 没有削弱检出能力; 没有 `/proc` 的系统上不起作用, 行为与改之前相同。它在 macOS 的副本里实测: 修后的测试 1 passed; `whole = False` 变异 1 failed (5.43 秒, 等满了); 完全不发信号的变异 1 failed; 解析逻辑用构造的 stat 行验证 (进程名含 `)`、空格、没有括号都不误判)。它进不了 Linux 容器, 僵尸那半边的实测只有上表。
+  - 两条可选建议没有采纳 (这次提交的就是在 runner 镜像里验证过的那个版本): 只在线程数为 1 时才算已结束 (防「主线程成僵尸、其他线程还在跑」; 测试里的子进程是单线程的 `time.sleep`, 走不到); 按字节读 stat (进程名不是合法 UTF-8 时 `read_text` 会抛错, 后果是测试变红而不是误通过)。
+  - 它另外发现一个**改之前就有**的缺口: 把兜底改成「只发 SIGTERM、不升级到 SIGKILL」, 这条测试仍然通过 (子进程不忽略 SIGTERM)。记入 `todo_later`。
+- 以后的做法 (已记入 `_progress.json` 的 `todo_later`): **涉及进程、信号、文件系统语义的测试, 合并前在 runner 镜像里跑一遍。**
+
+## 第 4–7 步 (续)
+(第二次 push、重新只构建、测试端口、部署、kb-sync 空跑核对、收尾: 各步完成后续写)
 
 ## 复跑命令
 ```sh

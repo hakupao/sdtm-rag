@@ -142,8 +142,10 @@
     "并行分支合并前在深度 1 的克隆 + 独立 venv 里跑全量测试 (2026-11-28: 两条分支各自全绿, 合并后 4 条测试红; 见 checkpoints/p3_tunnel_leg_merge_deploy.md)",
     "公开腿安全审查的两条后续建议没有做: 数据根身份标记文件; --expect-source 只核对目录名不核对内容 (p3_public_leg_impl.md §6 第 8 条)",
     "网络隔离不是出站白名单; 公开实例以 root 运行并保留默认 capability (p3_step3.4_tunnel.md「没做到的, 和剩余风险」第 1、6 条)",
-    "合并审查 (p3_tunnel_leg_merge_deploy.md) 留下的公开腿后续项, 开 SDTM_RAG_PUBLIC_DEPLOY 之前处理: LOW-1 红线停站失败信息的集合名白名单收窄 (kbsync.py SAFE_COLLECTION_RE); LOW-2 补一条测试钉住「启动报错带出之前先脱敏」; LOW-3 启动报错里的集合名同样隐去或写明前提",
-    "deploy/README.md: 镜像下限的判据写准 (PUBLIC_EDGE_LEVEL >= 1 + 单主机可信代理检查, 不是「有没有 HSTS」);「公开实例」与「公开实例与隧道」两节互加引用 (合并审查 LOW-6)"
+    "**必须在打开公开部署开关 (SDTM_RAG_PUBLIC_DEPLOY) 之前处理** —— 合并审查与 run 214 留下的公开腿后续项 (p3_tunnel_leg_merge_deploy.md): LOW-1 红线停站失败信息的集合名白名单收窄 (kbsync.py SAFE_COLLECTION_RE); LOW-2 补一条测试钉住「启动报错带出之前先脱敏」; LOW-3 启动报错里的集合名同样隐去或写明前提; _end_process_group 判断「都没了」时把僵尸排除 (runner 的 job 容器 1 号进程是 sleep, 不回收孤儿: 现在会等满约 10 秒并多打一行「可能还没有结束」)",
+    "deploy/README.md: 镜像下限的判据写准 (PUBLIC_EDGE_LEVEL >= 1 + 单主机可信代理检查, 不是「有没有 HSTS」);「公开实例」与「公开实例与隧道」两节互加引用 (合并审查 LOW-6)",
+    "涉及进程 / 信号 / 文件系统语义的测试, 合并前在 runner 镜像 (docker.gitea.com/runner-images:ubuntu-latest, 1 号进程 /bin/sleep) 里跑一遍 (2026-11-28: 公开腿的一条测试只在 Linux runner 里红, 见 failures/p3_tunnel_leg_merge_build_attempt_1.md)",
+    "test_abort_first_ends_a_deploy_process_that_is_still_alive 的缺口 (改之前就有, 窄范围审查发现): 兜底只发 SIGTERM、不升级 SIGKILL 的变异不会变红 → 让测试里的子进程忽略 SIGTERM; 顺带把僵尸判断改成按字节读并要求线程数为 1"
   ],
   "decisions_1_9": "2026-11-25 用户: CI 检测+闸+报告, 升级提交由本地「KB 更新」双推; pyproject 作者→hakupao; mini-home/lan-services 改名 .archived-20261125",
   "log": [
@@ -353,7 +355,8 @@
       "squash_both": "两条分支都以 squash 方式合并, 各压成一个提交: 早期提交里留档的审查提示词含本机用户名的绝对路径 (隧道 9b7e0aa / 5021cc3; 公开腿 a6f987d), 逐个提交不能进 main; 隧道的镜像下限标记也约定从 squash 提交起才有。分支留在本地备查",
       "placeholder_paths": "公开腿最新树里 subagent_prompts/review_public_leg_round3.md 仍有两行这样的路径: 合并时换成占位写法, 只改这两行",
       "readme_conflict": "deploy/README.md 的冲突按「两边的新增都保留」处理",
-      "test_fix_after_merge": "合并后才红的 4 条测试由合并会话修, 只改测试 (协调方选项 1): 两条改用去掉 ipam 段的模型表示隧道合入前的形状; 两条的基点 workflow 原文冻成 fixture (tests/fixtures/workflows/, 说明在同目录 README); 纳入独立安全审查的范围; 审查 MEDIUM-1 之后基点的 blob 号写死在测试里 (BASE_BLOBS), 不依赖 git 历史"
+      "test_fix_after_merge": "合并后才红的 4 条测试由合并会话修, 只改测试 (协调方选项 1): 两条改用去掉 ipam 段的模型表示隧道合入前的形状; 两条的基点 workflow 原文冻成 fixture (tests/fixtures/workflows/, 说明在同目录 README); 纳入独立安全审查的范围; 审查 MEDIUM-1 之后基点的 blob 号写死在测试里 (BASE_BLOBS), 不依赖 git 历史",
+      "test_fix_after_ci_failure": "只构建 run 214 在测试步骤失败 (公开腿的 test_abort_first_ends_a_deploy_process_that_is_still_alive, 僵尸进程被当成还活着) → 协调方选项 1: 由合并会话只改这一条测试, 同一位审查者窄范围确认后重新只构建; 产品代码里连带的现象这次不改"
     }
   }
 }

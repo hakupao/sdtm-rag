@@ -1324,11 +1324,19 @@ def test_abort_first_ends_a_deploy_process_that_is_still_alive(site):
         assert ks.public_abort(fake, a, sleep=lambda s: proc.wait(timeout=5) if proc.poll() is None else None) == 0
         assert proc.poll() is not None  # 编排进程已结束
 
+        def zombie(pid):  # 已经被结束、只是没人回收: /proc/<pid>/stat 里的状态是 Z (没有 /proc 的系统上无从判断, 算不是)
+            try:
+                return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
+            except (OSError, IndexError):
+                return False
+
         def alive(pid):  # 被结束但还没被收尸的进程 kill(0) 仍成功: 等到它真正消失, 最多 5 秒
             for _ in range(50):
                 try:
                     _os.kill(pid, 0)
                 except ProcessLookupError:
+                    return False
+                if zombie(pid):  # CI 的 job 容器里 1 号进程是 sleep, 不回收孤儿: 僵尸会一直留着, 但它不会再执行任何东西
                     return False
                 _time.sleep(0.1)
             return True
