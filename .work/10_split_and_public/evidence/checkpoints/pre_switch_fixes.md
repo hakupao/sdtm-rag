@@ -21,7 +21,8 @@
   - `b24dc21` 独立审查第 1 轮的修正
   - `e4b33d3` 独立审查第 2 轮的修正 —— **最后一个改产品代码 (`kbsync.py`) 的提交; runner 镜像里验过的就是它**
   - `0e9e985` 只改 `tests/test_workflow_conditions.py` (一条读 YAML 的测试, 与进程 / 信号无关) 和变异脚本 —— 最后一轮变异里有 3 个没通过, 见「变异验证」
-  - 其后还有一个只有文档和脚本的提交 (本文件、两个 runner 脚本、第 3 轮任务书、进度 / trace / 复盘 / 进度看板), 提交号见向协调方的汇报
+  - `2834d5e` 只有文档和脚本 (本文件、两个 runner 脚本、第 3 轮任务书、进度 / trace / 复盘 / 进度看板)
+  - 再往后还有一个提交 = 分支尖端: 文档 (本文件按复核意见改准的几处、第 4 轮任务书、进度 / trace / 复盘里的措辞) 和留档的变异脚本 (守卫改成显式退出, 第 4 轮审查的意见)。它的提交号写不进它自己, 在向协调方的汇报里; 它不改任何产品代码和测试
 
 ## 改了什么
 ### 1. LOW-1 集合名白名单收窄 (`kbsync.py` 的 `SAFE_COLLECTION_RE`)
@@ -79,7 +80,12 @@
 ### 7. kb-sync 去掉定时触发 (协调方追加; 受托代裁)
 - `.gitea/workflows/kb-sync.yml`: 删掉 `schedule`, 只留 `workflow_dispatch`; 文件头写明原因。**除 `on` 和注释之外逐项未变**: 解析后比较, 顶层键相同, `on` 以外各键相等, `workflow_dispatch` 段相等。
 - job 里没有只为定时事件写的分支 (没有任何一处读 `event_name`; 「`ref` 留空取最新 tag」手动派发同样在用), 所以没有东西要删。
-- 原因 (协调方调查的结论; 我对照 Gitea v28.2.0 源码看过, 与之相符): `services/actions/notifier_helper.go` 里 `skipWorkflows` (第 184 行) 在 `DetectWorkflows` / `handleSchedules` (第 191 / 266 行) 之前返回 → 带跳过标记的 push 不登记定时任务; 登记只发生在 push 到默认分支时 (第 123 行) 和 `DetectAndHandleSchedules` (第 645–662 行, 仓库设置一侧)。**没有核实的**: 「登记之后内容不刷新」在真机上的表现 (只读了源码, 没有做实验)。
+- 原因是协调方只读调查的结论。我另外读了 Gitea v28.2.0 的源码原文 (不是只对行号), 三点都对得上:
+  - `services/actions/notifier_helper.go` 第 184–186 行 `if skipWorkflows(ctx, input, commit) { return nil }`, 排在 `DetectWorkflows` (第 191 行) 和 `handleSchedules` (第 265–266 行, 只在 push 到默认分支时调, 第 123 行) 之前 → 头提交带跳过标记的 push 不登记定时任务。
+  - `handleSchedules` 登记时把当时的提交号和工作流原文一起存下 (`CommitSHA: commit.ID`、`Content: dwf.Content`); `services/actions/schedule_tasks.go` 第 136–150 行起定时运行时用的就是存下的 `cron.CommitSHA` 和 `cron.Content`, 上游自己在第 147 行留了一句 `FIXME cron.Content might be outdated if the workflow file has been changed` → 登记之后内容不刷新。
+  - 另一个登记入口: `services/repository/setting.go` 第 28–35 行, 更新仓库的功能单元且其中有 Actions 时调 `DetectAndHandleSchedules`。
+  - 顺带看到: `handleSchedules` 发现仓库已有登记时会先全部删掉再按当前内容重建 → 合并之后, 一次不带跳过标记的 main push 会把已有的登记 (如果有) 清掉。
+  - **没有核实的**: 真机上的表现 (只读了源码, 没有做实验); 这台 Gitea 现在有没有已登记的定时任务 (按协调方的调查没有)。
 - 测试: `test_no_workflow_has_a_schedule_trigger` (本仓所有 workflow 都没有 `schedule`; kb-sync 的触发恰为 `workflow_dispatch`); 对照基点的那条改成「触发方式是有意改的, `ref` 输入逐字未变」。
   审查第 1 轮指出它可以用重复的 `on` 键绕过 (PyYAML 默认取后一个), 已加固: 加载时键重复就报错; 文本检查放宽到任何位置; 另有一条把 9 种写法逐个喂给这两个判据、分别核对各自怎么判的测试。
 - 改了的文档: `deploy/README.md` (组成表一行、「KB 同步」第 1 条: 手动派发、什么时候派发、`ref` 留空取最新 tag、为什么不用定时)、`CLAUDE.md` 的「KB 更新」路由词 (仍是 80 行)、`p1_step1.9_design.md` (设计文档, 加一句更正)、`p3_public_leg_impl.md` §5 阶段 A 那一行 (原写「等凌晨的 kb-sync」)。
@@ -93,14 +99,26 @@
 ## 改动的文件与部署路径过滤
 路径过滤 = `.gitea/workflows/sdtm-rag.yml` 的 `on.push.paths` (12 条)。**没有一个改动的文件落在过滤里 → 合并这条分支不需要重新构建, 也不会触发部署。**
 
-| 文件 | 在过滤里? | 说明 |
+| 文件 (分支相对 `560213e` 改动的全部 21 个) | 在过滤里? | 说明 |
 |---|---|---|
 | `deploy/kbsync/kbsync.py` | 否 | `deploy/container/**` 才在; kbsync 不进镜像 (`Dockerfile.dockerignore`), 从 workflow 的 checkout 运行, 合并后下一次 workflow 运行即生效 |
 | `.gitea/workflows/kb-sync.yml` | 否 | 过滤里只有 `sdtm-rag.yml` |
 | `deploy/README.md` | 否 | 过滤里的 `README.md` 只匹配仓库根的那个, 见下 |
-| `CLAUDE.md`、`docs/plans/P3_4_tunnel_drill.md` | 否 | |
-| `tests/test_kbsync_deploy_public.py`、`tests/test_workflow_conditions.py` | 否 | `tests/` 不在过滤里 (只改 tests 不跑 CI, 所以这次在浅克隆和 runner 镜像里各跑了全量) |
-| `.work/10_split_and_public/**` (进度、checkpoint、脚本、任务书) | 否 | |
+| `CLAUDE.md` | 否 | |
+| `docs/PROGRESS.md` | 否 | |
+| `docs/plans/P3_4_tunnel_drill.md` | 否 | |
+| `docs/retrospectives/RETROSPECTIVE_public_kb_leg.md` | 否 | |
+| `tests/test_kbsync_deploy_public.py` | 否 | `tests/` 不在过滤里 (只改 tests 不跑 CI, 所以这次在浅克隆和 runner 镜像里各跑了全量) |
+| `tests/test_workflow_conditions.py` | 否 | 同上 |
+| `.work/10_split_and_public/_progress.json` | 否 | |
+| `.work/10_split_and_public/evidence/trace.jsonl` | 否 | |
+| `.work/10_split_and_public/evidence/checkpoints/p1_step1.9_design.md` | 否 | |
+| `.work/10_split_and_public/evidence/checkpoints/p3_public_leg_impl.md` | 否 | |
+| `.work/10_split_and_public/evidence/checkpoints/pre_switch_fixes.md` | 否 | |
+| `.work/10_split_and_public/evidence/checkpoints/pre_switch_fixes_mutations.py` | 否 | |
+| `.work/10_split_and_public/evidence/checkpoints/pre_switch_fixes_runner_a.sh` | 否 | |
+| `.work/10_split_and_public/evidence/checkpoints/pre_switch_fixes_runner_b.sh` | 否 | |
+| `.work/10_split_and_public/evidence/subagent_prompts/review_pre_switch_fixes.md`、`…_round2.md`、`…_round3.md`、`…_round4.md` | 否 | 4 个文件 |
 
 **`README.md` 这条模式匹配不匹配 `deploy/README.md`: 已查清, 不匹配。**
 - 版本: `GET /api/v1/version` (带凭据) = `28.2.0`。
@@ -109,12 +127,13 @@
 - 没有做真机实验 (那需要 push)。
 
 ## 验证
-每次改完代码都重新验 (审查后的修正不拿修正前的结果顶替)。产品代码最后一次改动是 `e4b33d3`; 其后的 `0e9e985` 只改了一条读 YAML 的测试。
+每次改完代码或测试都重新验 (审查后的修正不拿修正前的结果顶替)。产品代码最后一次改动是 `e4b33d3`; 其后的 `0e9e985` 只改了一条读 YAML 的测试。
 
 ### 本机 (macOS)
 - 四个相关测试文件 (`test_kbsync` / `test_kbsync_public` / `test_kbsync_deploy_public` / `test_workflow_conditions`): **541 passed** (`0e9e985`; `e4b33d3` 上是 539)。改之前 (`560213e`) 实测是 303 + 155 = 458; 现在 376 + 165。
 - `test_abort_first_ends…` 在 `148d24f` 上连跑 8 次、`b24dc21` 上连跑 5 次都通过, 每次约 1.1 秒, 没有残留的子进程。
-- 本机没有 `data/` (子工作区; 没有软链主仓的数据, chromadb 打开索引会改写文件), 所以本机全量与浅克隆是同一种条件, 以浅克隆的为准。
+- 本机没有 `data/` (子工作区; 没有软链主仓的数据, chromadb 打开索引会改写文件), 所以本机全量与浅克隆是同一种条件, 以浅克隆的为准。**带本机数据的全量 (主仓那种 2 条 skip 的) 这条分支没有跑过。**
+- 浅克隆、runner、子工作区三处都没有 `.env`, 而新加的测试里有一条用环境里的真实配置构造 `Settings` (`test_configured_study_collection_name_in_a_startup_error_is_hidden`)。补验: 在 `git archive 2834d5e` 的副本里只读软链主仓的 `.env` (读进 18 个 `SDTM_RAG_` 键), 四个相关测试文件 541 passed。合并后在主仓 (有 `.env`) 跑不会因此变红。
 
 ### 深度 1 的克隆 + 独立 venv (= CI 的条件; 上次踩过的第一个坑)
 | 提交 | 结果 |
@@ -123,7 +142,7 @@
 | `b24dc21` | 3558 passed / 0 failed / 61 skipped |
 | **`e4b33d3`** | **3564 passed / 0 failed / 61 skipped** |
 
-上次 `e50a9f8` 是 3483 / 0 / 61; 到 `e4b33d3` 多的 81 条 = kbsync 73 + workflow 8 (四个相关文件 458 → 539)。`0e9e985` 及其后文档提交的浅克隆全量在提交之后跑, 结果见向协调方的汇报 (预期再多 2 条)。每次都核对了克隆的 HEAD 与分支 HEAD 相同、`--is-shallow-repository` = true。新加的测试用 `-rA` 看是 PASSED 不是 SKIPPED (在 `ce9c884` 上看的)。61 条 skip 都是没有 `data/` / 没有 playwright。
+上次 `e50a9f8` 是 3483 / 0 / 61; 到 `e4b33d3` 多的 81 条 = kbsync 73 + workflow 8 (四个相关文件 458 → 539)。`0e9e985` 之后的文档提交 `2834d5e` 上也跑了: **3566 passed / 0 failed / 61 skipped** (多的 2 条 = 那条测试的参数从 7 个变成 9 个)。分支尖端 (只改文档和留档脚本) 上的那一趟见向协调方的汇报。每次都核对了克隆的 HEAD 与分支 HEAD 相同、`--is-shallow-repository` = true。新加的测试用 `-rA` 看是 PASSED 不是 SKIPPED (在 `ce9c884` 上看的)。61 条 skip 都是没有 `data/` / 没有 playwright。
 
 ### runner 镜像 (上次踩过的第二个坑) —— 验了三次, 最后一次是最后一个改产品代码的提交
 **`e4b33d3` 不是分支的最终提交**: 其后 `0e9e985` 改了 `tests/test_workflow_conditions.py` 里一条测试的断言 (喂 YAML 文本给两个判据, 不起进程、不碰文件系统) 和变异脚本, 再往后是文档。这部分没有在 runner 镜像里跑 (协调方的常设同意只覆盖进程 / 信号相关的改动, 这次不是), 只在 macOS 上跑过。`kbsync.py` 和三份 kbsync 测试自 `e4b33d3` 起字节未变 (`git diff --quiet e4b33d3 0e9e985 -- <文件>` 逐个核对)。
@@ -149,13 +168,13 @@
 - 假 `/proc` 测试用的字段位置 (进程组第 5、线程数第 20 个字段) 与真机一致, 所以那几条测试不是「测试和实现共用同一个错的假设」。
 - 三次都没有出现本机没有的失败; 没有为了变绿改过任何期望。
 
-协调方 7 条附加条件的核对 (三次相同, 数字依次是第 1 / 2 / 3 次):
-1. 内存: 动手前虚拟机可用 5128 / 5198 / 5231 MB; 容器 `--memory 2g --memory-swap 2g` (`docker inspect` 的 `Memory=2147483648`, 容器内 cgroup 上限同值); 删除后可用 5199 / 5219 / 5247 MB。
-2. `Privileged=false`、`CapAdd=[]`、挂载 0 个、端口映射为空、`--pull never` (镜像 `b96ba465021b` 本地已有, 没有拉; 镜像总数前后都是 36)、没有挂 docker socket、不是 host 网络。
-3. `NetworkMode=bridge` (默认网桥)。公开网络里前后都是 0 个容器; 隔离表在、巡检定时器 `active` (只读看的, 没有碰)。
-4. 送进去的内容: 每次都是全新的深度 1 克隆 (工作区干净) 打成的 tar, 没有 `.env`、没有 `.venv`; `data/` 下只有仓库里本来就跟踪的 `data/meta` (公开 KB 的派生物), 没有 chroma / study。送之前核对过包里 `kbsync.py` 的 sha256 与该提交相同。
+协调方 7 条附加条件的核对 (数字依次是第 1 / 2 / 3 次; **不是每一项每次都前后各看了, 没看的照实写**):
+1. 内存: 动手前虚拟机可用 5128 / 5198 / 5231 MB; 容器 `--memory 2g --memory-swap 2g` (三次 `docker inspect` 都是 `Memory=2147483648`, 容器内 cgroup 上限同值); 删除后可用 5199 / 5219 / 5247 MB。
+2. 三次 `docker inspect`: `Privileged=false`、`CapAdd=[]`、挂载 0 个、端口映射为空、入口 `/bin/sleep`; 命令行里没有挂 docker socket、不是 host 网络。没有拉镜像的依据是 `--pull never` (镜像 `b96ba465021b` 本地已有)。镜像总数: 第 1 次动手前**没有数**, 删除后 36; 第 2、3 次前后都是 36。
+3. 三次 `NetworkMode=bridge` (默认网桥)。公开网络里的容器数: 第 1、2 次只在删除后看了 (0), 第 3 次前后都看了 (0)。隔离表和巡检定时器: **只在第 1 次删除后看过一次** (表在、定时器 `active`), 第 2、3 次没有再看; 三次都没有对它们做任何操作。
+4. 送进去的内容: 每次都是全新的深度 1 克隆 (工作区干净) 打成的 tar, 没有 `.env`、没有 `.venv`; `data/` 下只有仓库里本来就跟踪的 `data/meta` (公开 KB 的派生物), 没有 chroma / study。第 2、3 次送之前核对过包里 `kbsync.py` 的 sha256 与该提交相同 (第 1 次是进容器后看的提交号)。
 5. 每次 `docker rm -f` 之后按名字查 `docker ps -a` 为空, 容器总数回到 23, 非运行状态的只有 `sdtm-rag-public-api Created`。私有站: 三次前后健康检查都是 200; `sdtm-rag-api` / `sdtm-rag-ui` 的启动时间始终是 `2026-11-28T03:23:47…` / `03:23:57…`, 重启次数 0。
-6. Actions: 每次动手前、删除后各看一次运行列表 (第 3 次中途也看了一次), 都是 23 次、最新的两次 `completed`; 虚拟机里没有 job 容器; 仓库变量 `[]`。中途没有运行开始。
+6. Actions 运行列表: 每次动手前、删除后各看一次 (第 3 次中途也看了一次), 都是 23 次、最新的两次 `completed`; 每次动手前虚拟机里都没有 job 容器。中途没有运行开始。仓库变量: 第 1 次前后、第 2 次删除后看过, 都是 `[]`; 第 3 次没有看。
 7. 见上: 没有只在 runner 里出现的失败。
 
 除这三个 (同名、先后存在的) 容器外没有碰虚拟机上的任何东西; 其余都是只读查看 (`free`、`df`、`docker ps / inspect / image ls / network inspect`、`nft list tables`、`systemctl is-active`、健康检查)。
@@ -193,13 +212,14 @@
 其中方向是「把活着的进程当成已结束」的变异 (审查重点) 有 10 个: 僵尸判断恒真、不看线程数、单线程活进程算僵尸、认不出的行跳过、一个都没读到也算、整组时只看组长、不核对命名空间、从第一个 `)` 取、读不到就算僵尸、读的时候报错就跳过。
 
 ## 独立审查 (规则 D)
-`oh-my-claudecode:security-reviewer` (opus), 只读, 与实现者不同的 subagent_type; 同一位审查者三轮。任务书: `subagent_prompts/review_pre_switch_fixes.md`、`…_round2.md`、`…_round3.md`。它自己在临时副本里做变异, 没有用我的脚本。
+`oh-my-claudecode:security-reviewer` (opus), 只读, 与实现者不同的 subagent_type; 同一位审查者四轮。任务书: `subagent_prompts/review_pre_switch_fixes.md`、`…_round2.md`、`…_round3.md`、`…_round4.md`。它自己在临时副本里做变异 (第 4 轮另外也跑了一次我的脚本)。
 
 | 轮 | 对象 | 结论 | 发现 |
 |---|---|---|---|
 | 1 | `560213e..ce9c884` | PASS-with-fixes, 不阻止合并 | MEDIUM 1 + LOW 5; 它做了 22 个变异, 2 个没有红 (就是下面的 4 和 5) |
 | 2 | `ce9c884..b24dc21` | PASS-with-fixes, 不阻止合并 | 第 1 轮 6 条都到位; 新发现 A (LOW, 相对修正前是倒退); 12 个有效变异 11 个红, 没红的那个有另一道判据兜住 |
 | 3 | `b24dc21..e4b33d3` | **PASS**, 不阻止合并; 「打开开关之前, 这条线上没有剩下必须做的事」 | 无新发现; 7 / 7 个变异都红; 另拿 20 万段随机拼的文本对比改前改后的输出, 没有「改之前不出现、改之后出现」的原文片段 |
+| 4 | `e4b33d3..0e9e985` (只有一条测试的断言 + 变异脚本) | PASS-with-fixes, 不阻止合并, 「也不影响打开公开部署开关」 | 那条测试现在把两道判据分别钉住了 (它的 10 个变异全红, 含 R11 / W6 / W7; 9 种写法的期望值与实际行为一致); LOW 1 条, 只影响变异脚本 (下面) |
 
 第 1 轮的发现与处置 (都在 `b24dc21`):
 
@@ -217,7 +237,9 @@
 
 审查者说核实不了的: runner 里的结果 (它没有连虚拟机, 只评估了记录是否说得通); 真实僵尸语义; Gitea 对重复 `on` 键的处理 (现在测试一律拒绝, 不再影响结论); Gitea 定时任务的登记时机。
 
-它留下、这次没有改的, 见下节第 1、4、5、6 条。**三轮审查看的是到 `e4b33d3` 为止的内容; `0e9e985` (一条测试的断言 + 变异脚本) 没有经过独立审查。**
+第 4 轮的发现 (LOW; 只影响变异脚本, 在分支尖端的文档提交里处理): 脚本的守卫是用断言语句写的, `python -O` 下不执行 —— 它实测 `PSF_MUT_ONLY=<不存在的编号>` 加 `-O` 时, 一个变异都没跑却打印 `0/0 killed` 并以 0 退出。我复现了 (同样的输出, 退出码 0), 然后按它给的改法把 7 处守卫全部改成显式退出 (`must()`), 另加「一个变异都没选上就拒跑」。改完在 `-O` 下逐种验过: 不存在的编号 / 带空格的编号 / 指到工作区 / 没设 `PSF_MUT_ROOT` 都以 1 退出; 基线之后目标文件被改动时中止 (「与基线不符」); 正常选 4 个 (L3h、Z1、W6、W7) 4 / 4 killed。**这处改动本身没有再送审** (照审查者给的写法改的, 只在留档脚本里)。
+
+它留下、这次没有改的, 见下节第 1、4、5、6 条; 第 4 轮另记了一条: 测试用的加载器遇到 YAML 合并键 (`<<:`) 会直接报错 (是拒绝不是放过; 以后工作流里正当用到合并键时那条测试会红, 到时再放开)。
 
 ## 清单之外的发现 (只汇报, 没有改)
 1. **别处带出容器输出的地方只脱敏、不隐名** (审查附注 N1; 改之前就是这样, 这次没有变差): `_probe` 的 stderr 末尾 (答题 key / embedding key 探测)、`accept_check` 里 `ACCEPT_PY` 的 stderr 最后一行、`via()` 带出的 stderr 末尾 5 行 (经调用方的 `scrub(str(e))`)、`compose_model` 的 stderr (连脱敏都没有过)。按现在的代码这几处都不太可能带出 study 集合名。
@@ -229,10 +251,10 @@
 7. `p3_public_leg_impl.md` §5 阶段 C 的只读核对里那句「隧道第 2 步重建网络时容器可能被重建过」: 现在的实际情况是 `Created`、镜像仍是 `…:099c2c9…` (阶段 B 的 checkpoint 已指出), 这次没有改 (不在点名的三处里)。
 
 ## 仍未验证的事项
-1. 这批改动没有经过 Gitea 的 CI (只改了不在路径过滤里的文件, 合并也不会触发); 依据是浅克隆和 runner 镜像里同一提交的全量。最后那个只有文档和脚本的提交没有再跑全量 (它不改任何测试会读的文件, 提交前跑了四个相关测试文件)。
+1. 这批改动没有经过 Gitea 的 CI (只改了不在路径过滤里的文件, 合并也不会触发); 依据是浅克隆 (到 `2834d5e` 为止每个改代码或测试的提交都跑了) 和 runner 镜像 (到 `e4b33d3`) 里的全量。`0e9e985` 改的那条测试没有在 Linux 上跑过 (它只解析 YAML 文本)。
 2. `deploy-public` / `public-abort` 的真实运行仍然一次都没有发生过 (开关未开)。这次验的是: 单测、变异、runner 镜像里的真实僵尸语义。真正的 job 取消 / 超时后兜底步骤是否执行、runner 是否给每个步骤单独分进程组, 仍未验证 (`p3_tunnel_leg_merge_deploy.md`「仍未验证」第 3 条)。
 3. `_only_zombies_left` 的两个前提没有在真机上反过来验: `/proc` 用 `hidepid` 挂载时、组里有别的用户的进程时。runner 的 job 容器里两者都不成立 (同一用户 root, `/proc` 没有 `hidepid`)。
-4. kb-sync 去掉定时之后, 手动派发没有重新跑过 (依据: 解析后除 `on` 外逐项相同)。Gitea 上如果已经登记过定时任务, 去掉 `schedule` 的 push 是否会把它清掉: 没有验; 按协调方的调查它从未登记过。
+4. kb-sync 去掉定时之后, 手动派发没有重新跑过 (依据: 解析后除 `on` 外逐项相同)。Gitea 上如果已经登记过定时任务: 按源码, 一次头提交不带跳过标记的 main push 会先删掉已有登记再按当前内容重建 (现在是没有 `schedule`, 所以清空); 带跳过标记的 push 不会动它。真机上没有验; 按协调方的调查它从未登记过。
 5. `_hide_study_names` 挡不住的三种情形 (见上)。
 6. 没有做真正的端到端: 让一个真实的公开档容器因为 study 集合而拒绝启动, 再看 job 日志。现在的依据是「报错文本取自真实的 `check_chroma` / `check_startup`」加假 docker。
 
@@ -243,15 +265,18 @@
   2. 第 1 轮的修正 (换顺序) 自己又带进一个反方向的倒退, 是第 2 轮才查出来的。修审查意见时也要问: 这个改法在原来安全的输入上有没有变差。审查者第 3 轮用的办法 (随机拼接, 对比改前改后的输出) 值得以后照做。
   3. 我写的等待循环用 `grep Error` 判断上一趟有没有跑完, 而正常输出里就有 `AssertionError`, 没等就往下走了 (没有造成错误的结论: 那一趟被变异脚本自己的拒跑条件挡住了)。判断「跑完了」要用只在结束时才出现的那一行。
   4. 变异脚本的拒跑条件第一版写成「不等于工作区」, 从副本里启动时被误拒; 改成「目录里有 `.git` 就拒跑」。
+  6. 我自己的变异脚本用断言语句当守卫, `-O` 下全部失效, 是第 4 轮审查查出来的 —— 「验证工具自己会不会静默失效」这一层我只查了「变异有没有打上」, 没有查「守卫在什么运行方式下不执行」。
   5. 我为审查意见新加的三个变异里, 一个自己写错了 (语法错误), 两个存活。写错的那个被脚本的判定规则 (有 error 就记 INVALID, 不算 killed) 拦下; 存活的两个说明「两道判据至少一个抓到」这种断言钉不住任何一道。⇒ 互相兜底的判据要分开断言。
-- **关键决策复盘**: (1) LOW-3 选隐去而不是只写前提, 并且修在 kbsync 一侧而不是改 `server/` 的报错: 不触发重建镜像, 合并不需要部署。(2) 审查的 LOW-2 没有照最小建议补几种情形, 而是把「前一个字符」的限制整个去掉、另加配置项名单: 漏法是开放的一类, 逐个补补不完; 代价 (日志里别的标识符被多隐) 用名单收回最要紧的那部分。(3) runner 容器跑了三次而不是一次: 每次改完代码都重验, 换来「runner 里验过的 = 最终的代码提交」。第三次是我按协调方的常设同意自己判断的, 已照实登记。(4) 协调方追加的三处过时文档只按 checkpoint 的实测改, 没有进虚拟机复查。
+- **关键决策复盘**: (1) LOW-3 选隐去而不是只写前提, 并且修在 kbsync 一侧而不是改 `server/` 的报错: 不触发重建镜像, 合并不需要部署。(2) 审查的 LOW-2 没有照最小建议补几种情形, 而是把「前一个字符」的限制整个去掉、另加配置项名单: 漏法是开放的一类, 逐个补补不完; 代价 (日志里别的标识符被多隐) 用名单收回最要紧的那部分。(3) runner 容器跑了三次而不是一次: 每次改完产品代码都重验, 换来「runner 里验过的 = 最后一个改 `kbsync.py` 的提交 (`e4b33d3`)」; 它不是分支的最终提交 (其后还改了一条读 YAML 的测试)。第三次是我按协调方的常设同意自己判断的, 已照实登记。(4) 协调方追加的三处过时文档只按 checkpoint 的实测改, 没有进虚拟机复查。
 
 ## 复跑命令
 ```sh
 R=<本仓根>; cd $R; PY=.venv/bin/python
 $PY -m pytest tests/test_kbsync.py tests/test_kbsync_public.py tests/test_kbsync_deploy_public.py tests/test_workflow_conditions.py -q -o addopts="" -p no:cacheprovider
 # 变异 (在副本里; vendor 用软链)
-mkdir -p <临时目录>/mut && git archive e4b33d3 | tar -x -C <临时目录>/mut && rmdir <临时目录>/mut/vendor/sdtm-pedia && ln -s $R/vendor/sdtm-pedia <临时目录>/mut/vendor/sdtm-pedia
+# (我实际跑的是两轮拼起来的: 全部 52 个对 e4b33d3 的副本 → 49 / 52; 再对 0e9e985 的副本加 PSF_MUT_ONLY=Z16,W1,W2,W3,W4,W5,W6,W7 → 8 / 8。
+#  下面对 HEAD 的副本整轮跑应当是 52 / 52, 但这样的一整轮我没有跑过。)
+mkdir -p <临时目录>/mut && git archive HEAD | tar -x -C <临时目录>/mut && rmdir <临时目录>/mut/vendor/sdtm-pedia && ln -s $R/vendor/sdtm-pedia <临时目录>/mut/vendor/sdtm-pedia
 PSF_MUT_ROOT=<临时目录>/mut $PY .work/10_split_and_public/evidence/checkpoints/pre_switch_fixes_mutations.py
 # 改之前的缺口 (旧测试 + 只发 SIGTERM): 在另一份副本里把 kbsync.py 与测试换成 560213e 的, 把 `(signal.SIGTERM, signal.SIGKILL)` 改成 `(signal.SIGTERM,)`
 $PY -m pytest tests/test_kbsync_deploy_public.py -q -o addopts="" -p no:cacheprovider -k abort        # 19 passed
@@ -266,6 +291,12 @@ VM "docker exec $N mkdir -p /w" && VM "docker exec -i $N tar -x --no-same-owner 
 VM "docker exec -i $N bash -s" < .work/10_split_and_public/evidence/checkpoints/pre_switch_fixes_runner_a.sh
 VM "docker exec -i $N bash -s" < .work/10_split_and_public/evidence/checkpoints/pre_switch_fixes_runner_b.sh
 VM "docker rm -f $N" && VM "docker ps -a --filter name=sdtm-rag-citest --format '{{.Names}}'"       # 空
+# 带着主仓的 .env 跑 (只读软链; 输出里不要带出取值)
+mkdir -p <临时目录>/envchk && git archive HEAD | tar -x -C <临时目录>/envchk && ln -s <主仓>/.env <临时目录>/envchk/.env   # vendor 同上用软链
+cd <临时目录>/envchk && $R/.venv/bin/python -m pytest tests/test_kbsync.py tests/test_kbsync_public.py tests/test_kbsync_deploy_public.py tests/test_workflow_conditions.py -q -o addopts="" -p no:cacheprovider --tb=line
+# Gitea 定时任务的登记 (源码)
+curl -s https://raw.githubusercontent.com/go-gitea/gitea/v28.2.0/services/actions/notifier_helper.go | sed -n '184,186p;265,267p'
+curl -s https://raw.githubusercontent.com/go-gitea/gitea/v28.2.0/services/actions/schedule_tasks.go | sed -n '136,150p'
 # 路径过滤的匹配规则 (源码)
 curl -s https://raw.githubusercontent.com/go-gitea/gitea/v28.2.0/modules/glob/glob.go | grep -n "func CompileWorkflow" -A 8
 # kb-sync 除触发方式外逐项未变

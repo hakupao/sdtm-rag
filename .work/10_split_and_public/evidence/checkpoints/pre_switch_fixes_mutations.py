@@ -160,6 +160,13 @@ def sha(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
 
 
+def must(ok: bool, msg: str) -> None:
+    """守卫一律走这里, 不写成断言语句: python -O 下断言语句不执行, 守卫就悄悄没了
+    (独立审查第 4 轮: 那样会一个变异都没跑却报通过)。"""
+    if not ok:
+        raise SystemExit(f"拒跑 / 中止: {msg}")
+
+
 def run_tests() -> tuple[int, str, list[str], dict[str, str]]:
     for d in ("deploy/kbsync/__pycache__", "tests/__pycache__"):
         shutil.rmtree(ROOT / d, ignore_errors=True)
@@ -193,15 +200,16 @@ def verdict_of(rc: int, summary: str, failed: list[str], expected: str) -> str:
 def main() -> int:
     loaded = subprocess.run([sys.executable, "-c", "from tests.test_kbsync import ks; print(ks.__file__)"], cwd=ROOT,
                             capture_output=True, text=True, check=True).stdout.strip()
-    assert Path(loaded).resolve() == (ROOT / KS).resolve(), f"测试导入的 kbsync 不是 ROOT 下的那一份: {loaded}"
+    must(Path(loaded).resolve() == (ROOT / KS).resolve(), f"测试导入的 kbsync 不是 ROOT 下的那一份: {loaded}")
     only = [x for x in os.environ.get("PSF_MUT_ONLY", "").split(",") if x]
     unknown = sorted(set(only) - {m[0] for m in MUTATIONS})
-    assert not unknown, f"PSF_MUT_ONLY 里有不存在的编号: {unknown}"
+    must(not unknown, f"PSF_MUT_ONLY 里有不存在的编号: {unknown}")
     todo = [m for m in MUTATIONS if not only or m[0] in only]
+    must(bool(todo), "一个变异都没选上")
     files = sorted({m[1] for m in MUTATIONS})
     frozen = {f: (ROOT / f).read_bytes() for f in files}
     base = {f: sha(b) for f, b in frozen.items()}
-    assert len({m[0] for m in MUTATIONS}) == len(MUTATIONS), "变异编号重复"
+    must(len({m[0] for m in MUTATIONS}) == len(MUTATIONS), "变异编号重复")
     for f in files:
         print(f"FILE {f} sha256={base[f][:16]}")
     rc, summary, _failed, _why = run_tests()
@@ -212,18 +220,18 @@ def main() -> int:
     bad = []
     for mid, f, old, new, what, expected in todo:
         path = ROOT / f
-        assert sha(path.read_bytes()) == base[f], f"{mid}: {f} 与基线不符, 拒跑"
+        must(sha(path.read_bytes()) == base[f], f"{mid}: {f} 与基线不符, 拒跑")
         text = frozen[f].decode("utf-8")
-        assert text.count(old) == 1, f"{mid}: 原文出现 {text.count(old)} 次, 须恰好 1 次"
+        must(text.count(old) == 1, f"{mid}: 原文出现 {text.count(old)} 次, 须恰好 1 次")
         expected_text = text.replace(old, new)
         try:
             path.write_text(expected_text, encoding="utf-8")
             back = path.read_text(encoding="utf-8")
-            assert back == expected_text and sha(back.encode("utf-8")) != base[f], f"{mid}: 变异没打上"
+            must(back == expected_text and sha(back.encode("utf-8")) != base[f], f"{mid}: 变异没打上")
             rc, summary, failed, why = run_tests()
         finally:
             path.write_bytes(frozen[f])
-        assert sha(path.read_bytes()) == base[f], f"{mid}: 还原后 sha 不符"
+        must(sha(path.read_bytes()) == base[f], f"{mid}: 还原后 sha 不符")
         verdict = verdict_of(rc, summary, failed, expected)
         if verdict != "killed":
             bad.append(mid)
