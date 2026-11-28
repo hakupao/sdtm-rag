@@ -246,6 +246,8 @@ def test_an_unpinned_model_still_takes_its_price_from_the_old_chain(tmp_path, mo
 # Runs in a fresh interpreter with LITELLM_LOCAL_MODEL_COST_MAP=True: litellm then loads the price map
 # bundled in the wheel, the same map it falls back to when the fetch fails in a container without
 # network. An in-process test cannot show this: litellm reads the map once, at import.
+# The probe only calls what the code before this fix also had, so that the mutation run can put the
+# old files back and get the old refusal ("$0.700 > free pool / 10 = $0.300") instead of a crash.
 _PROBE = r'''
 import json, os, sys, tempfile, warnings
 warnings.filterwarnings("ignore")
@@ -254,7 +256,7 @@ from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map_sou
 import server.config as config                      # load_dotenv runs at import
 for k in [k for k in os.environ if k.upper().startswith("SDTM_RAG_")]:
     del os.environ[k]
-from server import instance, quota
+from server import cost, instance, quota
 out = {"map_source": get_model_cost_map_source_info()["source"], "cases": {}}
 for name, tier, model, max_out in json.loads(sys.argv[1]):
     bare = model.split("/", 1)[-1]
@@ -279,9 +281,11 @@ for name, tier, model, max_out in json.loads(sys.argv[1]):
         err = None
     except RuntimeError as e:
         err = str(e)
+    usage = {"prompt_tokens": 60000, "completion_tokens": 16000}
     out["cases"][name] = {"litellm_prices": litellm_prices, "startup_error": err,
                           "round_estimate": quota.round_estimate_usd(s, "m1"),
-                          "price_60k_16k": quota._price(s, model, 60000, 16000, reported=True)}
+                          "reserved_60k_16k": quota._price(s, model, 60000, 16000),
+                          "usage_cost_60k_16k": cost.estimate_cost(model, usage)}
 print("PROBE_JSON " + json.dumps(out))
 '''
 _CASES = [("public_haiku", "public", HAIKU, HAIKU_MAX_OUT),
@@ -311,14 +315,16 @@ def test_public_cost_check_passes_without_the_online_price_map(offline):
     c = offline["public_haiku"]
     assert c["startup_error"] is None
     assert c["round_estimate"] == pytest.approx(0.07)       # pinned upper tier, not the fallback 0.70
-    assert c["price_60k_16k"] == pytest.approx(0.014)
+    assert c["reserved_60k_16k"] == pytest.approx(0.07)
+    assert c["usage_cost_60k_16k"] == pytest.approx(0.014)  # 60000 x 0.10 + 16000 x 0.50
 
 
 def test_private_is_priced_the_same_without_the_online_price_map(offline):
     c = offline["private_haiku"]
     assert c["startup_error"] is None
     assert c["round_estimate"] == pytest.approx(0.07)
-    assert c["price_60k_16k"] == pytest.approx(0.014)
+    assert c["reserved_60k_16k"] == pytest.approx(0.07)
+    assert c["usage_cost_60k_16k"] == pytest.approx(0.014)
 
 
 def test_public_names_the_unpinned_model_without_the_online_price_map(offline):
@@ -330,4 +336,5 @@ def test_public_names_the_unpinned_model_without_the_online_price_map(offline):
 def test_private_keeps_the_fallback_rate_without_the_online_price_map(offline):
     c = offline["private_unpinned"]
     assert c["startup_error"] is None
-    assert c["price_60k_16k"] == pytest.approx(0.70)        # 60000 x 5 + 16000 x 25, as before
+    assert c["reserved_60k_16k"] == pytest.approx(0.70)     # 60000 x 5 + 16000 x 25, as before
+    assert c["usage_cost_60k_16k"] is None                  # the badge shows "—", as before

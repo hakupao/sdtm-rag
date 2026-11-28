@@ -118,6 +118,13 @@ kbsync 每次调用只接受一个数据根，复制和改名都在这个数据�
      `SDTM_RAG_STUDY_DOCS_COLLECTION_NAME` 配成了别的名字、公开 chroma 里又恰好有这个集合时，启动自检才会列出这样的名字；
      ② 路径里的目录名——启动自检发现研究数据目录时会把路径原样列出来，默认配置下路径里只有代号；③ 名字里带空白、引号、
      括号之类的分隔符（chromadb 不允许）。所以公开站的 `.env` 里不要设 `SDTM_RAG_STUDY_*` 这一组键（集合名和路径都不要）。
+   - **新增可选模型时必须同时固定价格**：公开站的每一个可选模型（公开站 `.env` 的 `SDTM_RAG_SELECTABLE_MODELS`）都要在
+     `server/cost.py` 的固定价格表 `_PRICES` 里有一行，数值取自服务商的官方定价页；价格按提示词长度分档的模型，高的那一档
+     写进同一个文件的 `_LONG_PROMPT_PRICES`。公开档不用 litellm 的价格表给可选模型定价（litellm 的在线价格表要联网才取得到，
+     临时容器没有网络）。表里没有的模型，公开档拒绝启动，报错里写明是哪一个
+     （`selectable model '<id>' (<模型串>): no pinned price`）：部署停在临时容器验收，公开站保持不变。
+     顺序：先加价格并合并，等带着新价格表的镜像部署到公开站，再改公开站 `.env` 里的可选模型——反过来做，正式容器下一次
+     重启时会拒绝启动。私有档没有这条要求。
    - 临时验收通过后做答题 key 的有效性探测：公开网络里的一次性容器，只调 Anthropic 的「列出模型」，不发答题请求；
      key 不进日志和命令行。该接口不产生 token，按此推断不计费（官方文档没有专门的计费条目）；它只验 key 是否有效，
      验不了额度。Anthropic 接口暂时不可用时这一项也会不通过。
@@ -244,6 +251,8 @@ chroma 副本 (旧代码只按绝对路径过滤 → 启动失败); 备份 `/Vol
   (`<旧前缀>` = 索引里 `source` 实际存的绝对 KB 根, 如 `/Volumes/DevSSD/Project/sdtm-pedia/knowledge_base`, **不是**新 KB 位置)。
   `python -m scripts.check_index_freshness` 会抽样报出这类索引 (BAD SOURCE PATHS)。
 - 画面 PDF 旁路 (`SDTM_RAG_PDF_CONTEXT_ENABLED`, 默认 false) 开着而 pdftoppm / 页索引 / PDF 缺失或 sha256 不符 ⇒ 启动失败; 键见 `.env.example` 末节。
+- 公开档报 `selectable model '<id>' (<模型串>): no pinned price` ⇒ 这个可选模型在 `server/cost.py` 的 `_PRICES` 里没有价格;
+  按上文「公开实例」里「新增可选模型时必须同时固定价格」那一条补上 (私有档不检查这一项)。
 - `.env` 写了旧变量名 `SDTM_RAG_KB_ROOT` / `SDTM_RAG_CHROMA_DIR` → 静默不生效, 须用 `*_OVERRIDE`; 路径类覆盖须是容器内路径 (`/app/...`)。
 
 ## 其他
