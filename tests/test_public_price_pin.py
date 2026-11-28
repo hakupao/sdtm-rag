@@ -407,6 +407,12 @@ def test_public_names_colliding_selectable_ids_instead_of_crashing(tmp_path):
         SelectableModel(id="light", label="L", model=HAIKU, verified=False, max_output_tokens=1000)]})
     err = _startup_error(bad)
     assert "selectable model ids ['light'] collide with the Router's internal groups" in err
+    # a clashing id next to a valid one: still the listed refusal (RuntimeError), not the ValueError the
+    # Router's fallback table raises when it is asked to estimate through such a list
+    mixed = s.model_copy(update={"selectable_models": [*s.selectable_models, *bad.selectable_models]})
+    err = _startup_error(mixed)
+    assert "selectable model ids ['light'] collide with the Router's internal groups" in err
+    assert "reserves" not in err
 
 
 # ── a pinned model never asks litellm ────────────────────────────────────
