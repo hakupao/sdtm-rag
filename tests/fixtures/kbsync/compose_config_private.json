@@ -1,0 +1,143 @@
+{
+  "name": "sdtm-rag",
+  "networks": {
+    "default": {
+      "name": "sdtm-rag_default",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "api": {
+      "restart": "unless-stopped",
+      "container_name": "sdtm-rag-api",
+      "command": null,
+      "entrypoint": null,
+      "image": "192.168.100.58/bojiang/sdtm-rag:x",
+      "mem_limit": "1610612736",
+      "networks": {
+        "default": null
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/Volumes/DevSSD/deploy-data/sdtm-rag/data",
+          "target": "/app/data",
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "/opt/sdtm-rag/.env",
+          "target": "/app/.env",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"
+        ],
+        "timeout": "5s",
+        "interval": "30s",
+        "retries": 3,
+        "start_period": "1m0s"
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "target": 8000,
+          "published": "8000",
+          "protocol": "tcp"
+        }
+      ]
+    },
+    "ui": {
+      "restart": "unless-stopped",
+      "container_name": "sdtm-rag-ui",
+      "command": [
+        "streamlit",
+        "run",
+        "ui/streamlit_app.py",
+        "--server.address",
+        "0.0.0.0",
+        "--server.port",
+        "8501",
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false"
+      ],
+      "entrypoint": null,
+      "environment": {
+        "SDTM_RAG_API_URL": "http://api:8000"
+      },
+      "image": "192.168.100.58/bojiang/sdtm-rag:x",
+      "mem_limit": "536870912",
+      "networks": {
+        "default": null
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/Volumes/DevSSD/deploy-data/sdtm-rag/data",
+          "target": "/app/data",
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "/opt/sdtm-rag/.env",
+          "target": "/app/.env",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ],
+      "depends_on": {
+        "api": {
+          "condition": "service_healthy",
+          "required": true
+        }
+      },
+      "ports": [
+        {
+          "mode": "ingress",
+          "target": 8501,
+          "published": "8501",
+          "protocol": "tcp"
+        }
+      ]
+    }
+  },
+  "x-common": {
+    "image": "192.168.100.58/bojiang/sdtm-rag:x",
+    "restart": "unless-stopped",
+    "volumes": [
+      {
+        "bind": {
+          "create_host_path": false
+        },
+        "source": "/Volumes/DevSSD/deploy-data/sdtm-rag/data",
+        "target": "/app/data",
+        "type": "bind"
+      },
+      {
+        "bind": {
+          "create_host_path": false
+        },
+        "read_only": true,
+        "source": "/opt/sdtm-rag/.env",
+        "target": "/app/.env",
+        "type": "bind"
+      }
+    ]
+  }
+}

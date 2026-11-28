@@ -76,27 +76,33 @@ jobs:
       - name: 登录镜像仓库
         env:
           REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+          ACTOR: ${{ gitea.actor }}
         run: |
           [ -n "$REGISTRY_TOKEN" ] || { echo "缺少仓库密钥 REGISTRY_TOKEN"; exit 1; }
-          echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "${{ gitea.actor }}" --password-stdin
+          echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$ACTOR" --password-stdin
 
       - name: 确定要部署的标签
         id: tag
-        # 手动输入经环境变量传入，不直接拼进脚本（防止命令注入），并且必须是 40 位 commit SHA
+        # 手动输入经环境变量传入，不直接拼进脚本（防止命令注入），并且必须是 40 位 commit SHA。
+        # 用 bash 的整串匹配：grep -x 是逐行匹配，多行输入里有一行合法就会放行，多出来的行还会写进 GITHUB_OUTPUT。
+        # 本 job 的 run 脚本里不出现 ${{ }}：表达式一律先放进 env，再按普通变量引用。
         env:
           INPUT_TAG: ${{ inputs.tag }}
+          SHA: ${{ gitea.sha }}
         run: |
           TAG="$INPUT_TAG"
-          [ -n "$TAG" ] || TAG="${{ gitea.sha }}"
-          printf '%s' "$TAG" | grep -Eqx '[0-9a-f]{40}' || { echo "标签必须是 40 位小写 commit SHA"; exit 1; }
+          [ -n "$TAG" ] || TAG="$SHA"
+          [[ "$TAG" =~ ^[0-9a-f]{40}$ ]] || { echo "标签必须是 40 位小写 commit SHA"; exit 1; }
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "部署标签：$TAG"
 
       - name: 构建并推送
         if: inputs.tag == ''
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          docker build -f deploy/container/Dockerfile -t "$IMAGE:${{ steps.tag.outputs.tag }}" .
-          docker push "$IMAGE:${{ steps.tag.outputs.tag }}"
+          docker build -f deploy/container/Dockerfile -t "$IMAGE:$TAG" .
+          docker push "$IMAGE:$TAG"
 
       - name: 记录当前线上镜像 (健康检查失败时退回)
         id: prev
@@ -147,6 +153,7 @@ jobs:
         id: deploy
         if: gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false'
         env:
+          TAG: ${{ steps.tag.outputs.tag }}
           DECISION: ${{ steps.kbcheck.outputs.decision }}
           FP: ${{ steps.kbcheck.outputs.fp }}
           CHROMA_V: ${{ steps.kbcheck.outputs.chromadb }}
@@ -155,14 +162,14 @@ jobs:
           echo "started=true" >> "$GITHUB_OUTPUT"
           # 挂载目标跟随镜像的 WorkingDir: step 1.5a 前 (monorepo 时代) 的镜像是
           # /Volumes/DevSSD/Project/sdtm-pedia/sdtm-rag, 之后是 /app —— 回滚旧镜像时 data/.env 才挂得对
-          APP_DIR=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMAGE:${{ steps.tag.outputs.tag }}")
+          APP_DIR=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMAGE:$TAG")
           [ -n "$APP_DIR" ] || APP_DIR=/app
           export APP_DIR
           echo "挂载目标目录：$APP_DIR"
           if [ "$DECISION" = swap ]; then
             # 依次停止服务、核对非 KB 集合、通过改名换入 chroma/meta（journal 记在数据根，失败处理步骤按 journal 退回）
-            IMAGE_TAG="${{ steps.tag.outputs.tag }}" docker compose -f deploy/container/compose.yml stop
-            IMG="$IMAGE:${{ steps.tag.outputs.tag }}"
+            IMAGE_TAG="$TAG" docker compose -f deploy/container/compose.yml stop
+            IMG="$IMAGE:$TAG"
             if ! python3 deploy/kbsync/kbsync.py deploy-swap --data-root "$DATA_ROOT" \
                 --image "$IMG" --target-fp "$FP" --chromadb-version "$CHROMA_V"; then
               # 换到一半失败（journal 存在）时，先退回数据，再启动原容器；如果数据未完全退回或无法判断 journal 状态，则不启动容器，转人工处理
@@ -178,7 +185,7 @@ jobs:
               exit 1
             fi
           fi
-          IMAGE_TAG="${{ steps.tag.outputs.tag }}" docker compose -f deploy/container/compose.yml up -d
+          IMAGE_TAG="$TAG" docker compose -f deploy/container/compose.yml up -d
           docker inspect sdtm-rag-api sdtm-rag-ui --format '{{.Name}} 运行镜像：{{.Config.Image}}'
 
       - name: 健康检查
@@ -247,32 +254,51 @@ jobs:
         run: docker logout "$REGISTRY" || true
 
   # 公开实例 (P3, deploy/container/compose.public.yml)。独立 job: 私有部署成功后才跑, 失败只影响公开实例,
-  # 不触发私有 job 的退回步骤。默认关闭: 仓库变量 SDTM_RAG_PUBLIC_DEPLOY=true 才启用 (3.3 公开数据根建好后)。
-  # 失败一律停掉公开实例 (失效安全: 公开站宁可下线, 也不以未验证的档位/数据对外), 不自动退回旧镜像。
+  # 不触发私有 job 的退回步骤。默认关闭: 仓库变量 SDTM_RAG_PUBLIC_DEPLOY=true 才启用。
+  # 流程 (编排在 deploy/kbsync/kbsync.py deploy-public, 有单测; 这里只接线):
+  #   0. 只读预检: 镜像下限 (拒绝隧道这一步之前的镜像, 判法见预检步骤); 公开网络的子网就是 compose 写定的那个; 网络隔离核对
+  #      (公开网络里的一次性容器连不上内网, 默认网桥上的对照容器连得上)。不通过 → 什么都不动。
+  #      红线检查: 线上的公开 chroma 里有 sdtm_kb_v1 以外的集合 → 先看 journal, 然后停站并失败 (不管这次换不换数据、有没有候选)。
+  #   1. 先用新镜像另起一个临时容器验收 (公开数据根的副本, 不联网、无端口, 另一个 compose 项目):
+  #      健康 / 档位 = public / 内部接口关闭 / 索引新鲜度。通过后再用公开网络里的一次性容器做答题 key 的有效性探测
+  #      (只列模型, 不产生 token)。任何一项不通过 → 正式容器和正式数据都不动, 旧版继续对外。
+  #   2. 通过后才动正式容器; 镜像 KB 指纹与公开 chroma 不同且有过闸的公开候选时, 停 → 换入 (--kb-only) → 起 → 复验。
+  #      公开 chroma 落后而没有候选 → 只告警并跳过 (公开实例不动)。
+  #   3. 动过正式容器之后的任何失败 → 停机, 数据按 journal 退回, 不自动退回旧镜像, 不启动任何东西。
+  #   4. 部署前就是停止的 (或容器不存在) → 更新数据和镜像, 保持停止; 启动需人工 docker start。
   deploy_public:
     needs: deploy
     if: gitea.ref == 'refs/heads/main' && vars.SDTM_RAG_PUBLIC_DEPLOY == 'true' && (gitea.event_name != 'workflow_dispatch' || format('{0}', inputs.deploy) != 'false')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       PUBLIC_DATA_ROOT: /Volumes/DevSSD/deploy-data/sdtm-rag-public/data
+      PUBLIC_ENV_FILE: /opt/sdtm-rag-public/.env
       COMPOSE_PUBLIC: deploy/container/compose.public.yml
+      COMPOSE_PRIVATE: deploy/container/compose.yml
       TAG: ${{ needs.deploy.outputs.tag }}
+      # 网络隔离核对用的目标 (口径与 docs/plans/P3_4_tunnel_drill.md 第 3 步一致; 演练时从清单里去掉的目标, 这里同步去掉)。
+      # 内网目标: 公开网桥的网关 / 虚拟机网卡 / Lima 宿主网关 / mini 在虚拟机网桥上的地址 / 局域网镜像仓库 / 私有站 docker 网络的网关
+      ISOLATION_PROBE: deploy/public-net/isolation_probe.py
+      ISOLATION_LAN: "10.201.8.1:22 192.168.5.15:22 192.168.5.15:8000 192.168.5.2:22 192.168.64.1:22 192.168.100.58:443 172.22.0.1:22"
+      ISOLATION_EGRESS: "api.anthropic.com:443 api.openai.com:443 region1.v2.argotunnel.com:7844"
     steps:
       - uses: actions/checkout@v4
 
       - name: 登录镜像仓库
         env:
           REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+          ACTOR: ${{ gitea.actor }}
         run: |
           [ -n "$REGISTRY_TOKEN" ] || { echo "缺少仓库密钥 REGISTRY_TOKEN"; exit 1; }
-          echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "${{ gitea.actor }}" --password-stdin
+          echo "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$ACTOR" --password-stdin
 
       # 只读: 此时公开实例未改动
-      - name: 公开实例预检
+      - name: 公开实例预检 (镜像)
         id: pre
         run: |
-          printf '%s' "$TAG" | grep -Eqx '[0-9a-f]{40}' || { echo "标签必须是 40 位小写 commit SHA"; exit 1; }
+          # 整串匹配 (grep -x 是逐行匹配, 多行输入里有一行合法就会放行)
+          [[ "$TAG" =~ ^[0-9a-f]{40}$ ]] || { echo "标签必须是 40 位小写 commit SHA"; exit 1; }
           IMG="$IMAGE:$TAG"
           docker pull "$IMG"
           # P2 之前的镜像不认识 SDTM_RAG_INSTANCE, 会以私有档全功能对外 → 拒绝 (回滚旧 tag 时也走这里)
@@ -283,58 +309,30 @@ jobs:
             || { echo "镜像在 SDTM_RAG_INSTANCE=public 下解析出的档位不是 public"; exit 1; }
           WD=$(docker image inspect -f '{{.Config.WorkingDir}}' "$IMG")
           [ "$WD" = /app ] || { echo "镜像 WorkingDir=$WD，compose.public.yml 只支持 /app"; exit 1; }
-          FP=$(python3 deploy/kbsync/kbsync.py image-fp --image "$IMG")
-          CHROMA_V=$(python3 deploy/kbsync/kbsync.py chromadb-version --image "$IMG")
-          OUT=$(python3 deploy/kbsync/kbsync.py --via "$IMG" predeploy-check --data-root "$PUBLIC_DATA_ROOT" \
-            --target-fp "$FP" --chromadb-version "$CHROMA_V")
-          echo "$OUT"
-          DECISION=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["decision"])')
-          # 公开 chroma 的 KB 更新流程未定 (见 .work/10_split_and_public/_progress.json); 指纹不一致就不部署
-          # 只告警不失败: 否则私有 KB 升级后每次 run 都红, 真失败被淹没。公开实例保持旧镜像
-          if [ "$DECISION" != same ]; then
-            echo "::warning::公开 chroma 与镜像 KB 指纹不一致 ($DECISION)，跳过公开实例部署 (公开实例未改动)"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
+          # 镜像下限 (隧道那条线的 deploy/public-net/image_floor_check.py, 经标准输入送进待部署的镜像; 用 tag 回滚到旧镜像时也走这里)。
+          # 脚本看 server.auth.PUBLIC_EDGE_LEVEL >= 1, 再实际调一次「可信代理必须是单主机」的检查。
+          # 合格 = 退出码 0 并且标准输出恰好是 image-floor: ok, 两样都要核对: 漏写 -i 时脚本没送进去, python 读到空输入也以 0 退出。
+          out=$(docker run --rm -i --entrypoint python "$IMG" - < deploy/public-net/image_floor_check.py) \
+            && [ "$out" = "image-floor: ok" ] || { echo "镜像下限预检未通过"; exit 1; }
 
-      - name: 部署公开实例
+      # 公开实例不发布宿主端口 → 验收全部走容器健康状态 + docker exec
+      - name: 临时容器验收，通过后才换正式容器
         id: deploy
-        if: steps.pre.outputs.skip != 'true'
         run: |
-          echo "started=true" >> "$GITHUB_OUTPUT"
-          IMAGE_TAG="$TAG" docker compose -f "$COMPOSE_PUBLIC" up -d
-          docker inspect sdtm-rag-public-api --format '{{.Name}} 运行镜像：{{.Config.Image}}'
+          python3 deploy/kbsync/kbsync.py deploy-public --data-root "$PUBLIC_DATA_ROOT" --env-file "$PUBLIC_ENV_FILE" \
+            --compose-file "$COMPOSE_PUBLIC" --private-compose-file "$COMPOSE_PRIVATE" \
+            --image "$IMAGE:$TAG" --tag "$TAG" --touched-file .public_touched \
+            --isolation-probe "$ISOLATION_PROBE" --isolation-lan "$ISOLATION_LAN" --isolation-egress "$ISOLATION_EGRESS"
 
-      # 公开实例不发布宿主端口 → 用容器健康状态 + docker exec 验
-      - name: 公开实例验收 (健康 / 档位 / 内部接口关闭 / 索引新鲜度)
-        if: steps.pre.outputs.skip != 'true'
-        run: |
-          for i in $(seq 1 60); do
-            st=$(docker inspect -f '{{.State.Health.Status}}' sdtm-rag-public-api 2>/dev/null || true)
-            [ "$st" = healthy ] && break
-            sleep 3
-          done
-          [ "$st" = healthy ] || { echo "公开实例未就绪 ($st)"; docker logs --tail 80 sdtm-rag-public-api; exit 1; }
-          docker exec sdtm-rag-public-api python -c '
-          import json, sys, urllib.request, urllib.error
-          base = "http://127.0.0.1:8000"
-          info = json.load(urllib.request.urlopen(base + "/api/info", timeout=5))
-          if info.get("tier") != "public":
-              sys.exit("tier != public")
-          try:
-              urllib.request.urlopen(base + "/openapi.json", timeout=5)
-              sys.exit("/openapi.json 未关闭")
-          except urllib.error.HTTPError as e:
-              if e.code != 404:
-                  sys.exit(f"/openapi.json 返回 {e.code}")
-          print("tier=public, /openapi.json 404")
-          '
-          docker exec sdtm-rag-public-api python -m scripts.check_index_freshness
+      # 兜底 (job 被取消 / 超时, 或上一步异常退出): 正式容器已被动过才停, 只停机不碰数据; 残留 journal 由下次预检拦住。
+      # 必须排在清理步骤之前: 清理失败不应该导致停机。
+      - name: 中断时停掉已被动过的公开实例
+        if: failure() || cancelled()
+        run: python3 deploy/kbsync/kbsync.py public-abort --compose-file "$COMPOSE_PUBLIC" --touched-file .public_touched
 
-      - name: 失败时停掉公开实例
-        if: (failure() || cancelled()) && steps.deploy.outputs.started == 'true'
-        run: |
-          IMAGE_TAG=x docker compose -f "$COMPOSE_PUBLIC" stop || true
-          echo "公开实例已停止 (公开站下线, 私有实例不受影响)；排查后手动重新部署"
+      - name: 清理临时容器与验收副本
+        if: always() && steps.pre.outcome == 'success'
+        run: python3 deploy/kbsync/kbsync.py accept-down --data-root "$PUBLIC_DATA_ROOT" --image "$IMAGE:$TAG"
 
       - name: 退出镜像仓库
         if: always()

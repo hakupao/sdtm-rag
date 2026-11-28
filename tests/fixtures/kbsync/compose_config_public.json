@@ -1,0 +1,56 @@
+{
+  "name": "sdtm-rag-public",
+  "networks": {
+    "public": {
+      "name": "sdtm-rag-public",
+      "ipam": {}
+    }
+  },
+  "services": {
+    "api": {
+      "restart": "unless-stopped",
+      "container_name": "sdtm-rag-public-api",
+      "command": null,
+      "entrypoint": null,
+      "environment": {
+        "SDTM_RAG_INSTANCE": "public"
+      },
+      "image": "192.168.100.58/bojiang/sdtm-rag:abc",
+      "mem_limit": "1610612736",
+      "networks": {
+        "public": null
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "/Volumes/DevSSD/deploy-data/sdtm-rag-public/data",
+          "target": "/app/data",
+          "bind": {
+            "create_host_path": false
+          }
+        },
+        {
+          "type": "bind",
+          "source": "/opt/sdtm-rag-public/.env",
+          "target": "/app/.env",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"
+        ],
+        "timeout": "5s",
+        "interval": "30s",
+        "retries": 3,
+        "start_period": "1m0s"
+      }
+    }
+  }
+}

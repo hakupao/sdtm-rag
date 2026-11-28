@@ -1,8 +1,17 @@
 # KB→RAG 同步（P1 step 1.9）：每天检测 A 仓（hakupao/sdtm-pedia）最新 kb-* tag 的 KB 指纹。
-# 如果与生产 chroma stamp 不同，就在生产数据副本上入库并运行 CDISC 140 题闸（逐题回退不超过 1 题）；
+# 如果与数据根里 chroma 的 stamp 不同，就在该数据根的数据副本上入库并运行 CDISC 140 题闸（逐题回退不超过 1 题）；
 # 通过闸的候选目录保留在数据根，等「KB 更新」（本地升级 submodule 并 push）触发部署时，由 sdtm-rag.yml 换入。
-# 本工作流不修改 main，也不改动生产目录。
-# 编排脚本为 deploy/kbsync/kbsync.py（只用标准库，不打进镜像）；设计见 .work/10_split_and_public/evidence/checkpoints/p1_step1.9_design.md
+# 本工作流不修改 main，也不改动线上目录。
+#
+# 两条腿、两个 job（P3）：private（私有数据根）→ public（公开数据根）。
+#   - 公开腿排在私有腿之后串行执行；私有腿失败不挡公开腿（always()），公开腿失败不影响私有腿。
+#   - 公开腿由仓库变量 SDTM_RAG_PUBLIC_DEPLOY=true 启用（与公开部署同一个变量，默认关）。
+#   - 每条腿只读写自己的数据根：公开候选由公开数据根自身的 chroma 复制后重建，没有从私有数据根到公开数据根的数据通道。
+#   - 候选镜像：每条腿需要时各自构建、结束时各自删除（成功失败都删）。与设计 v0.2 第 5 条「只构建一次」的已知出入，协调方接受。
+#     两条腿是同一次运行、同一个提交的 checkout，镜像标签是 KB 指纹的前 12 位：标签相同 ⇒ 仓库提交相同、KB 内容相同 ⇒ 镜像内容相同
+#     （第二次构建通常命中层缓存）。两条腿解析到不同的 KB 时指纹不同，标签也不同，不会混用。
+# 编排脚本为 deploy/kbsync/kbsync.py（只用标准库，不打进镜像）；设计见 .work/10_split_and_public/evidence/checkpoints/
+# p1_step1.9_design.md 与 p3_public_kb_update_design.md
 name: kb-sync
 on:
   schedule:
@@ -13,6 +22,10 @@ on:
         description: "A 仓 KB tag（kb-YYYY.MM.DD）或 40 位 commit；留空时使用最新的 kb-* tag"
         required: false
         default: ""
+      public_baseline_image:
+        description: "仅公开腿：人工指定基线镜像（完整引用，须已在部署机本地；镜像内 KB 指纹必须等于公开 chroma 的 stamp）。留空 = 自动选"
+        required: false
+        default: ""
 
 # 与部署使用同一并发组：候选入库期间不部署，部署期间不构建候选
 concurrency:
@@ -20,15 +33,16 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DATA_ROOT: /Volumes/DevSSD/deploy-data/sdtm-rag/data
-  ENV_FILE: /opt/sdtm-rag/.env
   KB_REPO: https://github.com/hakupao/sdtm-pedia
 
 jobs:
-  kbsync:
+  private:
     runs-on: ubuntu-latest
     if: gitea.ref == 'refs/heads/main'
     timeout-minutes: 90
+    env:
+      DATA_ROOT: /Volumes/DevSSD/deploy-data/sdtm-rag/data
+      ENV_FILE: /opt/sdtm-rag/.env
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,8 +57,9 @@ jobs:
           if [ -z "$REF" ]; then
             REF=$(git ls-remote --tags --refs "$KB_REPO" 'kb-*' | sed 's#.*refs/tags/##' | sort -V | tail -1)
           fi
-          printf '%s' "$REF" | grep -Eqx 'kb-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?|[0-9a-f]{40}' \
-            || { echo "ref 格式错误（应为 kb-YYYY.MM.DD 或 40 位 commit）：'$REF'"; exit 1; }
+          # 整串匹配（grep -x 是逐行匹配，多行输入里有一行合法就会放行）
+          [[ "$REF" =~ ^(kb-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?|[0-9a-f]{40})$ ]] \
+            || { echo "ref 格式错误（应为 kb-YYYY.MM.DD 或 40 位 commit）"; exit 1; }
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
           echo "KB ref：$REF"
 
@@ -102,6 +117,149 @@ jobs:
           python3 deploy/kbsync/kbsync.py candidate --data-root "$DATA_ROOT" --fp "$FP" \
             --ref "$REF" --a-commit "$A_COMMIT" --prod-image "$PROD_IMAGE" \
             --cand-image "sdtm-rag-kbcand:${FP:0:12}" --env-file "$ENV_FILE" --max-regressions 1
+
+      - name: 删除候选镜像
+        if: always() && steps.detect.outputs.result == 'changed'
+        env:
+          FP: ${{ steps.kb.outputs.fp }}
+        run: docker rmi "sdtm-rag-kbcand:${FP:0:12}" || true
+
+  # 公开数据根（P3）。与私有腿相同的代码路径（kbsync.py candidate），不同之处：
+  #   - 路径一致性断言：数据根 / env 文件必须就是 compose.public.yml 的挂载源，且与私有挂载源不重叠；
+  #   - 基线镜像按顺序取第一个配对的（公开容器的镜像 → 私有线上镜像）；配对 = 镜像内 KB 指纹等于公开 chroma 的 stamp；
+  #   - 建候选前先检查 embedding key（公开站用自己的 key）：无效或额度用尽 → 本 job 失败并写明原因；
+  #   - --kb-only：候选集合必须恰为 sdtm_kb_v1，否则按违规归档。
+  # 本 job 任何一步失败都是红的（不降级成告警）；失败只影响公开站的候选，公开站与私有站都保持原样。
+  public:
+    needs: private
+    if: always() && gitea.ref == 'refs/heads/main' && vars.SDTM_RAG_PUBLIC_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      DATA_ROOT: /Volumes/DevSSD/deploy-data/sdtm-rag-public/data
+      ENV_FILE: /opt/sdtm-rag-public/.env
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: 确定 KB ref
+        id: ref
+        env:
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          REF="$INPUT_REF"
+          if [ -z "$REF" ]; then
+            REF=$(git ls-remote --tags --refs "$KB_REPO" 'kb-*' | sed 's#.*refs/tags/##' | sort -V | tail -1)
+          fi
+          # 整串匹配（grep -x 是逐行匹配，多行输入里有一行合法就会放行）
+          [[ "$REF" =~ ^(kb-[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?|[0-9a-f]{40})$ ]] \
+            || { echo "ref 格式错误（应为 kb-YYYY.MM.DD 或 40 位 commit）"; exit 1; }
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "KB ref：$REF"
+
+      - name: 拉取 KB 并计算指纹
+        id: kb
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          if printf '%s' "$REF" | grep -Eqx '[0-9a-f]{40}'; then
+            git -C vendor/sdtm-pedia fetch --depth 1 origin "$REF"
+          else
+            git -C vendor/sdtm-pedia fetch --depth 1 origin tag "$REF"
+          fi
+          git -C vendor/sdtm-pedia checkout --detach FETCH_HEAD
+          A_COMMIT=$(git -C vendor/sdtm-pedia rev-parse HEAD)
+          FP=$(python3 deploy/kbsync/kbsync.py fingerprint --kb-root vendor/sdtm-pedia/knowledge_base)
+          printf '%s' "$FP" | grep -Eqx '[0-9a-f]{64}' || { echo "指纹计算失败"; exit 1; }
+          PROD_IMAGE=$(docker inspect sdtm-rag-api --format '{{.Config.Image}}')
+          [ -n "$PROD_IMAGE" ] || { echo "未找到线上容器 sdtm-rag-api"; exit 1; }
+          { echo "a_commit=$A_COMMIT"; echo "fp=$FP"; echo "prod_image=$PROD_IMAGE"; } >> "$GITHUB_OUTPUT"
+          echo "A 仓 commit：$A_COMMIT；KB 指纹：${FP:0:12}；线上镜像：$PROD_IMAGE"
+
+      # 只读：先确认要操作的确实是公开数据根，再让任何容器挂载它
+      - name: 路径一致性断言
+        run: |
+          python3 deploy/kbsync/kbsync.py paths-check --data-root "$DATA_ROOT" --env-file "$ENV_FILE" \
+            --compose-file deploy/container/compose.public.yml --private-compose-file deploy/container/compose.yml
+
+      - name: 检测
+        id: detect
+        env:
+          FP: ${{ steps.kb.outputs.fp }}
+          PROD_IMAGE: ${{ steps.kb.outputs.prod_image }}
+        run: |
+          OUT=$(python3 deploy/kbsync/kbsync.py --via "$PROD_IMAGE" detect --data-root "$DATA_ROOT" --fp "$FP")
+          echo "$OUT"
+          RESULT=$(printf '%s' "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"])')
+          echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+          case "$RESULT" in
+            journal_pending) echo "公开数据根残留 kbsync_swap.json（上次公开部署的换数据未完成收尾），不构建候选；请先人工执行 restore 或 finish"; exit 1 ;;
+            same) echo "no-op：公开 chroma 已是该 KB 指纹" ;;
+            gated) echo "no-op：该指纹已有过闸的公开候选（chroma_cand_${FP:0:12}），等待下一次公开部署时换入" ;;
+            changed) echo "KB 指纹与公开 chroma 不同，开始构建公开候选并运行闸" ;;
+            *) echo "未知检测结果 $RESULT"; exit 1 ;;
+          esac
+
+      - name: 构建候选镜像（仅本机，不推送）
+        if: steps.detect.outputs.result == 'changed'
+        env:
+          FP: ${{ steps.kb.outputs.fp }}
+        run: docker build -f deploy/container/Dockerfile -t "sdtm-rag-kbcand:${FP:0:12}" .
+
+      - name: 检查公开站的 embedding key
+        if: steps.detect.outputs.result == 'changed'
+        env:
+          FP: ${{ steps.kb.outputs.fp }}
+        run: python3 deploy/kbsync/kbsync.py key-check --image "sdtm-rag-kbcand:${FP:0:12}" --env-file "$ENV_FILE"
+
+      - name: 选基线镜像（镜像内 KB 指纹必须等于公开 chroma 的 stamp）
+        id: base
+        if: steps.detect.outputs.result == 'changed'
+        env:
+          PROD_IMAGE: ${{ steps.kb.outputs.prod_image }}
+          MANUAL_BASE: ${{ inputs.public_baseline_image }}
+        run: |
+          if [ -n "$MANUAL_BASE" ]; then
+            # 人工指定：只认这一个镜像，守卫照旧（不配对就失败，不回落到自动选）。
+            # 只接受本仓镜像仓库里按 commit 打标签的镜像，且必须已在部署机本地：基线镜像会挂载公开数据根和公开 env 文件
+            [[ "$MANUAL_BASE" =~ ^192\.168\.100\.58/bojiang/sdtm-rag:[0-9a-f]{40}$ ]] \
+              || { echo "public_baseline_image 必须是 192.168.100.58/bojiang/sdtm-rag:<40 位 commit SHA>"; exit 1; }
+            docker image inspect "$MANUAL_BASE" >/dev/null 2>&1 || { echo "public_baseline_image 不在部署机本地"; exit 1; }
+            echo "人工指定的基线镜像：$MANUAL_BASE"
+            BASE=$(python3 deploy/kbsync/kbsync.py baseline-image --data-root "$DATA_ROOT" --via-image "$PROD_IMAGE" --images "$MANUAL_BASE")
+          else
+            PUBLIC_IMAGE=$(docker inspect --type container sdtm-rag-public-api --format '{{.Config.Image}}' 2>inspect.err || true)
+            # 「容器不存在」是正常情况（基线从私有线上镜像里选）；docker 报的是别的错就失败，不悄悄少一个候选
+            if [ -z "$PUBLIC_IMAGE" ] && ! grep -Eqi 'no such (container|object)' inspect.err; then
+              echo "查不出公开容器的镜像（不是「容器不存在」）："; cat inspect.err; exit 1
+            fi
+            # 公开容器的镜像也只认本仓镜像仓库里按 commit 打标签的；不是就不当候选
+            if [ -n "$PUBLIC_IMAGE" ] && ! [[ "$PUBLIC_IMAGE" =~ ^192\.168\.100\.58/bojiang/sdtm-rag:[0-9a-f]{40}$ ]]; then
+              echo "公开容器的镜像不是本仓镜像仓库里按 commit 打标签的镜像，不作基线候选"; PUBLIC_IMAGE=""
+            fi
+            echo "公开容器镜像：${PUBLIC_IMAGE:-无}；私有线上镜像：$PROD_IMAGE"
+            BASE=$(python3 deploy/kbsync/kbsync.py baseline-image --data-root "$DATA_ROOT" --via-image "$PROD_IMAGE" --images "$PUBLIC_IMAGE" "$PROD_IMAGE")
+          fi
+          [ -n "$BASE" ] || { echo "没有选出基线镜像"; exit 1; }
+          # 之后一律按镜像 ID 使用：同一个标签在这期间被改指或被删，也不会换成别的镜像、不会触发拉取
+          BASE_ID=$(docker image inspect -f '{{.Id}}' "$BASE")
+          [[ "$BASE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "取不到基线镜像的 ID"; exit 1; }
+          { echo "image=$BASE_ID"; echo "ref=$BASE"; } >> "$GITHUB_OUTPUT"
+          echo "基线镜像：$BASE（$BASE_ID）"
+
+      - name: 公开候选入库并运行 CDISC 闸
+        if: steps.detect.outputs.result == 'changed'
+        env:
+          FP: ${{ steps.kb.outputs.fp }}
+          REF: ${{ steps.ref.outputs.ref }}
+          A_COMMIT: ${{ steps.kb.outputs.a_commit }}
+          BASE_IMAGE: ${{ steps.base.outputs.image }}
+          BASE_REF: ${{ steps.base.outputs.ref }}
+        run: |
+          python3 deploy/kbsync/kbsync.py candidate --data-root "$DATA_ROOT" --fp "$FP" \
+            --ref "$REF" --a-commit "$A_COMMIT" --prod-image "$BASE_IMAGE" --prod-image-ref "$BASE_REF" \
+            --cand-image "sdtm-rag-kbcand:${FP:0:12}" --env-file "$ENV_FILE" --max-regressions 1 --kb-only
 
       - name: 删除候选镜像
         if: always() && steps.detect.outputs.result == 'changed'

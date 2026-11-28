@@ -44,12 +44,24 @@ def test_public_job_gated_and_separate():
     assert "refs/heads/main" in job["if"]
     runs = "\n".join(s.get("run", "") for s in job["steps"])
     assert "import server.instance" in runs  # 拒绝 P2 前镜像
-    assert 'info.get("tier") != "public"' in runs
     assert "Settings().instance == 'public'" in runs
-    assert "compose.yml" not in runs.replace("compose.public.yml", "")  # 不碰私有 compose
+    assert "compose.yml" not in runs.replace("compose.public.yml", "")  # 私有 compose 只经 env 传给路径一致性断言
     assert "inputs.deploy" in job["if"]  # 只构建模式不跑
-    stop = next(s for s in job["steps"] if "stop" in s.get("run", "") and "if" in s)
+    # 验收与失败停机在 deploy/kbsync/kbsync.py deploy-public 里 (tests/test_kbsync_deploy_public.py);
+    # workflow 只留取消 / 超时的兜底
+    assert "kbsync.py deploy-public" in runs
+    stop = next(s for s in job["steps"] if "public-abort" in s.get("run", ""))
     assert "cancelled()" in stop["if"] and "failure()" in stop["if"]
+
+
+def test_public_acceptance_script_checks_tier_and_closed_internals():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("kbsync", ROOT / "deploy/kbsync/kbsync.py")
+    ks = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ks)
+    assert 'info.get("tier") != "public"' in ks.ACCEPT_PY and '"/openapi.json"' in ks.ACCEPT_PY
+    assert "e.code != 404" in ks.ACCEPT_PY
 
 
 def test_instance_env_case_variant_conflict_refused():

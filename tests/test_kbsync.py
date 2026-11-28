@@ -359,19 +359,30 @@ class FakeDocker(ks.Docker):
                  crash_cmd=None):
         self.D, self.cand_scores, self.ingest_fp = D, cand_scores or dict(BASE), ingest_fp
         self.crash_cmd = crash_cmd
+        self.crash_stderr = b"RuntimeError: VARIABLE_INDEX section map"
         self.col_dirs: list[Path] = []
         self.fail_fs: set[str] = set()
         self.cols = collections or {}
         self.image_fp_out = image_fp_out
+        self.image_fps: dict[str, str] = {}      # 镜像 → 镜像内 KB 指纹 (优先于 image_fp_out)
+        self.absent_images: set[str] = set()     # 不在本机的镜像 (image inspect rc != 0)
+        self.key_results: list[tuple[int, str]] = []
+        self.compose_models: dict[str, dict] = {}  # compose 文件名 → `compose config --format json` 的结果
         self.calls: list[list[str]] = []
+        self.envs: list[dict | None] = []
 
     def _ok(self, out: str = "", rc: int = 0):
         return subprocess.CompletedProcess([], rc, out.encode(), b"")
 
-    def run(self, args, *, input=None):
+    def run(self, args, *, input=None, env=None):
         self.calls.append(args)
+        self.envs.append(env)
         if args[:2] == ["image", "inspect"]:
-            return self._ok("/app\n")
+            return self._ok("", 1) if args[-1] in self.absent_images else self._ok("/app\n")
+        if args[0] == "compose" and "config" in args:
+            name = Path(args[args.index("-f") + 1]).name
+            assert env and env.get("IMAGE_TAG"), "compose config 需要 IMAGE_TAG"
+            return self._ok(json.dumps(self.compose_models[name])) if name in self.compose_models else self._ok("", 1)
         if "-i" in args and "-" in args:  # --via: 本进程内跑文件系统子命令
             fs = args[args.index("-") + 1:]
             if fs[0] in self.fail_fs:  # 先真跑 (留下半成品), 再报错
@@ -387,13 +398,24 @@ class FakeDocker(ks.Docker):
             return self._ok(buf.getvalue(), rc)
         if "-c" in args and args[args.index("-c") + 1] == ks.COLLECTIONS_PY:
             src = Path(next(a for a in args if a.startswith("type=bind,src=")).split(",")[1][4:])
-            assert src.parent.name.startswith("kbsync_guard_"), f"集合核对必须在副本上: {src}"
+            image = args[args.index("-c") - 1]
+            # 只许打开副本 (guard 副本 / 公开部署的验收副本); 例外: kb-only 用候选镜像打开它自己刚写出的候选目录
+            staged = src.parent.parent.name.startswith(ks.ACCEPT_PREFIX)
+            assert src.parent.name.startswith("kbsync_guard_") or staged or (
+                src.name.startswith("chroma_cand_") and image == "cand:1"), f"集合核对必须在副本上: {src}"
             self.col_dirs.append(src)
-            return self._ok(json.dumps(self.cols[src.name]))
+            cols = self.cols["stage" if staged else src.name]
+            return self._ok(json.dumps(cols)) if cols is not None else self._ok("", 1)
         if "-c" in args and args[args.index("-c") + 1] == ks.CHROMADB_VERSION_PY:
             return self._ok(CV + "\n")
         if "-c" in args and args[args.index("-c") + 1] == ks.IMAGE_FP_PY:
+            image = args[args.index("-c") - 1]
+            if image in self.image_fps:
+                return self._ok(self.image_fps[image] + "\n")
             return self._ok(self.image_fp_out) if self.image_fp_out else self._ok("", 1)
+        if "-c" in args and args[args.index("-c") + 1] == ks.KEY_CHECK_PY:
+            rc, out = self.key_results.pop(0)
+            return subprocess.CompletedProcess([], rc, out.encode(), b"Incorrect API key provided: sk-proj-****abcd")
         specs = [dict(kv.partition("=")[::2] for kv in args[i + 1].split(",")) for i, a in enumerate(args)
                  if a == "--mount"]
         mounts = {m["dst"]: m["src"] for m in specs}
@@ -403,7 +425,7 @@ class FakeDocker(ks.Docker):
         assert chroma.name.startswith("chroma_cand_"), chroma
         cmd = args[args.index("-m") + 1]
         if self.crash_cmd and self.crash_cmd(args):
-            return subprocess.CompletedProcess([], 1, b"", b"RuntimeError: VARIABLE_INDEX section map")
+            return subprocess.CompletedProcess([], 1, b"", self.crash_stderr)
         if cmd == "eval.run_eval":
             out = args[args.index("--output") + 1]
             target = chroma / Path(out).relative_to("data/chroma")

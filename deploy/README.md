@@ -59,6 +59,59 @@ push 到 Gitea `main` (路径过滤见 workflow) → 自动部署, 镜像标签 
 3. 人工排查：`python3 deploy/kbsync/kbsync.py --via <镜像> detect|predeploy-check|swap-status --data-root <数据根> ...`
    （job 容器无法访问数据根，所有文件操作都在兄弟容器中执行）。
 
+### 公开实例（P3；仓库变量 `SDTM_RAG_PUBLIC_DEPLOY=true` 时才启用，默认关）
+
+公开数据根 `deploy-data/sdtm-rag-public/data`，目录约定同上表。公开 chroma 只含 `sdtm_kb_v1`，**唯一来源是公开数据根自身**：
+kbsync 每次调用只接受一个数据根，复制和改名都在这个数据根之内，没有从私有数据根到公开数据根的数据通道。
+
+1. **kb-sync 公开腿**（`kb-sync.yml` 的 `public` job，排在私有腿之后；私有腿失败不挡它，它失败也不影响私有腿）。
+   与私有腿走同一段代码（`kbsync.py candidate`），另加：
+   - 路径一致性断言：数据根和 env 文件必须就是 `compose.public.yml` 的挂载源，且与私有 compose 的挂载源不重叠；
+   - embedding key 检查（公开站用自己的 OpenAI key）：key 无效或额度用尽时 job 失败，日志写明类别；
+   - 基线镜像：公开容器的镜像优先，容器不存在时用私有线上镜像；**镜像内 KB 指纹必须等于公开 chroma 的 stamp**，
+     否则不用它（基线评测用镜像自带的题集和 KB，不配对会让闸变松）。两个都不配对时 job 失败——手动运行 kb-sync，
+     在 `public_baseline_image` 里填一个配对的镜像：只接受本仓镜像仓库里按 commit 打标签的镜像
+     （`<镜像仓库>/sdtm-rag:<40 位 SHA>`），且须已在部署机本地；通常是上一次成功部署到公开站的镜像。不在本机的镜像一律不用；
+   - `--kb-only`：候选建完、过闸之前，集合必须恰为 `sdtm_kb_v1`，否则以 `kb_only_violation` 归档。
+   公开腿任何一步失败，job 都是红的；公开站保持旧镜像和旧数据。失败归档（`chroma_failed_*`）原地保留。
+   **候选镜像（与设计 v0.2 第 5 条「只构建一次」的已知出入，协调方接受）**：没有单独的构建 / 清理 job，两条腿需要时各自
+   `docker build`、结束时各自删除自己构建的镜像（成功失败都删）。不会出现两条腿用了不同镜像的情况：两条腿是同一次运行、
+   同一个提交的 checkout，镜像标签是 KB 指纹的前 12 位——标签相同就意味着仓库提交相同、KB 内容相同，构建出来的镜像内容
+   相同（第二次构建通常直接命中层缓存）；两条腿解析到不同的 KB 时指纹不同、标签也不同，各用各的。
+   运行被取消、或删除时镜像还被占用的话，候选镜像可能残留，人工清理：`docker images sdtm-rag-kbcand`，再逐个 `docker rmi`。
+2. **公开部署**（`sdtm-rag.yml` 的 `deploy_public` job，编排在 `kbsync.py deploy-public`）：
+   - **红线检查**：先在副本上读线上公开 chroma 的集合。发现 `sdtm_kb_v1` 以外的集合 → 先看 journal（有残留或判不出就保持
+     现状并失败），否则**停掉公开站**并失败——不管这次换不换数据，也不管有没有候选（排在「缺候选就跳过」之前）。
+     失败信息会列出发现了哪些集合（只有本仓约定的代号形态 `study_st<数字>…` / `sdtm_…` 原样写出，其余的名字只写指纹和长度）。
+     这是故意偏严的检查：将来正当新增一个 KB 集合也会触发，那时要改 `deploy/kbsync/kbsync.py` 的 `KB_COLLECTION` 及其测试，
+     并核对 `server/instance.py` 的 `check_chroma`。处理完之后重新运行 `sdtm-rag` 工作流，再人工 `docker start`。
+   - 只读预检，不通过就什么都不动：镜像下限（隧道这一步之前的镜像没有公开档的 HSTS，拒绝；用 tag 回滚到旧镜像时也会被拒）；
+     公开网络 `sdtm-rag-public` 的子网必须是 compose 里写定的那个（不是就先做网络重建，见
+     `docs/plans/P3_4_tunnel_drill.md` 第 2 步）；网络隔离核对（公开网络里的一次性容器连不上内网、默认网桥上的对照容器
+     连得上，由 `deploy/public-net/isolation_probe.py judge` 判定；目标清单在 `sdtm-rag.yml` 的 `ISOLATION_LAN` /
+     `ISOLATION_EGRESS`，与演练第 3 步保持一致）。
+   - 再用新镜像起一个**临时容器**验收：数据是公开数据根的副本（放在数据根的上一级 `kbsync_accept_<ts>/`，只含 chroma 和
+     meta，不含 `quota.sqlite`；有过闸候选要换入时用候选的副本），另一个 compose 项目，**没有网络**（`network_mode: none`，
+     不加入公开网络）、无端口；环境变量照抄 compose。验收项：健康、档位 = public、内部接口关闭、`check_index_freshness`、
+     集合恰为 `sdtm_kb_v1`。
+   - 临时验收通过后做答题 key 的有效性探测：公开网络里的一次性容器，只调 Anthropic 的「列出模型」，不发答题请求；
+     key 不进日志和命令行。该接口不产生 token，按此推断不计费（官方文档没有专门的计费条目）；它只验 key 是否有效，
+     验不了额度。Anthropic 接口暂时不可用时这一项也会不通过。
+   - **预检、临时验收、key 探测任何一项不过**：正式容器和正式数据都不动，旧版继续对外。成功和失败都会清掉临时容器和副本。
+   - 验收通过后才动正式容器。镜像 KB 指纹与公开 chroma 不同时：先在副本上做换入核对（`--kb-only`：线上与换入源都
+     不得有非 KB 集合），通过后停正式容器 → 换入 → 用新镜像起 → 复验 → 删 journal、prune。
+   - 公开 chroma 落后而没有过闸候选：只告警并跳过，公开实例不动（等公开腿建出候选，下一次部署换入）。
+   - **动过正式容器之后的任何失败 → 停机**：先停，再看 journal，能退数据就退，保持停止；不自动退回旧镜像，
+     也不启动任何东西。日志和摘要会写明停下来的容器是哪个镜像：如果已经换成了没通过的新镜像，**不要直接
+     `docker start`**（那会是新镜像配旧数据）；排查后重新运行 `sdtm-rag` 工作流。
+   - 临时验收要几分钟。动正式容器之前会重新读一次它的状态，以那一刻为准：验收期间被人工停下的不会被拉起。
+   - job 被取消或超时：兜底步骤先结束还在跑的编排进程，再只在正式容器已被动过时停掉公开项目；不碰数据。
+   - **部署前就是停止的（或容器不存在）**：照常更新数据和镜像，但**保持停止**。启动需人工，在部署机上执行
+     `docker start sdtm-rag-public-api`——首次上线和故障停机后的恢复都走这一步。
+3. **人工兜底**（公开腿坏掉时）：在部署机上用镜像直接重建公开 chroma（挂公开数据根和公开 env 文件运行
+   `python -m scripts.ingest --no-backup` 和 `python -m scripts.build_meta`），再手跑 CDISC 140 题对照基线；做法见
+   `.work/10_split_and_public/evidence/checkpoints/p3_step3.3.md`。
+
 ## 公开实例与隧道
 
 > **状态（2026-11-28）：配置已写好，还没有上线。** 隧道没有接，虚拟机里的网络还是旧的自动网段，隔离规则没有装。
