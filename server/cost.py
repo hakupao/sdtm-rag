@@ -25,6 +25,10 @@ import re
 #                 from DEPLOY_PLAN §9 (2026-06) and match the page.
 #   deepseek-v4-pro  https://api-docs.deepseek.com/quick_start/pricing ("1M INPUT TOKENS (CACHE MISS)" /
 #                 "1M OUTPUT TOKENS", PEAK rate; off-peak is half, so the peak rate never under-prices).
+#   text-embedding-3-small  https://platform.openai.com/docs/pricing (redirects to
+#                 developers.openai.com/api/docs/pricing; "Embeddings", per 1M tokens: 0.02) and the
+#                 model page …/docs/models/text-embedding-3-small ("Price $0.02"). An embedding has
+#                 no output tokens.
 # litellm's online map (1.88.6, same day) has the same numbers; it is a cross-check, not the source.
 # A new row needs the provider's official page, not litellm and not an older model's price.
 _PRICES: dict[str, tuple[float, float]] = {
@@ -37,6 +41,7 @@ _PRICES: dict[str, tuple[float, float]] = {
     "claude-opus-4-7": (5.00, 25.00),
     "claude-haiku-4-5": (1.00, 5.00),
     "deepseek-v4-pro": (1.32, 3.96),
+    "text-embedding-3-small": (0.02, 0.0),
 }
 
 # model -> (threshold, input, output): a request whose prompt is OVER `threshold` tokens pays these
@@ -50,9 +55,15 @@ _LONG_PROMPT_PRICES: dict[str, tuple[int, float, float]] = {
 _DATE_SUFFIX = re.compile(r"-\d{8}")
 
 
-# The provider prefix a pinned row may carry: these are first-party prices. The same model behind
-# another route (bedrock/…, vertex_ai/…, openrouter/…) is billed by that platform, at its own price.
-_PINNED_PROVIDERS = {"claude": "anthropic", "deepseek": "deepseek"}
+# model-id family -> the provider prefix a pinned row of that family may carry: these are first-party
+# prices. The same model behind another route (bedrock/…, vertex_ai/…, openrouter/…, azure/…) is
+# billed by that platform, at its own price. A row whose family is not listed here matches the bare
+# id only (tests keep the two tables in step).
+_PINNED_PROVIDERS = {"claude-": "anthropic", "deepseek-": "deepseek", "text-embedding-": "openai"}
+
+
+def _pinned_provider(key: str) -> str | None:
+    return next((provider for family, provider in _PINNED_PROVIDERS.items() if key.startswith(family)), None)
 
 
 def _normalize(model: str) -> str:
@@ -71,7 +82,7 @@ def _pinned_key(model: str) -> str | None:
     norm = _normalize(model)
     key = norm if norm in _PRICES else next(
         (k for k in _PRICES if norm.startswith(k) and _DATE_SUFFIX.fullmatch(norm[len(k):])), None)
-    if key is None or (sep and prefix != _PINNED_PROVIDERS[key.split("-", 1)[0]]):
+    if key is None or (sep and prefix != _pinned_provider(key)):
         return None
     return key
 

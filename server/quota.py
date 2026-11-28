@@ -529,30 +529,54 @@ def _estimate(s, purpose: str, kw: dict) -> tuple[float, str]:
     return usd, model
 
 
+def _call_candidates(s, name: str) -> list[tuple[str, str, int | None]]:
+    """(group, model string, deployment max_tokens) of every deployment ONE call to Router group
+    `name` can end up on: the group itself, then the groups the Router falls back to
+    (llm_config._fallback_map — the same table create_router gives the Router). A name that is not
+    a Router group (a plain model string: embedding, direct litellm calls) has no fallback."""
+    out = [(name, *_group_model(s, name))]
+    if getattr(s, "selectable_models", None) is not None:
+        from server.llm_config import _fallback_map
+
+        out += [(g, *_group_model(s, g)) for entry in _fallback_map(s) for g in entry.get(name, ())]
+    return out
+
+
 def _estimate_parts(s, purpose: str, kw: dict) -> tuple[float, str, int]:
-    """(reserved USD, priced model, estimated prompt tokens)."""
+    """(reserved USD, priced model, estimated prompt tokens). A chat call reserves its dearest
+    candidate: when the Router falls back, the fallback model answers with ITS price and ITS
+    max_tokens (deployment level), and the reservation must already cover that."""
     if purpose == "web":
         return float(cfg(s, "quota_web_search_usd")), "tavily", 0
-    model, max_out = _group_model(s, str(kw.get("model", "")))
+    name = str(kw.get("model", ""))
+    model, max_out = _group_model(s, name)
     if purpose == "embedding":
         inp = kw.get("input") or []
         inp = [inp] if isinstance(inp, str) else inp
         pt = sum(_text_tokens(str(x)) for x in inp)
         return _price(s, model, pt, 0), model, pt
     pt = sum(_text_tokens(_content_text(m.get("content"))) + 4 for m in kw.get("messages") or [])
-    ct = int(kw.get("max_tokens") or max_out or cfg(s, "quota_default_max_output_tokens"))
-    return _price(s, model, pt, ct), model, pt
+    default = cfg(s, "quota_default_max_output_tokens")
+    usd = max(_price(s, m, pt, int(kw.get("max_tokens") or mo or default))
+              for _g, m, mo in _call_candidates(s, name))
+    return usd, model, pt
+
+
+def round_estimates(s, model_id: str) -> list[tuple[str, str, int, float]]:
+    """(group, model, output tokens, USD) for each deployment one answer round on `model_id` can end
+    up on (the group, then its Router fallback), each at its worst case: prompt = full trimmed
+    history + PROMPT_OVERHEAD_TOKENS, output = that deployment's max_tokens. Same candidates and
+    same pricing as reserve; a tiered model is priced at its highest tier (a continue round resends
+    the earlier rounds' output, so a real prompt can be longer than this allowance)."""
+    pt = int(cfg(s, "quota_history_max_chars")) + PROMPT_OVERHEAD_TOKENS
+    default = int(cfg(s, "quota_default_max_output_tokens"))
+    return [(g, m, int(mo or default), _price(s, m, pt, int(mo or default)))
+            for g, m, mo in _call_candidates(s, model_id)]
 
 
 def round_estimate_usd(s, model_id: str) -> float:
-    """Worst-case reservation of ONE answer round on `model_id` (same pricing path as reserve):
-    prompt = full trimmed history + PROMPT_OVERHEAD_TOKENS, output = the deployment max_tokens.
-    A tiered model is priced at its highest tier, as in reserve: a continue round resends the earlier
-    rounds' output, so a real prompt can be longer than this allowance and cross the threshold."""
-    model, max_out = _group_model(s, model_id)
-    pt = int(cfg(s, "quota_history_max_chars")) + PROMPT_OVERHEAD_TOKENS
-    ct = int(max_out or cfg(s, "quota_default_max_output_tokens"))
-    return _price(s, model, pt, ct)
+    """Worst-case reservation of ONE answer round on `model_id`: the dearest of round_estimates."""
+    return max(usd for _g, _m, _ct, usd in round_estimates(s, model_id))
 
 
 def _user_paid(ctx, purpose: str, kw: dict) -> bool:

@@ -12,6 +12,8 @@
 直接改文件, 所以只在副本上跑: 不设 PPP_MUT_ROOT 就拒跑。开跑前核对测试导入的 server 就是 ROOT 下的那一份。
 PRE 是另一种: 把 server/ 的三个文件整个换回修之前的字节 (PPP_PREFIX_ROOT, 取自 0a85a43), 只跑「没有在线价格表」那一条,
 必须红, 而且输出里要有 run 219 的那句 `$0.700 > free pool / 10 = $0.300`。
+XT 也是另一种: 被改的是测试文件 tests/test_p3_4_public_https.py (撤回「不把环境变量留给后面的测试」的修正), 跑的是那个文件自己,
+必须红在文件末尾的守卫用例上。
 只重跑其中几个: PPP_MUT_ONLY=C1,PRE (逗号分隔的编号; 写了不存在的编号会拒跑)。
 """
 from __future__ import annotations
@@ -31,6 +33,7 @@ if (ROOT / ".git").exists():  # git archive 出来的副本没有 .git; 有的�
     raise SystemExit("PPP_MUT_ROOT 指的目录里有 .git (工作区或克隆), 拒跑: 用 git archive 出来的副本")
 PREFIX = Path(os.environ["PPP_PREFIX_ROOT"]).resolve() if os.environ.get("PPP_PREFIX_ROOT") else None
 TEST = "tests/test_public_price_pin.py"
+XT_TEST = "tests/test_p3_4_public_https.py"
 COST, QUOTA, INST = "server/cost.py", "server/quota.py", "server/instance.py"
 RUN_219 = "$0.700 > free pool / 10 = $0.300"
 
@@ -51,19 +54,38 @@ OFFLINE_NAMES = "test_public_names_the_unpinned_model_without_the_online_price_m
 FLOOR = "test_settle_never_charges_less_than_the_reserved_models_pinned_price"
 OLD_CHAIN = "test_settle_keeps_the_old_price_chain_when_the_reserved_model_is_not_pinned"
 FLOOR_STREAM = "test_the_floor_also_holds_for_a_stream_that_ended_without_usage"
+SETTING = "test_public_refuses_a_server_model_setting_without_a_pinned_price"
+BOUND_FB = "test_public_bound_covers_the_fallback_model_and_its_output_cap"
+NOT_BOUND = "test_groups_that_never_answer_on_public_are_not_in_the_round_bound"
+CANDIDATES = "test_the_router_fallback_table_is_what_the_meter_reads"
+DEAREST = "test_a_round_is_reserved_at_its_dearest_candidate"
+OFFLINE_FB = "test_public_names_the_unpinned_fallback_setting_without_the_online_price_map"
+EMBED = "test_the_embedding_model_is_priced_from_the_table"
+XT_GUARD = "test_this_file_leaves_no_sdtm_rag_env_behind"
 STREAM = "        actual = min(entry.est, _settle_price(s, model, entry.model, entry.pt, out, reported=False))\n"
 
 HAIKU_ROW = '    "claude-haiku-5-5": (0.10, 0.50),      # prompts up to 100,000 tokens; above: _LONG_PROMPT_PRICES\n'
 LONG_ROW = '    "claude-haiku-5-5": (100_000, 0.50, 2.50),\n'
 MATCH = "        (k for k in _PRICES if norm.startswith(k) and _DATE_SUFFIX.fullmatch(norm[len(k):])), None)\n"
-PROVIDER_IF = "    if key is None or (sep and prefix != _PINNED_PROVIDERS[key.split(\"-\", 1)[0]]):\n"
+PROVIDER_IF = "    if key is None or (sep and prefix != _pinned_provider(key)):\n"
 LONG_GET = "    long_prompt = _LONG_PROMPT_PRICES.get(key)\n"
 FLOOR_IF = "            and pinned_rates(reserved_model, None) is not None:\n"
 FLOOR_MAX = "        price = max(price, _price(s, reserved_model, pt, ct, reported=reported))\n"
 TIER_IF = "    if long_prompt is not None and (prompt_tokens is None or prompt_tokens > long_prompt[0]):\n"
 PINNED = "    pinned = pinned_rates(model, pt if reported else None)\n"
 SETTLE = "        actual = _settle_price(s, model, entry.model, *tokens, reported=True)\n"
-GATE = "        if pinned_rates(model, None) is None:\n"
+GATE = "        if pinned_rates(rounds[0][1], None) is None:\n"
+SETTING_GATE = "        if pinned_rates(model, None) is None:\n"
+FIELDS = '    for field in (*_INTERNAL_GROUP_MODEL_FIELDS.values(), "embedding_model"):\n'
+WORST = "        group, model, ct, est = max(rounds, key=lambda r: r[3])\n"
+ROUNDS = "        rounds = quota.round_estimates(s, m.id)\n"
+FB_UNPINNED = "        if any(pinned_rates(model, None) is None for _g, model, _ct, _usd in rounds):\n"
+EST_MAX = "    usd = max(_price(s, m, pt, int(kw.get(\"max_tokens\") or mo or default))\n"
+EST_FOR = "              for _g, m, mo in _call_candidates(s, name))\n"
+RND_FOR = "            for g, m, mo in _call_candidates(s, model_id)]\n"
+FB_ADD = "        out += [(g, *_group_model(s, g)) for entry in _fallback_map(s) for g in entry.get(name, ())]\n"
+EMBED_ROW = '    "text-embedding-3-small": (0.02, 0.0),\n'
+XT_FIX = "    _absent_now_and_after(monkeypatch, KEY.lower())\n"
 PUBLIC_ONLY = '    if s.instance != "public":\n        return\n    from server.config import PUBLIC_FORCED_OFF\n'
 
 MUTATIONS = [
@@ -118,8 +140,32 @@ MUTATIONS = [
      "下限一律按高档算 (回报的用量在低档时多记 5 倍)", FLOOR),
     # ── 公开档启动自检 ──
     ("I1", INST, GATE, "        if False:\n", "公开档不再要求固定价格", REFUSE),
-    ("I2", INST, GATE, "        if pinned_rates(m.id, None) is None:\n",
+    ("I2", INST, GATE, GATE.replace("rounds[0][1]", "m.id"),
      "拿模型的 id 而不是模型串去查固定表 (公开站现在的配置会被拒)", OFFLINE),
+    # ── 扩展 (2026-11-28 裁定一): 内部四档 + embedding 的固定价格; 单轮上限覆盖回退模型 ──
+    ("I4", INST, SETTING_GATE, "        if False:\n", "内部四档和 embedding 不再要求固定价格", SETTING),
+    ("I5", INST, FIELDS, "    for field in _INTERNAL_GROUP_MODEL_FIELDS.values():\n", "embedding 不在检查里", SETTING),
+    ("I6", INST, FIELDS, '    for field in ("default_model", "hard_model", "light_model", "embedding_model"):\n',
+     "回退档 (fallback_model) 不在检查里", SETTING),
+    ("I7", INST, WORST, "        group, model, ct, est = rounds[0]\n", "单轮上限只看可选模型自己, 不看回退模型", BOUND_FB),
+    ("I8", INST, ROUNDS, '        rounds = quota.round_estimates(s, m.id) + quota.round_estimates(s, "light")\n',
+     "把公开档上不答题的内部档也算进单轮上限 (公开站现在的配置会被拒)", NOT_BOUND),
+    ("I9", INST, FB_UNPINNED, "        if False:\n", "回退模型没有固定价格时仍拿回退费率去算上限 (多报一条金额)", OFFLINE_FB),
+    ("Q13", QUOTA, EST_FOR, EST_FOR.replace("_call_candidates(s, name))", "_call_candidates(s, name)[:1])"),
+     "预留不看回退模型", DEAREST),
+    ("Q14", QUOTA, RND_FOR, RND_FOR.replace("_call_candidates(s, model_id)]", "_call_candidates(s, model_id)[:1]]"),
+     "启动自检的单轮估算不看回退模型", DEAREST),
+    ("Q15", QUOTA, EST_MAX, EST_MAX.replace("usd = max(", "usd = min("), "预留取候选里最便宜的", DEAREST),
+    ("Q16", QUOTA, FB_ADD, FB_ADD.replace("(g, *_group_model(s, g))", "(g, _group_model(s, g)[0], out[0][2])"),
+     "回退模型沿用可选模型的输出上限 (回退档自己的上限没被算进去)", CANDIDATES),
+    ("Q17", QUOTA, FB_ADD, FB_ADD.replace("for g in entry.get(name, ())", "for gs in entry.values() for g in gs"),
+     "任何组都当成有回退 (hard / light / 普通模型串也加上回退档)", CANDIDATES),
+    ("C17", COST, EMBED_ROW, "", "拿掉 embedding 模型这一行", BUILTIN),
+    ("C18", COST, EMBED_ROW, EMBED_ROW.replace("(0.02, 0.0)", "(0.002, 0.0)"), "embedding 价格少一位", TABLE),
+    ("C19", COST, '"text-embedding-": "openai"}', '"text-embedding-": "azure"}', "embedding 的服务商前缀写错", SUFFIX),
+    ("C20", COST, "    return next((provider for family, provider in _PINNED_PROVIDERS.items() if key.startswith(family)), None)\n",
+     "    return _PINNED_PROVIDERS[key.split(\"-\", 1)[0] + \"-\"]\n",
+     "服务商查不到时抛异常 (计量里会抛 KeyError)", "test_a_row_of_an_unlisted_family_matches_its_bare_id_only"),
     # 不写成「私有档一律跑」: server.main 在导入时就用默认配置建一次应用, 那样整份测试收集不起来 (判 INVALID)
     ("I3", INST, PUBLIC_ONLY, PUBLIC_ONLY.replace(
         'if s.instance != "public":', 'if s.instance != "public" and "selectable_models" not in s.model_fields_set:'),
@@ -137,11 +183,11 @@ def must(ok: bool, msg: str) -> None:
         raise SystemExit(f"拒跑 / 中止: {msg}")
 
 
-def run_tests(select: str | None = None) -> tuple[int, str, list[str], dict[str, str], str]:
+def run_tests(select: str | None = None, test: str = TEST) -> tuple[int, str, list[str], dict[str, str], str]:
     for d in ("server/__pycache__", "tests/__pycache__"):
         shutil.rmtree(ROOT / d, ignore_errors=True)
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
-    target = [f"{TEST}::{select}"] if select else [TEST]
+    target = [f"{test}::{select}"] if select else [test]
     r = subprocess.run([sys.executable, "-m", "pytest", *target, "-q", "-o", "addopts=", "-p", "no:cacheprovider",
                         "-W", "ignore", "-rfE"], cwd=ROOT, env=env, capture_output=True, text=True)
     lines = r.stdout.strip().splitlines()
@@ -191,6 +237,29 @@ def prefix_run(frozen: dict[str, bytes], base: dict[str, str]) -> bool:
     return ok
 
 
+def crosstalk_run() -> bool:
+    """XT: 在测试文件里撤回修正 (换回会把小写键留给后面的测试的旧写法), 跑那个文件; 必须恰好红在守卫用例上。"""
+    path = ROOT / XT_TEST
+    frozen = path.read_bytes()
+    text = frozen.decode("utf-8")
+    must(text.count(XT_FIX) == 1, f"XT: 原文出现 {text.count(XT_FIX)} 次, 须恰好 1 次")
+    rc0, summary0, _f, _w, _o = run_tests(test=XT_TEST)
+    must(rc0 == 0, f"XT: 基线不绿 ({summary0})")
+    mutated = text.replace(XT_FIX, "    monkeypatch.delenv(KEY.lower(), raising=False)\n")
+    try:
+        path.write_text(mutated, encoding="utf-8")
+        must(path.read_text(encoding="utf-8") == mutated and mutated != text, "XT: 变异没打上")
+        rc, summary, failed, why, _out = run_tests(test=XT_TEST)
+    finally:
+        path.write_bytes(frozen)
+    must(path.read_bytes() == frozen, "XT: 还原后内容不符")
+    verdict = verdict_of(rc, summary, failed, XT_GUARD)
+    only_guard = len(failed) == 1
+    print(f"XT   {verdict if only_guard else 'INVALID(others red)':19} 测试文件撤回串扰修正 | {summary} | 预登记: {XT_GUARD} | "
+          f"{why.get(XT_GUARD, '')}")
+    return verdict == "killed" and only_guard
+
+
 def main() -> int:
     # 两种导入方式都核对 (venv 里有指向工作区的可编辑安装): 当前目录在最前 (`python -m pytest` 的方式),
     # 和测试里离线子进程的方式 (PYTHONPATH=ROOT)。
@@ -200,13 +269,14 @@ def main() -> int:
         loaded = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True,
                                 check=True).stdout.strip()
         must(Path(loaded).resolve() == (ROOT / COST).resolve(), f"导入的 server.cost 不是 ROOT 下的那一份 ({how}): {loaded}")
-    ids = [m[0] for m in MUTATIONS] + ["PRE"]
+    ids = [m[0] for m in MUTATIONS] + ["PRE", "XT"]
     only = [x for x in os.environ.get("PPP_MUT_ONLY", "").split(",") if x]
     unknown = sorted(set(only) - set(ids))
     must(not unknown, f"PPP_MUT_ONLY 里有不存在的编号: {unknown}")
     todo = [m for m in MUTATIONS if not only or m[0] in only]
     do_pre = not only or "PRE" in only
-    must(bool(todo) or do_pre, "一个变异都没选上")
+    do_xt = not only or "XT" in only
+    must(bool(todo) or do_pre or do_xt, "一个变异都没选上")
     files = sorted({m[1] for m in MUTATIONS})
     frozen = {f: (ROOT / f).read_bytes() for f in files}
     base = {f: sha(b) for f, b in frozen.items()}
@@ -246,6 +316,10 @@ def main() -> int:
         n += 1
         if not prefix_run(frozen, base):
             bad.append("PRE")
+    if do_xt:
+        n += 1
+        if not crosstalk_run():
+            bad.append("XT")
     rc, summary, _failed, _why, _out = run_tests()
     print(f"RESTORED rc={rc} {summary}")
     print(f"{n - len(bad)}/{n} killed" + (f" (全部 {len(ids)} 个里只跑了这 {n} 个)" if only else "")

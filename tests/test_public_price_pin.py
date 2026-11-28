@@ -35,13 +35,18 @@ OFFICIAL = {
     "claude-opus-4-7": (5.00, 25.00),
     "claude-haiku-4-5": (1.00, 5.00),
     "deepseek-v4-pro": (1.32, 3.96),
+    "text-embedding-3-small": (0.02, 0.0),
 }
 OFFICIAL_LONG_PROMPT = {"claude-haiku-5-5": (100_000, 0.50, 2.50)}
 
-# The public site's model as deployed (p3_step3.3.md): the list itself lives in the deploy machine's
-# env file, not in this repo, so it is repeated here.
+# The public site's model settings as deployed: they live in the deploy machine's env file, not in
+# this repo, so they are repeated here (read there by the coordinator on 2026-11-28, non-secret keys
+# only; SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS is set there but its value was not read — 16000 is from
+# p3_step3.3.md). DEFAULT / HARD / LIGHT max output are NOT set there: the built-in 128000 applies.
 HAIKU = "anthropic/claude-haiku-5-5"
 HAIKU_MAX_OUT = 16000
+DEPLOYED = dict(default_model=HAIKU, hard_model=HAIKU, light_model=HAIKU, fallback_model=HAIKU,
+                fallback_max_output_tokens=16000, embedding_model="text-embedding-3-small")
 UNPINNED = "openai/gpt-4o-mini"      # litellm's bundled map prices it; this repo does not pin it
 
 
@@ -60,13 +65,14 @@ def _clean_env(monkeypatch):
 
 
 def _settings(tmp_path, tier, model, max_out=HAIKU_MAX_OUT, **kw):
+    """One selectable model `m1` on top of the deployed public model settings (override with **kw)."""
     data = tmp_path / "data"
     data.mkdir(exist_ok=True)
     st = tmp_path / "nostudy"
     return Settings(instance=tier, data_dir_override=str(data), study_kb_root=st / "cards",
                     study_catalog_path=st / "catalog.json", study_aliases_path=st / "aliases.yml",
                     selectable_models=[SelectableModel(id="m1", label="M1", model=model, verified=False,
-                                                       max_output_tokens=max_out)], **kw)
+                                                       max_output_tokens=max_out)], **{**DEPLOYED, **kw})
 
 
 def _startup_error(s):
@@ -83,18 +89,19 @@ def test_pinned_table_is_the_official_prices():
     assert cost._PRICES == OFFICIAL
     assert cost._LONG_PROMPT_PRICES == OFFICIAL_LONG_PROMPT
     assert set(cost._LONG_PROMPT_PRICES) <= set(cost._PRICES)
-    # every row names the provider whose first-party price it is
-    assert {k.split("-", 1)[0] for k in cost._PRICES} == set(cost._PINNED_PROVIDERS)
+    # every row belongs to exactly one family, and every family names its provider
+    assert cost._PINNED_PROVIDERS == {"claude-": "anthropic", "deepseek-": "deepseek", "text-embedding-": "openai"}
+    assert all(sum(k.startswith(f) for f in cost._PINNED_PROVIDERS) == 1 for k in cost._PRICES)
 
 
 def test_every_builtin_server_model_has_a_pinned_price():
-    """Built-in selectable list + the four internal groups + the deployed public model. A model added
-    to the built-in config without a price row turns this red; a model added only in a deploy env file
-    is caught by the public startup check (test_public_refuses_a_selectable_model_without_a_pinned_price)."""
+    """Built-in selectable list + the four internal groups + the embedding model + the deployed public
+    model. A model added to the built-in config without a price row turns this red; a model added only
+    in a deploy env file is caught by the public startup check (the refusal tests below)."""
     s = Settings()
     models = ([m.model for m in s.selectable_models]
-              + [s.default_model, s.fallback_model, s.hard_model, s.light_model, HAIKU])
-    assert len(models) >= 9
+              + [s.default_model, s.fallback_model, s.hard_model, s.light_model, s.embedding_model, HAIKU])
+    assert len(models) >= 10
     assert [m for m in models if cost.pinned_rates(m, None) is None] == []
 
 
@@ -110,6 +117,9 @@ def test_every_builtin_server_model_has_a_pinned_price():
     ("bedrock/claude-haiku-5-5", False), ("vertex_ai/claude-opus-5", False), ("openai/claude-haiku-5-5", False),
     ("deepseek/claude-opus-5", False), ("anthropic/deepseek-v4-pro", False),
     ("openrouter/anthropic/claude-haiku-5-5", False), ("/claude-opus-5", False),
+    ("text-embedding-3-small", True), ("openai/text-embedding-3-small", True),
+    ("azure/text-embedding-3-small", False), ("anthropic/text-embedding-3-small", False),
+    ("text-embedding-3-large", False), ("text-embedding-3-small-v2", False),
 ])
 def test_a_pinned_row_matches_the_id_or_a_dated_snapshot_only(model, pinned):
     assert (cost.pinned_rates(model, 0) is not None) is pinned
@@ -253,6 +263,152 @@ def test_settle_keeps_the_old_price_chain_when_the_reserved_model_is_not_pinned(
     quota.finalize(ctx)
 
 
+def test_a_row_of_an_unlisted_family_matches_its_bare_id_only(monkeypatch):
+    """A price row added without its provider in _PINNED_PROVIDERS must not raise in the meter."""
+    monkeypatch.setitem(cost._PRICES, "zz-new-model", (1.0, 2.0))
+    assert cost.pinned_rates("zz-new-model", 0) == (1.0, 2.0)
+    assert cost.pinned_rates("someone/zz-new-model", 0) is None
+
+
+def test_the_embedding_model_is_priced_from_the_table(tmp_path, monkeypatch):
+    _break_litellm(monkeypatch)
+    s = _settings(tmp_path, "public", HAIKU)
+    assert quota._price(s, "text-embedding-3-small", 1_000_000, 0) == pytest.approx(0.02)
+    usd, model, pt = quota._estimate_parts(s, "embedding", {"model": s.embedding_model, "input": ["a" * 300]})
+    assert (model, pt) == ("text-embedding-3-small", 100) and usd == pytest.approx(100 * 0.02 / 1e6)
+
+
+# ── one answer round: the selectable model, or the group the Router falls back to ──
+
+DS = "deepseek/deepseek-v4-pro"
+
+
+def test_the_router_fallback_table_is_what_the_meter_reads(tmp_path):
+    """The candidates come from llm_config._fallback_map (the table create_router hands the Router):
+    an answer group falls back to default-fallback; hard / light / default-fallback / a plain model
+    string have no fallback."""
+    s = _settings(tmp_path, "public", HAIKU, fallback_model=DS, fallback_max_output_tokens=32000)
+    assert quota._call_candidates(s, "m1") == [("m1", HAIKU, 16000), ("default-fallback", DS, 32000)]
+    assert quota._call_candidates(s, "default") == [("default", HAIKU, 128000), ("default-fallback", DS, 32000)]
+    for name in ("hard", "light", "default-fallback", "text-embedding-3-small", "deepseek/deepseek-chat"):
+        assert [g for g, _m, _mo in quota._call_candidates(s, name)] == [name]
+
+
+def test_a_round_is_reserved_at_its_dearest_candidate(tmp_path):
+    """Fallback dearer than the selectable model (DeepSeek, 32000 output): the startup bound AND the
+    reservation are the fallback's. Fallback = the same model and cap (as deployed): unchanged."""
+    s = _settings(tmp_path, "public", HAIKU, fallback_model=DS, fallback_max_output_tokens=32000)
+    ds_round = (60_000 * 1.32 + 32_000 * 3.96) / 1e6            # 0.20592
+    assert quota.round_estimates(s, "m1") == [
+        ("m1", HAIKU, 16000, pytest.approx(0.07)), ("default-fallback", DS, 32000, pytest.approx(ds_round))]
+    assert quota.round_estimate_usd(s, "m1") == pytest.approx(ds_round)
+    kw = {"model": "m1", "messages": [{"role": "user", "content": "a" * 3000}]}   # no per-call max_tokens
+    usd, model, pt = quota._estimate_parts(s, "answer", kw)
+    assert (model, pt) == (HAIKU, 1004) and usd == pytest.approx((1004 * 1.32 + 32_000 * 3.96) / 1e6)
+    ctx = _ctx(s, tmp_path)
+    store = quota._store(s)
+    quota.reserve(ctx, "answer", kw)
+    assert store.spent(quota._day()) == pytest.approx((1004 * 1.32 + 32_000 * 3.96) / 1e6)
+    quota.finalize(ctx)
+    deployed = _settings(tmp_path, "public", HAIKU)
+    assert quota.round_estimate_usd(deployed, "m1") == pytest.approx(0.07)
+    assert quota._estimate_parts(deployed, "answer", kw)[0] == pytest.approx((1004 * 0.50 + 16_000 * 2.50) / 1e6)
+
+
+def test_private_default_config_reserves_what_it_did_before(tmp_path, monkeypatch):
+    """Private with the meter on, built-in models: Sonnet 5.5 at 128000 output is dearer than the
+    DeepSeek fallback at 32000, so the reservation is the selectable model's own, as before."""
+    monkeypatch.setenv("SDTM_RAG_QUOTA_ENABLED", "true")
+    data = tmp_path / "data"
+    data.mkdir()
+    s = Settings(data_dir_override=str(data))
+    kw = {"model": "sonnet-5-5", "messages": [{"role": "user", "content": "a" * 3000}]}
+    assert quota._estimate_parts(s, "answer", kw)[0] == pytest.approx((1004 * 2.0 + 128_000 * 10.0) / 1e6)
+    for group in ("hard", "light"):                               # no fallback: its own model only
+        assert quota._estimate_parts(s, "route", {**kw, "model": group})[0] \
+            == pytest.approx((1004 * 2.0 + 128_000 * 10.0) / 1e6)
+    assert quota._estimate_parts(s, "answer", {**kw, "model": "default-fallback"})[0] \
+        == pytest.approx((1004 * 1.32 + 32_000 * 3.96) / 1e6)
+
+
+def test_public_bound_covers_the_fallback_model_and_its_output_cap(tmp_path):
+    ok = _settings(tmp_path, "public", HAIKU, fallback_model=DS, fallback_max_output_tokens=32000)
+    assert _startup_error(ok) is None                              # 0.206 <= 0.30
+    big = _settings(tmp_path, "public", HAIKU, fallback_model=DS, fallback_max_output_tokens=100_000)
+    err = _startup_error(big)                                      # 0.0792 + 0.396 = 0.475
+    assert "selectable model 'm1': one answer round reserves $0.475 > free pool / 10 = $0.300" in err
+    assert "its Router fallback 'default-fallback' = deepseek/deepseek-v4-pro, max_output_tokens 100000" in err
+    assert "SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS" in err and "lower its max_output_tokens" not in err
+    # the selectable model itself is the dearer case: the old wording
+    own = _startup_error(_settings(tmp_path, "public", HAIKU, max_out=128_000))
+    assert "one answer round reserves $0.350 > free pool / 10 = $0.300 (lower its max_output_tokens)" in own
+    # Haiku as its own fallback: the bound is 0.03 + cap x 2.50/M  =>  passes up to 108,000
+    assert _startup_error(_settings(tmp_path, "public", HAIKU, fallback_max_output_tokens=100_000)) is None
+    assert "$0.330 > free pool / 10" in _startup_error(
+        _settings(tmp_path, "public", HAIKU, fallback_max_output_tokens=120_000))
+
+
+def test_private_ignores_the_fallback_bound(tmp_path):
+    s = _settings(tmp_path, "private", HAIKU, fallback_model=DS, fallback_max_output_tokens=100_000)
+    assert _startup_error(s) is None
+    create_app(s)
+
+
+def test_groups_that_never_answer_on_public_are_not_in_the_round_bound(tmp_path):
+    """default / hard / light keep the built-in 128000 output on the deployed site (0.35 a round at
+    Haiku's upper tier). They are not reachable from a public answer round, so they do not refuse."""
+    s = _settings(tmp_path, "public", HAIKU)
+    assert (s.default_max_output_tokens, s.hard_max_output_tokens, s.light_max_output_tokens) == (128000,) * 3
+    assert quota.round_estimate_usd(s, "default") == pytest.approx(0.35)
+    assert quota.round_estimate_usd(s, "light") == pytest.approx(0.35)
+    assert instance._public_cost_problems(s) == []
+
+
+# ── every server-key model on public needs a pinned price ───────────────
+
+SERVER_MODEL_FIELDS = ("default_model", "fallback_model", "hard_model", "light_model", "embedding_model")
+
+
+@pytest.mark.parametrize("field", SERVER_MODEL_FIELDS)
+def test_public_refuses_a_server_model_setting_without_a_pinned_price(tmp_path, field):
+    s = _settings(tmp_path, "public", HAIKU, **{field: UNPINNED})
+    err = _startup_error(s)
+    assert err is not None
+    assert f"{field} (SDTM_RAG_{field.upper()}) = 'openai/gpt-4o-mini': no pinned price" in err
+    assert "server/cost.py" in err and "reserves" not in err
+    assert err.count("no pinned price") == 1                       # named once, by its setting
+
+
+@pytest.mark.parametrize("field", SERVER_MODEL_FIELDS)
+def test_private_starts_with_the_same_unpinned_server_model_setting(tmp_path, field):
+    s = _settings(tmp_path, "private", HAIKU, **{field: UNPINNED})
+    assert _startup_error(s) is None
+    create_app(s)
+
+
+def test_the_literal_field_list_is_every_internal_group_plus_embedding():
+    from server.llm_config import _INTERNAL_GROUP_MODEL_FIELDS
+
+    assert sorted(SERVER_MODEL_FIELDS) == sorted([*_INTERNAL_GROUP_MODEL_FIELDS.values(), "embedding_model"])
+
+
+def test_model_settings_nothing_calls_on_public_are_not_checked(tmp_path):
+    """expansion / judge / compare / rerank model settings: no public code path calls them
+    (checkpoint public_price_pin_ext.md §3), so an unpinned value there does not refuse startup."""
+    s = _settings(tmp_path, "public", HAIKU, expansion_model=UNPINNED, judge_model=UNPINNED,
+                  compare_models=[UNPINNED], rerank_model="zz-rerank")
+    assert s.expansion_model == UNPINNED and s.judge_model == UNPINNED
+    assert _startup_error(s) is None
+
+
+def test_public_names_colliding_selectable_ids_instead_of_crashing(tmp_path):
+    s = _settings(tmp_path, "public", HAIKU)
+    bad = s.model_copy(update={"selectable_models": [
+        SelectableModel(id="light", label="L", model=HAIKU, verified=False, max_output_tokens=1000)]})
+    err = _startup_error(bad)
+    assert "selectable model ids ['light'] collide with the Router's internal groups" in err
+
+
 # ── a pinned model never asks litellm ────────────────────────────────────
 
 def _break_litellm(monkeypatch):
@@ -334,7 +490,7 @@ for k in [k for k in os.environ if k.upper().startswith("SDTM_RAG_")]:
     del os.environ[k]
 from server import cost, instance, quota
 out = {"map_source": get_model_cost_map_source_info()["source"], "cases": {}}
-for name, tier, model, max_out in json.loads(sys.argv[1]):
+for name, tier, model, max_out, extra in json.loads(sys.argv[1]):
     bare = model.split("/", 1)[-1]
     for k in [k for k in litellm.model_cost if bare in k]:    # a later wheel may bundle the model
         del litellm.model_cost[k]
@@ -350,7 +506,7 @@ for name, tier, model, max_out in json.loads(sys.argv[1]):
         study_catalog_path=os.path.join(tmp, "nostudy", "catalog.json"),
         study_aliases_path=os.path.join(tmp, "nostudy", "aliases.yml"),
         selectable_models=[config.SelectableModel(id="m1", label="M1", model=model, verified=False,
-                                                  max_output_tokens=max_out)])
+                                                  max_output_tokens=max_out)], **extra)
     os.makedirs(s.data_dir, exist_ok=True)
     try:
         instance.check_startup(s)
@@ -364,10 +520,13 @@ for name, tier, model, max_out in json.loads(sys.argv[1]):
                           "usage_cost_60k_16k": cost.estimate_cost(model, usage)}
 print("PROBE_JSON " + json.dumps(out))
 '''
-_CASES = [("public_haiku", "public", HAIKU, HAIKU_MAX_OUT),
-          ("private_haiku", "private", HAIKU, HAIKU_MAX_OUT),
-          ("public_unpinned", "public", "openai/zz-not-pinned-model", HAIKU_MAX_OUT),
-          ("private_unpinned", "private", "openai/zz-not-pinned-model", HAIKU_MAX_OUT)]
+_ZZ = "openai/zz-not-pinned-model"
+_CASES = [("public_haiku", "public", HAIKU, HAIKU_MAX_OUT, DEPLOYED),
+          ("private_haiku", "private", HAIKU, HAIKU_MAX_OUT, DEPLOYED),
+          ("public_unpinned", "public", _ZZ, HAIKU_MAX_OUT, DEPLOYED),
+          ("private_unpinned", "private", _ZZ, HAIKU_MAX_OUT, DEPLOYED),
+          ("public_fallback_unpinned", "public", HAIKU, HAIKU_MAX_OUT, {**DEPLOYED, "fallback_model": _ZZ}),
+          ("private_fallback_unpinned", "private", HAIKU, HAIKU_MAX_OUT, {**DEPLOYED, "fallback_model": _ZZ})]
 
 
 @pytest.fixture(scope="module")
@@ -407,6 +566,20 @@ def test_public_names_the_unpinned_model_without_the_online_price_map(offline):
     err = offline["public_unpinned"]["startup_error"]
     assert "selectable model 'm1' (openai/zz-not-pinned-model): no pinned price" in err
     assert "reserves" not in err
+
+
+def test_public_names_the_unpinned_fallback_setting_without_the_online_price_map(offline):
+    err = offline["public_fallback_unpinned"]["startup_error"]
+    assert "fallback_model (SDTM_RAG_FALLBACK_MODEL) = 'openai/zz-not-pinned-model': no pinned price" in err
+    assert "reserves" not in err
+
+
+def test_private_starts_with_an_unpinned_fallback_without_the_online_price_map(offline):
+    c = offline["private_fallback_unpinned"]
+    assert c["startup_error"] is None
+    # the reservation covers the fallback group too: it is unpriced, so the fallback RATE decides
+    assert c["reserved_60k_16k"] == pytest.approx(0.07)           # _price on the model string: Haiku
+    assert c["round_estimate"] == pytest.approx(0.70)             # the round: max(Haiku 0.07, unpriced 0.70)
 
 
 def test_private_keeps_the_fallback_rate_without_the_online_price_map(offline):

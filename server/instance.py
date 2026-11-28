@@ -59,35 +59,59 @@ def check_startup(s) -> None:
         raise RuntimeError("SDTM_RAG_INSTANCE=public refuses to start: " + "; ".join(problems))
 
 
+_NO_PINNED_PRICE = ("no pinned price — add the provider's official price to _PRICES in server/cost.py "
+                    "(and to _LONG_PROMPT_PRICES when it is priced by prompt length); public does not "
+                    "price a server-key model from litellm's price map or from the fallback rate")
+
+
 def _public_cost_problems(s) -> list[str]:
     """P2.9 (SR9/CR7): the free pool must bound EVERY public model's single answer round — the
     built-in selectable list is the private Claude set at 128K output (one round ≈ $3+).
-    Every selectable model must also have a PINNED price (cost._PRICES): without one the bound would
-    be computed from litellm's online price map (absent without network) or from the fallback rate,
-    and the meter would charge that same guess at run time."""
+
+    Every model the server key can pay for must have a PINNED price (cost._PRICES): the selectable
+    models, the four internal Router groups and the embedding model. Without one the meter would
+    charge litellm's online price (absent without network) or the fallback rate, neither a checked
+    number. The other server-side model settings (expansion / judge / compare / rerank) are not
+    checked: nothing on the public tier calls them (checkpoint public_price_pin_ext.md).
+
+    The round bound covers what one answer round can reach: the selectable model and the group the
+    Router falls back to, each with its own max_tokens (quota.round_estimates — the same candidates
+    reserve books). The other internal groups never answer on public (check_request refuses them)."""
     from server import quota
     from server.cost import pinned_rates
+    from server.llm_config import _INTERNAL_GROUP_MODEL_FIELDS
 
     out = []
     if "selectable_models" not in s.model_fields_set:
         out.append("SDTM_RAG_SELECTABLE_MODELS not set (public must list its free models explicitly)")
+    for field in (*_INTERNAL_GROUP_MODEL_FIELDS.values(), "embedding_model"):
+        model = getattr(s, field)
+        if pinned_rates(model, None) is None:
+            out.append(f"{field} (SDTM_RAG_{field.upper()}) = {model!r}: {_NO_PINNED_PRICE}")
     budget = quota._pool_caps(s)["free"] / 10
-    for m in s.selectable_models:
-        if m.id in INTERNAL_GROUPS:
-            continue
+    answering = [m for m in s.selectable_models if m.id not in INTERNAL_GROUPS]
+    if len(answering) != len(s.selectable_models):
+        # create_router refuses such ids too (they would merge into the internal group); say it here,
+        # where the other problems are listed, and do not estimate through a Router that cannot exist
+        clash = sorted(m.id for m in s.selectable_models if m.id in INTERNAL_GROUPS)
+        out.append(f"selectable model ids {clash} collide with the Router's internal groups")
+        answering = []
+    for m in answering:
         if "max_output_tokens" not in m.model_fields_set:
             out.append(f"selectable model {m.id!r} has no explicit max_output_tokens")
-        model = quota._group_model(s, m.id)[0]
-        if pinned_rates(model, None) is None:
-            out.append(f"selectable model {m.id!r} ({model}): no pinned price — add the provider's "
-                       "official price to _PRICES in server/cost.py (and to _LONG_PROMPT_PRICES when it "
-                       "is priced by prompt length); public does not price a selectable model from "
-                       "litellm's price map or from the fallback rate")
+        rounds = quota.round_estimates(s, m.id)
+        if pinned_rates(rounds[0][1], None) is None:
+            out.append(f"selectable model {m.id!r} ({rounds[0][1]}): {_NO_PINNED_PRICE}")
             continue
-        est = quota.round_estimate_usd(s, m.id)
+        if any(pinned_rates(model, None) is None for _g, model, _ct, _usd in rounds):
+            continue   # its fallback group has no pinned price: reported above, by setting name
+        group, model, ct, est = max(rounds, key=lambda r: r[3])
         if est > budget:
+            why = "lower its max_output_tokens" if group == m.id else (
+                f"the dearer case is its Router fallback {group!r} = {model}, max_output_tokens {ct}: "
+                "lower SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS or use a cheaper fallback model")
             out.append(f"selectable model {m.id!r}: one answer round reserves ${est:.3f} > free "
-                       f"pool / 10 = ${budget:.3f} (lower its max_output_tokens)")
+                       f"pool / 10 = ${budget:.3f} ({why})")
     if not s.security_headers_enabled:
         out.append("security_headers_enabled=false (CSP is required with BYOK keys in the browser)")
     return out

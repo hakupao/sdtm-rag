@@ -29,6 +29,26 @@ from tests.test_phase3_security import _app, _auth_settings
 
 ROOT = Path(__file__).resolve().parent.parent
 HSTS = "max-age=31536000"
+
+
+def _sdtm_rag_env() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k.lower().startswith("sdtm_rag_")}
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _env_before_this_file():
+    return _sdtm_rag_env()
+
+
+def _absent_now_and_after(monkeypatch, *names):
+    """`load_dotenv` writes straight into os.environ, past monkeypatch. Register each name first
+    (set, then delete): the name is absent from here on, and monkeypatch's teardown puts back what
+    was there BEFORE the test. For a name monkeypatch has not seen yet, `monkeypatch.delenv` at the
+    END of a test does the opposite — it records the value load_dotenv wrote and restores it,
+    leaving it for every later test. (A name the test already set through monkeypatch is safe.)"""
+    for name in names:
+        monkeypatch.setenv(name, "placeholder")
+        monkeypatch.delenv(name)
 # 私有档经 create_app 的响应头名 = 改动前 (9a8ad43) 的行为; 公开档 = 这些 + strict-transport-security。
 # 复核: 把 server/auth.py 换成 `git show 9a8ad43:server/auth.py` 再跑本文件 (在仓库副本里做) ——
 # 公开档的用例红, 名字含 private 的用例 (session cookie 那条除外, 它一条里测两档) 照样绿。
@@ -447,7 +467,7 @@ KEY = "SDTM_RAG_QUOTA_TRUSTED_PROXIES"
 def test_compose_env_wins_over_dotenv_same_key_and_case_variant(tmp_path, monkeypatch):
     env_file = tmp_path / ".env"
     env_file.write_text(f"{KEY}=127.0.0.1\n{KEY.lower()}=0.0.0.0/0\n")
-    monkeypatch.delenv(KEY.lower(), raising=False)
+    _absent_now_and_after(monkeypatch, KEY.lower())
     # 方向一: compose 已设 → .env 同名键不生效; 小写变体进了环境但 quota.cfg 只读大写名
     monkeypatch.setenv(KEY, CONNECTOR)
     load_dotenv(env_file)
@@ -481,3 +501,11 @@ def test_public_install_refuses_trusted_network_wider_than_one_host(engines):  #
     # 私有档不受这条约束
     install_security(FastAPI(), S(engines[0], quota_enabled=True, visitor_secret="t" * 32,
                                   quota_trusted_proxies="10.201.8.0/24"))
+
+
+def test_this_file_leaves_no_sdtm_rag_env_behind(_env_before_this_file):
+    """Last in the file on purpose. Tests above call load_dotenv, which writes into os.environ
+    directly; a name left behind reaches every later test file. The lowercase trusted-proxies key
+    once did (a public app refuses case variants that disagree: 59 failures when
+    test_p2_l3_instance ran after this file)."""
+    assert _sdtm_rag_env() == _env_before_this_file
