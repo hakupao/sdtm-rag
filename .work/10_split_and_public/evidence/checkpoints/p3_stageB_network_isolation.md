@@ -17,7 +17,7 @@ main = origin/main = `5e640a1`, 工作区干净。私有站线上镜像 `613f048
 | # | 项 | 结果 |
 |---|---|---|
 | 1 | 现状 = 方案第 1 步的预期 | 公开网络 `172.18.0.0/16 invalid Prefix 172.18.0.1 map[]`; 公开容器 `Exited (0)`, 镜像 `…:099c2c9…` (镜像 ID `sha256:3886799a…`); nft 只有 `ip nat` / `ip filter` / `ip6 nat` / `ip6 filter` / `ip raw`; `/etc/nftables.conf` 第一条语句 `flush ruleset`; `nftables.service` = `disabled` |
-| 1 | 没有正在跑 / 排队的 Actions | 本仓最新运行是 23 号 (= 上一份 checkpoint 里的 run 217), 最近 3 次都是 `completed`; 虚拟机里没有 job 容器; 仓库变量 `[]`。动手前 (03:54Z) 和结束后 (04:01Z) 各查一次, 相同 |
+| 1 | 没有正在跑 / 排队的 Actions | 本仓运行列表里最新的是 `run_number` 23 (手动派发的 kb-sync, 提交 `613f048`, 03:24:55Z 创建; 按时间和提交对应上一份 checkpoint 里的 run 217 —— 接口返回的是另一套编号, 这个对应是推的), 最近 3 次都是 `completed`; 虚拟机里没有 job 容器; 仓库变量 `[]`。动手前 (03:54Z) 和结束后 (04:01Z) 各查一次, 相同 |
 | 2 | `-f -` 解析出的项目名 | `docker compose -f - config` 的 `name:` = `sdtm-rag-public`; 现有容器与现有网络的 `com.docker.compose.project` 标签都是 `sdtm-rag-public` (容器是早先用 `/tmp/p33/compose.public.yml` 建的) |
 | 3 | 旧镜像在本地 | `docker image inspect …:099c2c9…` → `sha256:3886799a…` |
 | 4 | 新 compose 渲染结果 | 子网 `10.201.8.0/24`、网关 `10.201.8.1`、`ip_range: 10.201.8.128/25`、`com.docker.network.bridge.name: br-sdtmpub`、`enable_ipv6: false`; `api` 服务没有 `ports` |
@@ -233,13 +233,34 @@ VM "sudo ufw status verbose"
 echo "sudo docker ps -a --format '{{.Names}}' | sort | while read n; do sudo docker inspect \"\$n\" --format '{{.Name}} {{.Id}} {{.State.Status}} {{.State.StartedAt}} restarts={{.RestartCount}}'; done" | VMS > $OUT/started.txt
 echo "for t in 'ip nat' 'ip filter' 'ip6 nat' 'ip6 filter' 'ip raw'; do echo \"#### \$t\"; sudo nft list table \$t 2>/dev/null | sed -E 's/counter packets [0-9]+ bytes [0-9]+/counter/g'; done" | VMS > $OUT/nft_docker.txt
 VMS < .work/10_split_and_public/evidence/checkpoints/p3_tunnel_leg_merge_snapshot.sh > $OUT/snap.txt
-# 第 2–4 步: 命令与 docs/plans/P3_4_tunnel_drill.md 逐字相同 (3f 的 sleep 90 写成 VM "sleep 90")
+VM "docker inspect sdtm-rag-public-api --format 'mounts={{range .Mounts}}{{.Source}}->{{.Destination}}(rw={{.RW}}) {{end}} ports={{.HostConfig.PortBindings}} restart={{.HostConfig.RestartPolicy.Name}}'"   # 只取这几项, 不导出环境变量
+# Actions 状态与仓库变量 (账号与口令取自 git credential, 不写进任何文件; 下面用占位符)
+API=https://git.bojiang.org/api/v1/repos/bojiang/sdtm-rag
+curl -s -u <账号>:$P "$API/actions/runs?limit=3"         # 看 run_number / status
+curl -s -u <账号>:$P "$API/actions/variables"            # []
+curl -s -u <账号>:$P -o /dev/null -w '%{http_code}\n' "$API"   # 200
+VM "docker ps --format '{{.Names}}'"                     # 没有常驻服务以外的容器 = 没有 job 容器在跑
+# 第 1–4 步: 命令与 docs/plans/P3_4_tunnel_drill.md 逐字相同 (3f 的 sleep 90 写成 VM "sleep 90")
+# 3c 之后: 落盘文件与仓库逐个比
+VM "sudo sha256sum /etc/sdtm-rag-public/isolation.nft /etc/systemd/system/sdtm-rag-public-isolation.service /etc/systemd/system/sdtm-rag-public-isolation-watch.service /etc/systemd/system/sdtm-rag-public-isolation-watch.timer"
+shasum -a 256 deploy/public-net/isolation.nft deploy/public-net/sdtm-rag-public-isolation.service deploy/public-net/sdtm-rag-public-isolation-watch.service deploy/public-net/sdtm-rag-public-isolation-watch.timer
+# 3e 的补充核对 (只读)
+VM "docker inspect sdtm-rag-api sdtm-rag-ui --format '{{.Name}} {{.State.Status}} {{.State.StartedAt}} restarts={{.RestartCount}} {{.Config.Image}}'"
+VM "docker inspect sdtm-rag-api --format '{{.State.Health.Status}}'"
+curl -s -o /dev/null -w '%{http_code}\n' --max-time 8 http://bojiang.local:8000/api/health                 # dev 机经局域网入口
+VM "curl -s -o /dev/null -w '%{http_code}\n' --max-time 8 https://git.bojiang.org/api/v1/version"           # 403 = 有应答 (不带凭据)
+VM "curl -sk -o /dev/null -w '%{http_code}\n' --max-time 8 https://192.168.100.58/v2/"                      # 401 = 有应答
+VM "sh -c 'systemctl is-active docker; systemctl show docker -p ActiveEnterTimestamp; lsmod | grep -c br_netfilter; systemctl --failed --no-pager | tail -1'"
+VM "sh -c 'journalctl -u sdtm-rag-public-isolation-watch.service --since -20min --no-pager | grep -E \"missing|failed\"'"
+# 部署预检同款的隔离侧 (去掉全部 capability; 与下面的 ctl_bridge.json 一起 judge)
+VM "docker run --rm -i --cap-drop ALL --security-opt no-new-privileges --network sdtm-rag-public --entrypoint python $IMG - probe $LAN $NET" < deploy/public-net/isolation_probe.py > $OUT/iso_hardened.json
 # 例行核对 (只读; 结论必须是 PASS)
 VM "docker run --rm -i --network sdtm-rag-public --entrypoint python $IMG - probe $LAN $NET" < deploy/public-net/isolation_probe.py > $OUT/iso.json
 VM "python3 - probe $LAN" < deploy/public-net/isolation_probe.py > $OUT/ctl.json
 VM "docker run --rm -i --cap-drop ALL --security-opt no-new-privileges --network bridge --entrypoint python $IMG - probe $LAN" < deploy/public-net/isolation_probe.py > $OUT/ctl_bridge.json
 python3 deploy/public-net/isolation_probe.py judge --isolated $OUT/iso.json --control $OUT/ctl.json --isolated-net 10.201.8.0/24
 python3 deploy/public-net/isolation_probe.py judge --isolated $OUT/iso.json --control $OUT/ctl_bridge.json --isolated-net 10.201.8.0/24
+python3 deploy/public-net/isolation_probe.py judge --isolated $OUT/iso_hardened.json --control $OUT/ctl_bridge.json --isolated-net 10.201.8.0/24   # 部署预检同款
 VM "sh -c 'systemctl is-active sdtm-rag-public-isolation-watch.timer; systemctl is-enabled sdtm-rag-public-isolation-watch.timer; systemctl is-enabled nftables.service'"
 VM "sudo nft list table inet sdtm_rag_public_isolation"; VM "journalctl -u sdtm-rag-public-isolation-watch.service --since -1d --no-pager"
 VM "docker inspect sdtm-rag-public-api --format '{{.State.Status}} {{.State.StartedAt}} {{.Config.Image}}'"     # created 0001-01-01T00:00:00Z …:099c2c9…
