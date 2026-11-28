@@ -156,6 +156,13 @@
       "date": "2026-11-28",
       "artifact": "evidence/checkpoints/p3_stageDE_first_public_deploy.md",
       "note": "五条只读预检全部满足 (checkout = main 的 0a85a43; deploy_public 的 if 为真; 私有 compose 配置哈希与线上容器标签相同 → 不重建; 镜像下限 ok、镜像内指纹 477bac3ce565…; 基线快照相符) 后派发一次 (07:29:29Z); run id 219 (run_number 25): deploy success (same, 两个容器 Running 未重建, 健康检查 200); deploy_public 不是 skipped, failure: 隔离核对 PASS (源地址 10.201.8.128) → 临时容器验收不通过 (公开档启动自检: 可选模型 haiku-5-5 单轮预留 0.700 美元 > 免费池 / 10 = 0.300; 根因 = 没有网络时 litellm 取不到在线价格表, 两次一次性容器对照实测: 无网 None / 有网 0.1 与 0.5); 编排写明正式容器和正式数据都没有动, 兜底不停机, 清理 success; 前后快照机械 diff 为空; 私有站容器 Id / 启动时间 / 数据指纹不变; 变量仍是 true; 两份 job 日志只计数扫描全 0; 没有重跑、没有回滚; D → E 的闸没有过, 阶段 E 全部没有做 (只提前做了隔离单元启动顺序的静态阅读); 主人对阶段 E 的同意没有被使用; 没有独立审查 (派单不起子代理)"
+    },
+    {
+      "step": "阶段 D 失败之后的修正: 公开档可选模型的价格固定进代码 (分支 hakupao/public-price-pin; 没有 push / 合并 / 部署)",
+      "status": "BRANCH_ONLY_REVIEWED_NOT_MERGED",
+      "date": "2026-11-28",
+      "artifact": "evidence/checkpoints/public_price_pin.md",
+      "note": "根因复核与上一个会话一致, 另查出 litellm 的在线价格表对 Haiku 5.5 超过 10 万 token 的提示词只按低档算 (少记到五分之一); server/cost.py 固定 Claude 5.x 五个模型 + Haiku 5.5 两档 (Anthropic 官方定价页 2026-11-28; DeepSeek 那一行同日对官方页核实, 数值未改), 表内模型只认本名 / 日期后缀 / 本服务商前缀; server/quota.py 估算长度按高档预留、回报用量按实际档结算、回报了表里没有的名字不低于所预留模型的固定价; server/instance.py 公开档的可选模型没有固定价格 → 拒绝启动并报出模型 (私有档不变); tests/test_public_price_pin.py 45 条; 变异 29 / 29 killed (含整个换回修之前的字节 → 红出 run 219 的原句); 浅克隆 + 独立 venv 3611 / 0 / 61 (0eb2c1e); 线上镜像 613f048 的无网络一次性容器: 修之前拒绝启动 ($0.700 > $0.300), 修之后与最终文件都通过 (单轮上限 0.07), 私有站前后无变化; 独立审查: 代码 PASS-with-fixes (HIGH 1 = 被审提交上 PRE 变异无效, 已修)、安全 PASS; 审查之后的修正没有再经独立审查; 合并会命中部署路径过滤 (server/**), 公开部署开关开着 → 需要主人另行同意"
     }
   ],
   "recovery_hint": "新会话在 /Volumes/DevSSD/Project/sdtm-rag 打开: 读本文件 → PLAN.md §2 P1 1.8/1.9 → 续跑",
@@ -192,7 +199,8 @@
     "阶段 C 仍未验证: deploy_public 全部步骤; kb-sync 公开腿的任何一条失败路径 (key 无效 / 基线不配对 / kb-only 不过 / 闸不过) 在真机上的表现; always() 的另一半 (私有腿失败后公开腿照跑); concurrency 是否让 kb-sync 与部署排队; 这一步没有独立审查",
     "⚠ 阻塞公开站上线 (2026-11-28, run id 219): 公开档启动自检依赖联网取到的 litellm 价格表, 没有网络的临时验收容器过不去; 正式公开容器每次启动也有同样的依赖 (取不到就拒绝启动)。修法由协调方定为把可选模型的价格固定进代码, 另一个会话在分支上做; 修完用 checkpoints/p3_stageDE_price_probe.py 在 --network none 下复核, 最好补一条「没有网络也能过启动自检」的测试",
     "阶段 D 之后仍未验证 (checkpoints/p3_stageDE_first_public_deploy.md「仍未验证的事项」): deploy_public 在临时验收之后的全部步骤 (答题 key 探测 —— 公开站的 Anthropic key 仍然一次都没有被验证过 / 换入 / up --no-start / finish); 没有网络的临时容器能否起到 healthy、要多久; 阶段 E 的全部核对与 5a / 5b; 其余失败路径; 这一步没有独立审查",
-    "阶段 D 的发现: p3_public_leg_impl.md §7 第 2 条「lifespan 没有出站调用」的依据不成立 (已加更正); 派发前可以用不挂数据的一次性容器先试「应用在没有网络的容器里能不能过启动自检」, 这次没有试; 隔离核对串行等满超时约 30 秒, 嫌慢可并行; 公开 env 文件所在目录里有一个协调方留下的旧备份 (未读未动, 协调方说等公开站的 Anthropic key 验证通过后处理)"
+    "阶段 D 的发现: p3_public_leg_impl.md §7 第 2 条「lifespan 没有出站调用」的依据不成立 (已加更正); 派发前可以用不挂数据的一次性容器先试「应用在没有网络的容器里能不能过启动自检」, 这次没有试; 隔离核对串行等满超时约 30 秒, 嫌慢可并行; 公开 env 文件所在目录里有一个协调方留下的旧备份 (未读未动, 协调方说等公开站的 Anthropic key 验证通过后处理)",
+    "价格固定 (checkpoints/public_price_pin.md) 之后留下的: ① 合并 + 新镜像 + 部署要主人同意, 合并后第一次公开部署才会知道「没有网络的临时容器能否起到 healthy」; ② 启动自检只覆盖可选模型, 内部四档 / embedding / Router 回退到的模型没有纳入 (两位审查者都建议扩, 待协调方定); ③ provider registry 的模型能力位依赖 litellm 在线价格表, 取不到时 Claude 5.x 的联网检索 / 图像 / 研读包自动挂载全部降级, 私有站也受影响 (没有改); ④ tests/test_p3_4_public_https.py 的两条测试把环境变量留给后面的测试 (倒序跑 59 failed, 0a85a43 上就有; 没有改); ⑤ 上游中途断流时输出量是 litellm 估的 (改之前就有); ⑥ 固定表是 2026-11-28 的官方价, 调价后要人工更新表和测试里的字面量"
   ],
   "decisions_1_9": "2026-11-25 用户: CI 检测+闸+报告, 升级提交由本地「KB 更新」双推; pyproject 作者→hakupao; mini-home/lan-services 改名 .archived-20261125",
   "log": [
@@ -388,6 +396,19 @@
       ],
       "gates": "预检五条全部满足; run id 219: deploy success (same), deploy_public failure (临时容器验收: 公开档启动自检拒绝启动); 前后快照 diff 为空; job 日志只计数扫描全 0; D → E 的闸没有过",
       "note": "SDTM_RAG_PUBLIC_DEPLOY=true 保持打开; 公开站未上线、未被动过; 阶段 E 没有做; 修法由协调方另开会话"
+    },
+    {
+      "date": "2026-11-28",
+      "step": "public-price-pin",
+      "status": "BRANCH_ONLY_REVIEWED_NOT_MERGED",
+      "evidence": [
+        "checkpoints/public_price_pin.md",
+        "checkpoints/public_price_pin_mutations.py",
+        "checkpoints/public_price_pin_offline_probe.py",
+        "subagent_prompts/public_price_pin_reviewers.md"
+      ],
+      "gates": "pytest -m 'not slow' 浅克隆 3611 / 0 / 61 (0eb2c1e); 变异 29 / 29; 线上镜像无网络容器 修之前 REFUSES / 修之后 PASS; 审查 PASS-with-fixes + PASS",
+      "note": "没有 push、没有合并、没有部署; SDTM_RAG_PUBLIC_DEPLOY 仍是 true (没有动); 公开站没有被碰过"
     }
   ],
   "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)",
