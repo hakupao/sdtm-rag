@@ -2,9 +2,11 @@
 
 > 写于 2026-11-28。**第 1–4 步已于 2026-11-28 执行**，结果都与预期一致，记录在
 > `.work/10_split_and_public/evidence/checkpoints/p3_stageB_network_isolation.md`。
-> **第 5 步试了一次、没有做成**（2026-11-28，run id 219）：部署在「临时容器验收」失败（没有网络的临时容器里，公开档的启动自检
-> 给免费模型定不了价），公开容器仍是「已创建、从未启动」，镜像和数据都没有换；第 5 步的只读核对、5a、5b 都没有做，env 文件没有动。
-> 记录在 `.work/10_split_and_public/evidence/checkpoints/p3_stageDE_first_public_deploy.md`。**第 6 步起未执行**。
+> **第 5 步已于 2026-11-28 做完**（含 5a、5b）：第一次部署（run id 219）在「临时容器验收」失败（没有网络的临时容器里，公开档的启动自检
+> 给免费模型定不了价；`.work/10_split_and_public/evidence/checkpoints/p3_stageDE_first_public_deploy.md`）；把价格固定进代码之后第二次
+> （run id 221）成功，部署后公开容器是「已更新、保持停止」，人工 `docker start sdtm-rag-public-api` 之后做了第 5 步的只读核对、5a、5b
+> 和一次隔离复核，结果都与预期一致，记录在 `.work/10_split_and_public/evidence/checkpoints/p3_stageDE_second_attempt.md`。
+> 现在公开实例运行中、没有入口（没有连接器、没有 token、没有隧道），env 文件里那行旧的可信代理设置已经删掉。**第 6 步起未执行**。
 > 所以第 1 步「预期」里写的是执行之前的现状，现在的现状见该步末尾的补充。
 > 每一步都会动虚拟机，执行前由协调方取得主人同意。
 > 主人在 Cloudflare 后台做的部分见 `docs/plans/P3_4_tunnel_owner_steps.md`（下称「操作说明」）。
@@ -87,6 +89,8 @@ VM "sudo ufw status"
 第 1–4 步执行之后（2026-11-28）再跑这几条，看到的是：网段 `10.201.8.0/24`、地址段 `10.201.8.128/25`、网关 `10.201.8.1`，
 选项里有 `com.docker.network.bridge.name:br-sdtmpub`；公开容器 `Created`（从未启动），镜像仍是 `099c2c9…`；
 nft 是 docker 的 5 张表加 `inet sdtm_rag_public_isolation`；`nftables.service` 仍是 `disabled`，`ufw` 仍是 inactive。
+
+第 5 步执行之后（2026-11-28）：公开容器 `Up`（`healthy`），镜像是与私有站相同的 `66cb55d…`；其余不变。
 
 ## 第 2 步：重建公开网络
 
@@ -221,7 +225,8 @@ VM "docker run --rm --network sdtm-rag-public --ip 10.201.8.2 --entrypoint pytho
 
 ## 第 5 步：部署公开实例
 
-按另一条线实现的流程走（临时容器验收通过后再换正式容器）。正式容器起来后补下面几条，都是只读：
+按另一条线实现的流程走（临时容器验收通过后再换正式容器）。部署前公开容器是停止的话，部署后它是「已更新、保持停止」，
+要先在部署机上 `docker start sdtm-rag-public-api`（2026-11-28 第一次上线就是这样）。正式容器起来后补下面几条，都是只读：
 
 ```bash
 VM "docker inspect sdtm-rag-public-api --format '{{.State.Health.Status}} {{range \$k,\$v := .NetworkSettings.Networks}}{{\$k}}={{\$v.IPAddress}}{{end}} ports={{.NetworkSettings.Ports}}'"

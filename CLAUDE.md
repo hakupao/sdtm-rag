@@ -59,7 +59,7 @@ CI 有 KB (submodule) 无 data/: `local_data` 测试 (见 `-rs`) 在 CI skip; �
 |------|-------|
 | 部署 / CI | `deploy/README.md`, `deploy/container/`, `.gitea/workflows/sdtm-rag.yml` |
 | 拆仓 + 对外开放 (进行中) | `.work/10_split_and_public/{PLAN.md,_progress.json}` |
-| 公开站: 隧道 / 网络隔离 / 上线步骤 (未上线) | `deploy/README.md`「公开实例与隧道」; `deploy/public-net/`; `docs/plans/P3_4_tunnel_{owner_steps,drill}.md` |
+| 公开站: 隧道 / 网络隔离 / 上线步骤 (公开容器运行中、没有入口; 隧道未接) | `deploy/README.md`「公开实例与隧道」; `deploy/public-net/`; `docs/plans/P3_4_tunnel_{owner_steps,drill}.md` |
 | 历史总 PLAN / 检索 TODO / 旧部署规划 | `docs/history/07_rag_kg/`, `docs/history/DEPLOY_PLAN.md` |
 | 检索收口 (q126 永久 known limit) | `docs/evidence/checkpoints/{s4_full_eval_closure,d_channel_concept_definition}.md` |
 | 答题护栏 + CT 码闸 | `docs/evidence/checkpoints/guardrail_v2_summary.md`; `eval/prod_wirein/check_code_grounding.py` |

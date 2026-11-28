@@ -1,9 +1,9 @@
 {
   "project": "10_split_and_public",
   "tier": 3,
-  "status": "P3_STAGE_D_FIRST_PUBLIC_DEPLOY_FAILED_AT_ACCEPTANCE_SWITCH_ON",
-  "current_step": "P3: 3.1/3.2/3.3 完成; 1.9 私有正例完成; 3.4 / 3.4b 的配置与代码 + 公开腿实现已在 main, 私有站线上 = 镜像 613f048 + 指纹 477bac3ce565 / 4333 条 (没有变)。2026-11-28 公开站上线演练: 阶段 B (公开网络 10.201.8.0/24 + 隔离规则 + 巡检) 与阶段 C (开变量 + kb-sync 公开腿建出过闸候选 chroma_cand_477bac3ce565 / meta_cand_477bac3ce565) 已完成; ⚠ 仓库变量 SDTM_RAG_PUBLIC_DEPLOY 是 true (2026-11-28T06:43:30Z 打开, 之后没有动过)。阶段 D (第一次公开部署) 试了一次, 失败: 手动派发 sdtm-rag (tag=613f048…, deploy=true) → run id 219 (run_number 25, head 0a85a43): 私有腿 success (same, 不换数据, 容器没有重建); deploy_public 第一次真实运行, 镜像预检 / KB 对齐 swap / 子网 / 隔离核对 (11 行全 PASS) 都过, 在「临时容器验收」失败 —— 没有网络的临时容器里公开档的启动自检拒绝启动 (claude-haiku-5-5 不在 server/cost.py 的写死价格表里, litellm 取不到在线价格表, 按回退费率估出 0.70 美元 > 免费池 / 10 = 0.30); key 探测、换入、up --no-start 都没有走到。公开站与部署前完全相同 (快照 diff 为空): 公开容器 = 已创建、从未启动 (镜像仍是 099c2c9), 公开线上 chroma 仍是旧 KB (f863e454… / 4329 条), 候选原样还在, 没有 journal / guard / prev。阶段 E (启动 + 启动后的核对 + 5a + 5b) 没有做。没有入口, 隧道没接。详见 checkpoints/p3_stageDE_first_public_deploy.md 与 failures/p3_stageD_public_deploy_attempt_1.md",
-  "next_step": "阻塞: 公开部署过不了没有网络的临时验收, 与镜像新旧无关, 修之前每一次带公开部署的运行都会在同一处变红 (私有部署照常成功, 公开站不变)。修法 (协调方 2026-11-28 定, 不是主人逐条裁定): 把公开档走服务端 key 的模型的价格固定进代码, 启动自检不依赖联网 —— 代码已在分支 hakupao/public-price-pin 上写完并经三轮独立审查 (checkpoints/public_price_pin.md + public_price_pin_ext.md), 还没有合并。之后 (每一步都要主人另行同意): 快进合并到 main、头提交带 [skip ci] (协调方定; push 不触发任何运行) → 手动运行 sdtm-rag 工作流「只构建」(deploy 不勾) → 测试端口验证 → 部署 (变量开着, 勾了 deploy 就会带上公开部署) → 部署前对照部署机上 SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS 的实际值 (回退档是 Haiku 5.5 时不超过 108000 才能过扩之后的启动自检) → 重做阶段 D (第一次公开部署: 换入候选, 容器保持停止; 这次的同意只覆盖已经用掉的那一次派发, 要再取得同意) → 阶段 E (人工 docker start + 演练第 5 步的核对 + 5a + 5b) → 阶段 F (隧道第 6-9 步)。⚠ 变量开着: 头提交不带 [skip ci]、又命中部署路径过滤的 main push, 以及手动派发 sdtm-rag 时没有取消勾选 deploy (默认勾选), 都会在私有部署成功之后带上公开部署 (deploy_public); 只构建 (deploy 不勾) 不会 —— 文档 / 测试提交必须带 [skip ci]。方案 = checkpoints/p3_public_leg_impl.md §5 + docs/plans/P3_4_tunnel_drill.md + docs/plans/P3_4_tunnel_owner_steps.md。公开部署只接受 319654c 之后构建的镜像 (镜像下限)。不想继续时: 关变量 (DELETE …/actions/variables/SDTM_RAG_PUBLIC_DEPLOY); 不想要候选: 两个 *_cand_477bac3ce565 目录改名成 *_failed_477bac3ce565_<UTC 时间戳> (不删) —— 见 checkpoints/p3_stageC_public_candidate.md「回退办法」。⚠ 变量开着时不能用「dispatch tag=f798709… deploy=true」回滚私有站 (同一个 tag 也作用于公开站, 而 f798709 过不了镜像下限 → 公开腿失败, 公开站不变)。阶段 B 留下的待办照旧: 下一次计划内重启虚拟机后立刻重跑隔离探测 (3a + 3d), 并确认从未启动的公开容器没有自己起来",
+  "status": "P3_STAGE_E_PUBLIC_CONTAINER_RUNNING_NO_INGRESS_SWITCH_ON",
+  "current_step": "P3: 3.1/3.2/3.3 完成; 1.9 私有正例完成; 3.4 / 3.4b 的配置与代码 + 公开腿实现 + 价格固定的修正都在 main。2026-11-28 公开站上线演练做到阶段 E (= 隧道方案第 5 步, 含 5a、5b): 阶段 B (公开网络 10.201.8.0/24 + 隔离规则 + 巡检) → 阶段 C (开变量 + kb-sync 公开腿建出过闸候选) → 阶段 D 第一次 (run id 219) 在临时容器验收失败 → 价格固定的分支快进合入 main, 外加一个守卫用例的修正 (main = 66cb55d) → 只构建 run id 220 (CI 3642 passed / 0 failed / 61 skipped) → 测试端口验证 PASS → 正式部署 run id 221: 私有站换成镜像 66cb55d (KB 对齐 same, 数据不变, 容器重建一次), 公开站第一次部署做成 (隔离核对 PASS → 没有网络的临时容器验收通过, 启动到 healthy 不超过约 8 秒 → Anthropic key 探测通过 → 换入候选 → up --no-start) → 人工 docker start, 启动后的核对、5a、5b、隔离复核全部符合预期。现在: 公开容器 sdtm-rag-public-api 运行中 (healthy, 镜像 66cb55d, 线上 stamp 477bac3ce565 / 4333 条; 旧数据在 chroma_prev_f863e45445a6_20261128T161813Z), 没有对外入口 (没有发布端口 / 连接器 / token / 隧道); 私有站 = 镜像 66cb55d + 指纹 477bac3ce565 / 4333 条。变量 SDTM_RAG_PUBLIC_DEPLOY = true (开着)。记录: evidence/checkpoints/p3_stageDE_second_attempt.md",
+  "next_step": "隧道 (演练方案 docs/plans/P3_4_tunnel_drill.md 第 6 步起: 主人放 token → 启动连接器 → 主人在 Cloudflare 后台建限速规则 / 访问限制 / 路由 (先只放行主人) → 隧道层验收 → 放开), 每一步都要主人另行同意。注意: ① 开关开着, 下一次带部署的运行会第一次走「公开容器在运行」的那条路 (临时验收 → key 探测 → up -d 换镜像 → 复验), 只改文档 / 测试的提交必须带 [skip ci]; ② 公开容器现在是 unless-stopped 且已启动过, 虚拟机或 docker 重启后会自己起来, 重启后立刻重跑隔离探测 (开机顺序没有实测); ③ 公开站还没有发过真答题 (Anthropic key 只验了有效性); ④ 私有站要回滚到 613f048 时先关开关; ⑤ 分支 hakupao/public-price-pin (c3c13ee, 已全部在 main 里) 和它的子工作区留给协调方清理; ⑥ 公开 env 目录里协调方留的 .env.bak-20261127 还在 (key 的有效性已验证通过)。回滚办法见 p3_stageDE_second_attempt.md。",
   "completed": [
     {
       "step": "recon",
@@ -170,6 +170,13 @@
       "date": "2026-11-28",
       "artifact": "evidence/checkpoints/public_price_pin_ext.md",
       "note": "协调方裁定一 (bot 受托代裁)。公开档一轮答题里服务端 key 调得到的模型只有两类: 答题 / 续写 (可选模型组, Router 可回退到 default-fallback) 和 embedding; 查询扩写 (expansion_model) 与重排在 server/ 里没有接线 (只有评测脚本用), 判库 / 复核 / 对比 / 判分所在的功能或接口在公开档关闭或未注册 —— 这些不加检查。公开档启动自检: default / fallback / hard / light 四档和 embedding 的模型没有固定价格 → 拒绝启动并报出设置项与模型 (私有档不变); 单轮上限只算答题够得着的 (可选模型 + 它回退到的档), 取较贵的; 运行时的预留用同一个函数 (两档都生效; 内置配置和公开站现在的配置下数值不变)。text-embedding-3-small 固定为 0.02 美元 / 百万 token (OpenAI 官方定价页 2026-11-28)。按协调方转述的公开站模型配置自检通过; SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS 的实际值没有人读到, 回退档是 Haiku 5.5 时不超过 108000 才通过。tests/test_p3_4_public_https.py 的串扰 (只有一条测试、一个小写键, 上一轮写成两条是错的): 只改测试, 倒序命令 59 failed → 140 passed, 加守卫用例。测试 75 条; 变异 49 / 49 killed (a567626); 浅克隆 3642 / 0 / 61 (a567626); 线上镜像 613f048 的无网络一次性容器按那份模型配置: 镜像原样拒绝启动, 覆盖 a2c9374 的三个文件后成本自检与整个 check_startup 通过, 私有站前后无变化 (今天累计起了 5 次这类容器); 第三轮独立审查 (固定提交 a2c9374): 代码 PASS、安全 PASS; 复核后补的一条断言没有再送审"
+    },
+    {
+      "step": "阶段 D / E 第二次: 价格固定分支合入 main (+ 守卫用例修正) → 只构建 run 220 → 测试端口 → 正式部署 run 221 (私有站 66cb55d; 公开站第一次部署做成) → 启动公开容器 + 第 5 步核对 / 5a / 5b",
+      "status": "DONE_PUBLIC_RUNNING_NO_INGRESS",
+      "date": "2026-11-28",
+      "artifact": "evidence/checkpoints/p3_stageDE_second_attempt.md",
+      "note": "main 45fc1c6 → 66cb55d (13 个提交, 头提交带 [skip ci], push 不触发); 合并后主仓全量 1 failed (守卫用例在有本机 .env 的检出里必红, failures/p3_stageDE2_merge_pytest_attempt_1.md) → 协调方定先修再 push, 独立审查三轮 PASS; 测试端口: CDISC 138/140 avg 0.9917、study avg 0.875 逐题 0 差, 13 个响应头探测相同, 11 个模型串的成本估算新旧相同; 离线自检对照 PASS (单轮上限 0.07 / 0.30); run 221 两个 job success; 公开容器 16:20:44Z 启动, healthy; 5b 行数 16 → 15, 权限 600 root:root; 隔离复核 PASS; 变量没有动"
     }
   ],
   "recovery_hint": "新会话在 /Volumes/DevSSD/Project/sdtm-rag 打开: 读本文件 → PLAN.md §2 P1 1.8/1.9 → 续跑",
@@ -207,7 +214,10 @@
     "⚠ 阻塞公开站上线 (2026-11-28, run id 219): 公开档启动自检依赖联网取到的 litellm 价格表, 没有网络的临时验收容器过不去; 正式公开容器每次启动也有同样的依赖 (取不到就拒绝启动)。修法由协调方定为把可选模型的价格固定进代码, 另一个会话在分支上做; 修完用 checkpoints/p3_stageDE_price_probe.py 在 --network none 下复核, 最好补一条「没有网络也能过启动自检」的测试",
     "阶段 D 之后仍未验证 (checkpoints/p3_stageDE_first_public_deploy.md「仍未验证的事项」): deploy_public 在临时验收之后的全部步骤 (答题 key 探测 —— 公开站的 Anthropic key 仍然一次都没有被验证过 / 换入 / up --no-start / finish); 没有网络的临时容器能否起到 healthy、要多久; 阶段 E 的全部核对与 5a / 5b; 其余失败路径; 这一步没有独立审查",
     "阶段 D 的发现: p3_public_leg_impl.md §7 第 2 条「lifespan 没有出站调用」的依据不成立 (已加更正); 派发前可以用不挂数据的一次性容器先试「应用在没有网络的容器里能不能过启动自检」, 这次没有试; 隔离核对串行等满超时约 30 秒, 嫌慢可并行; 公开 env 文件所在目录里有一个协调方留下的旧备份 (未读未动, 协调方说等公开站的 Anthropic key 验证通过后处理)",
-    "价格固定 (checkpoints/public_price_pin.md + public_price_pin_ext.md) 之后留下的: ① 合并 (协调方定: 快进、头提交带 [skip ci], push 不触发) + 手动「只构建 → 测试端口验证 → 部署」要主人同意; 合并后第一次公开部署才会知道「没有网络的临时容器能否起到 healthy」; ② 对照部署机上 SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS 的实际值: 回退档是 Haiku 5.5 时不超过 108000 才能通过扩之后的启动自检 (旧记录是 16000, 这次没有人读到实际值); ③ (协调方裁定这次不做) provider registry 的模型能力位依赖 litellm 在线价格表: 取不到时 Claude 5.x 的联网检索 / 图像 / 研读包自动挂载全部降级。要和「镜像里固定用包内价格表 (LITELLM_LOCAL_MODEL_COST_MAP)」一起做 —— 只做后者, 线上的能力位会全部落到保守默认值; 能力位按官方资料核对; 私有站也受影响; 方向是保守降级, 不挡上线; ④ 一次预留对应多次实际调用时 (Router 重试、流中途回退) 费用之和可以超过预留; litellm 合并流中途回退的用量时丢掉主模型那一段 (安全审查实测), 上游中途断流时输出量是 litellm 估的 —— 都是改之前就有; ⑤ 固定表是 2026-11-28 的官方价, 调价后要人工更新表和测试里的字面量; 联网检索的单价 quota_web_search_usd 在代码里一直标着未核实"
+    "价格固定 (checkpoints/public_price_pin.md + public_price_pin_ext.md) 之后留下的: ① 合并 (协调方定: 快进、头提交带 [skip ci], push 不触发) + 手动「只构建 → 测试端口验证 → 部署」要主人同意; 合并后第一次公开部署才会知道「没有网络的临时容器能否起到 healthy」; ② 对照部署机上 SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS 的实际值: 回退档是 Haiku 5.5 时不超过 108000 才能通过扩之后的启动自检 (旧记录是 16000, 这次没有人读到实际值); ③ (协调方裁定这次不做) provider registry 的模型能力位依赖 litellm 在线价格表: 取不到时 Claude 5.x 的联网检索 / 图像 / 研读包自动挂载全部降级。要和「镜像里固定用包内价格表 (LITELLM_LOCAL_MODEL_COST_MAP)」一起做 —— 只做后者, 线上的能力位会全部落到保守默认值; 能力位按官方资料核对; 私有站也受影响; 方向是保守降级, 不挡上线; ④ 一次预留对应多次实际调用时 (Router 重试、流中途回退) 费用之和可以超过预留; litellm 合并流中途回退的用量时丢掉主模型那一段 (安全审查实测), 上游中途断流时输出量是 litellm 估的 —— 都是改之前就有; ⑤ 固定表是 2026-11-28 的官方价, 调价后要人工更新表和测试里的字面量; 联网检索的单价 quota_web_search_usd 在代码里一直标着未核实",
+    "经验 (阶段 D / E 第二次, 2026-11-28): 涉及环境变量的测试, 合并前要在带本机 .env 的检出里也跑一遍 —— 分支上的守卫用例只在没有 .env 的检出里跑过, 合并后在主仓必红 (模块级快照取在模块级夹具 engines 清环境之前)。连同此前三种 (快照文件两用 / CI 浅克隆 / Linux runner 僵尸进程), 「换个环境才红」已经出现四种",
+    "经验 (同上): 在仓库副本里做实验要用副本自带的 venv, 或设 LITELLM_MODE=PRODUCTION —— litellm 在默认模式下导入时会从安装位置往上找 .env, 拿工作区的 venv 跑副本会把工作区的 .env 带进去 (这次让独立审查者的「没有 .env」条件不成立, 并让主仓 .env 的几个非密钥取值显示在它的工具输出里)",
+    "阶段 D / E 第二次之后留下的 (checkpoints/p3_stageDE_second_attempt.md「仍未验证」): ① 公开站还没有发过真答题 (Anthropic key 的额度、Haiku 5.5 回报的模型名、运行中的正式容器里的 OpenAI key 都要等第一次真答题); ② deploy_public 对「运行中的公开容器」的路径 (阶段 G) 没有走过, 开关开着, 下一次带部署的运行就是第一次; ③ 其余失败路径仍只走过「临时验收不过」一条; ④ 虚拟机 / docker 重启: 公开容器现在会自己起来, 规则先于容器装入的开机顺序没有实测, 重启后立刻重跑隔离探测; ⑤ 守卫用例 (tests/test_p3_4_public_https.py) 的窄盲区: 带会运行的 skip 类标记 + 记录夹具被遮掉; 模块级 pytestmark 的 skip 类标记会让「每条用例都被看到」失效; conftest 在 setup 钩子里直接 skip 或加请求 monkeypatch 的 autouse 夹具会让它大声误报; ⑥ 第二、三段的部署记录没有独立审查 (派单不起子代理); ⑦ 协调方留的 /opt/sdtm-rag-public/.env.bak-20261127 待处理; ⑧ 分支 hakupao/public-price-pin 与子工作区待清理; ⑨ 私有站对比里的 openai/gpt-4o 与 deepseek/deepseek-chat 不在固定表里, 成本显示仍依赖在线价格表 (改之前就这样)"
   ],
   "decisions_1_9": "2026-11-25 用户: CI 检测+闸+报告, 升级提交由本地「KB 更新」双推; pyproject 作者→hakupao; mini-home/lan-services 改名 .archived-20261125",
   "log": [
@@ -429,6 +439,21 @@
       ],
       "gates": "pytest -m 'not slow' 浅克隆 3642 / 0 / 61 (a567626); 变异 49 / 49; 线上镜像无网络容器 (公开站的模型配置) 镜像原样 REFUSES / 覆盖最新文件 PASS; 审查 代码 PASS、安全 PASS (a2c9374)",
       "note": "没有 push、没有合并、没有部署; SDTM_RAG_PUBLIC_DEPLOY 仍是 true (没有动); 公开站没有被碰过; 合并方式协调方已定 (快进、头提交带 [skip ci], 之后手动只构建 → 测试端口验证 → 部署)"
+    },
+    {
+      "date": "2026-11-28",
+      "step": "stage-DE-second-attempt",
+      "status": "DONE_PUBLIC_RUNNING_NO_INGRESS",
+      "evidence": [
+        "checkpoints/p3_stageDE_second_attempt.md",
+        "failures/p3_stageDE2_merge_pytest_attempt_1.md",
+        "checkpoints/p3_stageDE2_guard_mutations.py",
+        "checkpoints/p3_stageDE2_testport.sh",
+        "checkpoints/p3_stageDE2_gate.sh",
+        "checkpoints/p3_stageDE2_stage3_readonly.sh",
+        "subagent_prompts/review_guard_env_fix.md"
+      ],
+      "gates": "主仓全量 3701 / 0 failed / 2 skipped; 浅克隆 3642 / 0 / 61 (无 .env 与一行 .env); 变异 17/17、18/18; 独立审查三轮 PASS; run 220 CI 3642 / 0 / 61; 测试端口 PASS; run 221 两个 job success; D → E 的闸全部满足; 第三段 8 项全部符合预期"
     }
   ],
   "decisions_1_9_drill": "2026-11-26 用户: 正例不造演练改动, 用 pedia 下次真实发版 (A 本地 main 领先 67 提交/110 KB 文件, 未推)",
@@ -442,7 +467,7 @@
     "Q1": "公开站域名 = Cloudflare 上的 bojiang.org (2026-11-26 用户裁定); 公开站地址 = sdtm.bojiang.org (主人 2026-11-27 定, 协调方转述; 取代此前文档里举例的 ask.<域名>)",
     "3.2": "私有 compose.yml 不动, 公开实例独立 compose.public.yml (写死档位/路径, 不发布端口) + workflow deploy_public job (vars 门控, 失败停机)",
     "open": [
-      "公开站上线的各步演练 (公开腿阶段 D-G / 隧道第 5-9 步): 每一步都待主人另行同意; 阶段 B、C 2026-11-28 已做完; 阶段 D 2026-11-28 试了一次失败 (run id 219, 临时容器验收), 重做要修好的新镜像和再次同意"
+      "公开站上线的后续各步 (公开腿阶段 F-G / 隧道第 6-9 步): 每一步都待主人另行同意; 阶段 B、C、D、E (= 隧道第 1-5 步) 2026-11-28 已做完 (阶段 D 第二次 run id 221 成功; 公开容器运行中、没有入口)"
     ],
     "Q3_override": "2026-11-26 用户: 公开站全部用 Anthropic key, 模型选便宜的 → 免费题 = Claude Haiku 5.5 ($0.10/$0.50), 内部组与 fallback 同",
     "3.3": "公开 chroma 只含 sdtm_kb_v1 4329; 140q 与基线逐题一致",
@@ -461,7 +486,8 @@
       "merge_consent": "问:「把这两条分支合进 rag main、push，并重新部署一次私有站（行为不变），可以吗？」→ 原话「可以」 (选项说明: 做法同前两次：先只构建、测试端口验证，再部署；公开部署开关保持关闭)。只覆盖: 合并、push、私有站的构建与部署、一次 kb-sync 空跑核对。不覆盖: 重建公开网络、装隔离规则、开变量、公开部署、启动公开容器、建隧道",
       "merge_pre_switch_fixes_consent": "问:「可以把修复分支合并进 rag main 并推送吗（不触发构建和部署）？」→ 主人选「可以」。修复分支里「去掉 kb-sync 定时触发、只留手动派发」是协调方受托代裁, 主人在这个问题的说明里看到了并同意合并",
       "stage_c_consent": "问:「合并成功后，可以打开公开部署开关并手动跑一次 kb-sync 建公开候选吗（公开站仍不启动）？」→ 主人选「可以，合并后接着做」。说明里写明: 公开站自己的 OpenAI key 第一次被真正使用 (embedding 约 0.05 美元); 公开数据根多出一份候选; 公开容器不启动、不对外, 公开站线上数据不变, 私有站不变; key 无效或额度不足表现为明确的失败。只覆盖: 合并、push、把变量设为开、手动派发一次 kb-sync。不覆盖: 公开部署 (sdtm-rag 工作流的任何派发)、换入候选、启动公开容器、连接器、隧道",
-      "stage_de_consent": "问题一:「可以做第一次公开部署吗（换入新数据、换新镜像，公开容器保持停止）？」→ 主人选「可以」。问题二:「部署成功后，可以启动公开容器并做启动后的核对吗（仍没有对外入口）？」→ 主人选「可以，部署成功后接着做」。只覆盖: 派发一次 sdtm-rag (tag = 613f048…, deploy = true, force_data_mismatch 不勾)、docker start sdtm-rag-public-api、演练方案第 5 步的只读核对、5a、5b。不覆盖: 构建新镜像、连接器、token、隧道、Cloudflare 的任何操作。实际: 那一次派发已经用掉 (run id 219, 公开腿失败); 问题二的前提 (部署成功) 没有成立, 那部分同意没有被使用"
+      "stage_de_consent": "问题一:「可以做第一次公开部署吗（换入新数据、换新镜像，公开容器保持停止）？」→ 主人选「可以」。问题二:「部署成功后，可以启动公开容器并做启动后的核对吗（仍没有对外入口）？」→ 主人选「可以，部署成功后接着做」。只覆盖: 派发一次 sdtm-rag (tag = 613f048…, deploy = true, force_data_mismatch 不勾)、docker start sdtm-rag-public-api、演练方案第 5 步的只读核对、5a、5b。不覆盖: 构建新镜像、连接器、token、隧道、Cloudflare 的任何操作。实际: 那一次派发已经用掉 (run id 219, 公开腿失败); 问题二的前提 (部署成功) 没有成立, 那部分同意没有被使用",
+      "stage_de_second_consent": "主人 2026-11-28 在协调方的待办项上亲自选定 (经待办项转达)。问题一:「可以合并修复分支、构建新镜像并重新部署吗（私有站会重启一次，公开容器保持停止）？」→「可以」 (说明里的顺序: 合并并推送, 不触发自动部署 → 只构建, 测试端口上和线上镜像对比 → 正式部署: 私有站换新镜像、重启一次、数据不变, 同一次运行里公开站重做第一次部署; 每一关不过就停下来汇报)。问题二:「部署成功后，可以启动公开容器并做启动后的核对吗（仍没有对外入口）？」→「可以，部署成功后接着做」。只覆盖: 一次快进合并和 push、一次只构建、一次正式部署派发、docker start sdtm-rag-public-api、演练方案第 5 步的核对、5a、5b、收尾文档的 push。不包括: 重跑失败的部署、连接器、token、隧道、Cloudflare 的任何操作、改 Gitea 变量。实际: 都用掉了 —— push 45fc1c6..66cb55d、只构建 run id 220、部署 run id 221、docker start、第 5 步核对 / 5a / 5b 都做完, 全部成功; 失败时的处理没有触发"
     }
   },
   "decisions_2026_11_27_delegated": {
@@ -533,6 +559,7 @@
     },
     "stage_d_failure_2026_11_28": "run id 219 公开腿失败之后, 协调方答复 (协调方的决定, 不是主人逐条裁定): 停在这里; 修法定为「把公开档可选模型的价格固定进代码, 启动自检不依赖联网」, 由协调方另开子工作区的会话在分支上做; 公开 env 文件所在目录里的旧备份先不动, 等公开站的 Anthropic key 验证通过后由协调方处理",
     "public_price_pin_2026_11_28": "阶段 D 失败后的修法「把公开档可选模型的价格固定进代码, 启动自检不依赖联网」是协调方受托代裁 (见 stage_d_failure_2026_11_28), 不是主人裁定; 由子工作区的会话在分支 hakupao/public-price-pin 上实现, 协调方预先同意在部署机用线上镜像起一次性的无网络容器做修之前 / 修之后的对照 (只调用成本自检函数; 不挂数据、不带 key)。实现里的四个取舍是实现者的判断, 已交独立审查, 协调方或主人可以改: ① Haiku 5.5 两档价都固定, 预留和启动自检的上限按高档, 结算拿到服务商回报的用量才按实际档; ② 公开档遇到没有固定价格的可选模型拒绝启动并报出模型, 私有档不变, 运行时遇到给不出价的模型仍按回退费率; ③ 检查只覆盖可选模型, 没有扩到内部四档和 embedding; ④ 表内模型只匹配本名或 -YYYYMMDD 后缀 (两档都生效)。合并、构建新镜像、部署都要等主人另行同意",
-    "public_price_pin_ext_2026_11_28": "价格固定的汇报之后, 协调方对留下的两项的裁定 (bot 受托代裁, 不是主人逐条裁定): ① 启动自检扩到公开档会走服务端 key 的全部答题模型 —— 做: 内部四档 (default / hard / light / fallback) 的模型都要有固定价格, 单轮预留上限覆盖回退模型和它的输出上限 (做法由实现者判断并送审), 列全公开档一轮答题里走服务端 key 的模型调用, 会被调用又没有固定价格的纳入检查 (embedding 按 OpenAI 官方定价页固定), 根本不会被调用的写明依据不加检查; ② provider registry 的模型能力位依赖在线表 —— 这次不做, 记 todo_later; ③ tests/test_p3_4_public_https.py 的测试串扰 —— 修, 只改测试; ④ 合并方式: 快进合并、头提交带 [skip ci], push 不触发, 之后手动「只构建 → 测试端口验证 → 部署」, 分支上此后每个提交都带 [skip ci]。协调方只读看过部署机上公开站 env 里与模型有关的非密钥设置并转述给实现者 (四档与可选模型都是 anthropic/claude-haiku-5-5, 可选模型输出上限 16000, embedding text-embedding-3-small, 重排关, 只有 Anthropic 和 OpenAI 两把 key); SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS 等几项的值没有读"
+    "public_price_pin_ext_2026_11_28": "价格固定的汇报之后, 协调方对留下的两项的裁定 (bot 受托代裁, 不是主人逐条裁定): ① 启动自检扩到公开档会走服务端 key 的全部答题模型 —— 做: 内部四档 (default / hard / light / fallback) 的模型都要有固定价格, 单轮预留上限覆盖回退模型和它的输出上限 (做法由实现者判断并送审), 列全公开档一轮答题里走服务端 key 的模型调用, 会被调用又没有固定价格的纳入检查 (embedding 按 OpenAI 官方定价页固定), 根本不会被调用的写明依据不加检查; ② provider registry 的模型能力位依赖在线表 —— 这次不做, 记 todo_later; ③ tests/test_p3_4_public_https.py 的测试串扰 —— 修, 只改测试; ④ 合并方式: 快进合并、头提交带 [skip ci], push 不触发, 之后手动「只构建 → 测试端口验证 → 部署」, 分支上此后每个提交都带 [skip ci]。协调方只读看过部署机上公开站 env 里与模型有关的非密钥设置并转述给实现者 (四档与可选模型都是 anthropic/claude-haiku-5-5, 可选模型输出上限 16000, embedding text-embedding-3-small, 重排关, 只有 Anthropic 和 OpenAI 两把 key); SDTM_RAG_FALLBACK_MAX_OUTPUT_TOKENS 等几项的值没有读",
+    "stage_de_second_guard_fix_2026_11_28": "合并后主仓全量测试 1 failed (分支新加的守卫用例在有本机 .env 的检出里必红; 测试自身的问题)。执行会话停在 push 之前列了三个选项, 协调方 (bot) 选 B: 先修再 push, 由执行会话修, 修完过独立审查 (协调方的决定, 不是主人逐条裁定)。理由: 改的只是一条测试, 代价是多一个提交; 换来 main 上不留一条「在有本机 .env 的检出里必红」的用例, 「主仓全量 0 failed」如实满足后再往下走; 镜像仍然是「验过的提交」。范围: 只改这一条守卫用例及它的夹具所在的测试文件; 变异验证; 三种条件 + 一行 .env 都要绿; 独立审查 (不同的 subagent_type)。结果: 提交 66cb55d, 镜像标签因此是 66cb55d 而不是 c3c13ee"
   }
 }
