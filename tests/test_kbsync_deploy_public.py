@@ -906,17 +906,25 @@ def test_contaminated_live_data_when_the_stop_does_not_take_effect(site, capsys)
 
 
 def test_many_extra_collections_are_listed_up_to_a_limit(site, capsys):
-    many = _cols(4329, **{f"sdtm_c{i:02d}": (1, "d") for i in range(14)})
+    many = _cols(4329, **{f"sdtm_kb_v{i}": (1, "d") for i in range(10, 24)})
     fake = _fake(site, formal="running", swap=False, cols={"chroma": many})
     assert _run(fake, site) == 1
     out = capsys.readouterr().out
-    assert "14 个：sdtm_c00、sdtm_c01" in out and "sdtm_c09 等共 14 个" in out and "sdtm_c10" not in out
+    assert "14 个：sdtm_kb_v10、sdtm_kb_v11" in out and "sdtm_kb_v19 等共 14 个" in out and "sdtm_kb_v20" not in out
 
 
 @pytest.mark.parametrize("name,shown", [
-    ("study_st01", True), ("study_st01_docs", True), ("study_st123_cards_v2", True), ("sdtm_kb_v2", True),
+    # 原样写出的只有本仓现用的三种写法 (server/config.py 的默认值), 序号 / 版本号可变
+    ("study_st01", True), ("study_st01_docs", True), ("study_st123", True), ("study_st123_docs", True),
+    ("sdtm_kb_v1", True), ("sdtm_kb_v2", True), ("sdtm_kb_v123", True),
+    # 合并审查 LOW-1: 任意后缀 / 任意 sdtm_ 开头的名字可以带着真实研究的标识
+    ("study_st123_cards_v2", False), ("study_st01_acme2031", False), ("study_st01_docs_acme", False),
+    ("study_st01_docsacme", False), ("sdtm_acme_2031", False), ("sdtm_kb", False), ("sdtm_kb_v", False),
+    ("sdtm_kb_v1_acme", False), ("sdtm_kb_vacme", False),
+    # 不限长的数字串本身就可能是真实研究的编号; 别的文字里的数字不算
+    ("study_st2031004", False), ("study_st1234", False), ("sdtm_kb_v2031", False), ("study_st\u0660\u0661", False),
     ("study_ACME", False), ("study_st1", False), ("study_st01-real", False), ("Trial 2031", False), ("sdtm_kb_v2\nx", False),
-    ("st01", False), ("", False),
+    ("study_st01\n", False), ("STUDY_ST01", False), ("st01", False), ("", False),
 ])
 def test_only_conventional_collection_names_are_printed(name, shown):
     out = ks._show_collection(name)
@@ -1302,16 +1310,19 @@ def test_accept_down_cli_and_public_abort(site, capsys):
     assert "没有确认公开实例已停止" in capsys.readouterr().out
 
 
-def test_abort_first_ends_a_deploy_process_that_is_still_alive(site):
-    """job 被取消后 deploy-public 进程可能还活着: 兜底先结束它 (否则它会在兜底之后继续动正式容器), 哪怕还没动过。"""
+def test_abort_first_ends_a_deploy_process_that_is_still_alive(site, capsys):
+    """job 被取消后 deploy-public 进程可能还活着: 兜底先结束它 (否则它会在兜底之后继续动正式容器), 哪怕还没动过。
+    子进程不理会 SIGTERM (docker compose 收到 SIGTERM 也可能先做自己的收尾): 兜底必须升级到 SIGKILL 才结束得了它。"""
     import os as _os
     import signal as _signal
     import sys as _sys
     import time as _time
 
-    # 编排进程 + 它起的子进程 (相当于还在跑的 docker compose up), 同一个进程组
-    code = ("import subprocess, sys, time; c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']);"
-            "print(c.pid, flush=True); time.sleep(60)")
+    # 编排进程 + 它起的子进程 (相当于还在跑的 docker compose up), 同一个进程组。
+    # 子进程装好「忽略 SIGTERM」之后自己报就绪, 编排进程等到这一行才把它的 pid 报出来: SIGTERM 不会赶在装好之前到
+    kid = "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('ready', flush=True); time.sleep(60)"
+    code = (f"import subprocess, sys, time; c = subprocess.Popen([sys.executable, '-c', {kid!r}], stdout=subprocess.PIPE);"
+            "assert c.stdout.readline().strip() == b'ready'; print(c.pid, flush=True); time.sleep(60)")
     # 多带的两个参数只为了让命令行里有 kbsync 与 deploy-public (兜底在 Linux 上会核对 /proc/<pid>/cmdline)
     proc = subprocess.Popen([_sys.executable, "-c", code, "kbsync.py", "deploy-public"], stdout=subprocess.PIPE,
                             text=True, start_new_session=True)
@@ -1321,13 +1332,20 @@ def test_abort_first_ends_a_deploy_process_that_is_still_alive(site):
         fake = _fake(site, formal="running", swap=False)
         a = ks.build_parser().parse_args(["public-abort", "--compose-file", "deploy/container/compose.public.yml",
                                           "--touched-file", str(site["touched"])])
-        assert ks.public_abort(fake, a, sleep=lambda s: proc.wait(timeout=5) if proc.poll() is None else None) == 0
+        # 兜底每发一次信号最多查 10 轮: 编排进程还没被收走时等它 (同时把它收走), 之后每轮真的等一小会儿 ——
+        # 不等的话 20 轮在子进程被结束之前就空转完了
+        wait = lambda s: proc.wait(timeout=5) if proc.poll() is None else _time.sleep(0.1)  # noqa: E731
+        assert ks.public_abort(fake, a, sleep=wait) == 0
         assert proc.poll() is not None  # 编排进程已结束
 
-        def zombie(pid):  # 已经被结束、只是没人回收: /proc/<pid>/stat 里的状态是 Z (没有 /proc 的系统上无从判断, 算不是)
+        def zombie(pid):
+            """已经被结束、只是没人回收: /proc/<pid>/stat 的状态是 Z 且线程数是 1 (主线程先退出、别的线程还在跑的进程
+            状态也是 Z, 线程数大于 1, 它不算)。按字节读 (进程名不一定是合法的 UTF-8)。没有 /proc 的系统上无从判断, 算不是。
+            故意不用 ks._only_zombies_left: 被测的代码不拿来当判据。"""
             try:
-                return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "Z"
-            except (OSError, IndexError):
+                f = Path(f"/proc/{pid}/stat").read_bytes().rsplit(b")", 1)[1].split()
+                return f[0] == b"Z" and int(f[17]) == 1
+            except (OSError, IndexError, ValueError):
                 return False
 
         def alive(pid):  # 被结束但还没被收尸的进程 kill(0) 仍成功: 等到它真正消失, 最多 5 秒
@@ -1344,6 +1362,9 @@ def test_abort_first_ends_a_deploy_process_that_is_still_alive(site):
         assert not alive(child), "编排进程起的子进程还活着: 它会在兜底之后继续动正式容器"
         assert fake.formal()["running"] is True and "formal:stop" not in fake.events  # 没动过 → 不停
         assert not Path(str(site["touched"]) + ".pid").exists()
+        # 进程都结束了就不该再说「可能还没有结束」。CI 的 job 容器里被结束的子进程没人回收、一直是僵尸:
+        # 兜底把僵尸当成还在的话, 会等满 20 轮并多打这一行 (run 214 之后查到的连带现象)
+        assert "可能还没有结束" not in capsys.readouterr().out
     finally:
         for pid in (proc.pid, child):
             try:
@@ -1440,6 +1461,121 @@ def test_abort_ends_the_group_of_an_exited_but_unreaped_leader(monkeypatch):
         solo.kill()
     finally:
         kid.kill()
+
+
+# ── 僵尸不算「还在」(_only_zombies_left)。这里用假的 /proc 验判断逻辑; 真的僵尸只有在 1 号进程不回收孤儿的
+#    环境里才有 (CI 的 job 容器), 那一半由上面 test_abort_first_ends_a_deploy_process_that_is_still_alive 在 runner 里覆盖 ──
+def _stat(pid: int, state: str, pgrp: int, threads: int, comm: bytes = b"python3") -> bytes:
+    """/proc/<pid>/stat 的一行, 字段顺序照 proc(5): 1 pid, 2 (comm), 3 state, 4 ppid, 5 pgrp, 6 session, …, 19 nice,
+    20 num_threads, 21 itrealvalue, …。无关的字段各放一个互不相同的数 (70 + 字段号): 取错位置就会拿到别的值。"""
+    before = " ".join(str(7000 + n) for n in (4,))                 # ppid
+    between = " ".join(str(7000 + n) for n in range(6, 20))        # session … nice
+    after = " ".join(str(7000 + n) for n in range(21, 53))         # itrealvalue … exit_code
+    return (str(pid).encode() + b" (" + comm + b") " +
+            f"{state} {before} {pgrp} {between} {threads} {after}\n".encode())
+
+
+def _fake_proc(tmp_path, monkeypatch, procs: dict, *, self_pid: int | None = None, mounted: bool = True):
+    """把 kbsync 看到的 /proc 换成 tmp 下的目录。procs: pid → stat 的原始字节 (None = 目录在、stat 已经读不到)。"""
+    import os as _os
+
+    real, root = ks.Path, tmp_path / "proc"
+
+    def fake_path(p):
+        p = str(p)
+        return real(str(root) + p[len("/proc"):]) if p == "/proc" or p.startswith("/proc/") else real(p)
+
+    monkeypatch.setattr(ks, "Path", fake_path)
+    if not mounted:
+        return
+    (root / "self").mkdir(parents=True, exist_ok=True)
+    (root / "self" / "stat").write_bytes(_stat(self_pid or _os.getpid(), "R", 1, 1))
+    (root / "meminfo").write_text("MemTotal: 1 kB\n")  # /proc 下不是数字的条目: 不当成进程
+    for pid, raw in procs.items():
+        (root / str(pid)).mkdir(exist_ok=True)
+        if raw is not None:
+            (root / str(pid) / "stat").write_bytes(raw)
+
+
+G = 500  # 被结束的那个进程组 (组长的 pid = 组号)
+
+
+@pytest.mark.parametrize("procs,want", [
+    ({G: _stat(G, "Z", G, 1)}, True),                                              # 只剩组长, 单线程僵尸
+    ({G: _stat(G, "Z", G, 1), 501: _stat(501, "Z", G, 1)}, True),                  # 组长和子进程都是僵尸
+    ({501: _stat(501, "Z", G, 1)}, True),                                          # 组长已被回收, 孤儿子进程是僵尸 (run 214 的情形)
+    ({G: _stat(G, "Z", G, 1), 501: _stat(501, "S", G, 1)}, False),                 # 子进程还在睡 (= 还会继续执行)
+    ({G: _stat(G, "Z", G, 1), 501: _stat(501, "R", G, 1)}, False),
+    ({G: _stat(G, "Z", G, 1), 501: _stat(501, "T", G, 1)}, False),                 # 被暂停的也算还在
+    ({G: _stat(G, "Z", G, 2)}, False),                                             # 主线程退出了, 别的线程还在跑
+    ({G: _stat(G, "Z", G, 0)}, False),                                             # 线程数不是 1: 不认
+    ({G: _stat(G, "Z", G, 1), 900: _stat(900, "R", 900, 4)}, True),                # 别的组的活进程不相干
+    ({900: _stat(900, "R", 900, 1)}, False),                                       # 组里一个都没读到: 没有把握
+    ({}, False),
+    ({G: _stat(G, "Z", G, 1, comm=b"a) R 1 500 (b \xff\xfe")}, True),              # 进程名里有 ")"、空格、非 UTF-8 字节
+    ({G: _stat(G, "S", G, 1, comm=b"x) Z 1 500 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 (y")}, False),  # 进程名冒充僵尸
+    ({G: _stat(G, "Z", G, 1), 777: b"garbage without the bracket\n"}, False),      # 有一行认不出来: 没有把握
+    ({G: b"500 (x) Z 1 500 6 7\n"}, False),                                        # 行太短
+    ({G: _stat(G, "Z", G, 1).replace(b" 500 ", b" five ")}, False),                # 组号不是数
+    ({G: _stat(G, "Z", G, 1), 600: None}, True),                                   # 列出来之后才消失的: 已被回收, 跳过
+])
+def test_only_zombies_left_for_a_whole_group(tmp_path, monkeypatch, procs, want):
+    _fake_proc(tmp_path, monkeypatch, procs)
+    assert ks._only_zombies_left(G, G, True) is want
+
+
+def test_only_zombies_left_takes_the_fields_from_the_right_positions():
+    """假的 stat 行自己要对: 状态、组号、线程数分别在 proc(5) 的第 3、5、20 个字段。"""
+    f = _stat(G, "Z", 4321, 9).split()
+    assert (f[0], f[1], f[2], f[3], f[4], f[5], f[18], f[19], f[20]) == (
+        b"500", b"(python3)", b"Z", b"7004", b"4321", b"7006", b"7019", b"9", b"7021") and len(f) == 52
+
+
+def test_only_zombies_left_for_a_single_process(tmp_path, monkeypatch):
+    """不是整组 (记下的组就是兜底自己所在的组): 只看那一个进程, 同组的别人不看。"""
+    _fake_proc(tmp_path, monkeypatch, {G: _stat(G, "Z", 42, 1), 501: _stat(501, "S", 42, 1)})
+    assert ks._only_zombies_left(G, 42, False) is True
+    assert ks._only_zombies_left(501, 42, False) is False      # 它还在睡
+    assert ks._only_zombies_left(502, 42, False) is False      # 读不到: 没有把握 (下一轮信号 0 自己会报「没有这个进程」)
+    (tmp_path / "proc" / str(G) / "stat").write_bytes(_stat(G, "Z", 42, 3))
+    assert ks._only_zombies_left(G, 42, False) is False
+
+
+def test_only_zombies_left_refuses_without_a_usable_proc(tmp_path, monkeypatch):
+    _fake_proc(tmp_path, monkeypatch, {}, mounted=False)                     # 没有 /proc (macOS): 和改之前一样, 只信信号 0
+    assert ks._only_zombies_left(G, G, True) is False and ks._only_zombies_left(G, G, False) is False
+    _fake_proc(tmp_path, monkeypatch, {G: _stat(G, "Z", G, 1)}, self_pid=1)  # /proc 是别的 pid 命名空间的: 里面的号对不上
+    assert ks._only_zombies_left(G, G, True) is False and ks._only_zombies_left(G, G, False) is False
+    (tmp_path / "proc" / "self" / "stat").write_bytes(b"")
+    assert ks._only_zombies_left(G, G, True) is False
+
+
+def test_abort_does_not_wait_on_zombies_but_still_waits_on_a_live_process(site, tmp_path, monkeypatch, capsys):
+    """信号 0 一直发得出去 (进程表里还有条目) 的两种情形。只剩僵尸: 发过 SIGTERM、查一轮就收工, 不多打那一行。
+    组里还有一个没结束的: 照旧升级到 SIGKILL、等满 20 轮、说「可能还没有结束」(僵尸判断不能把它也放过去)。"""
+    import signal as _signal
+
+    sent, slept = [], []
+    monkeypatch.setattr(ks.os, "killpg", lambda pg, sig: sent.append((pg, int(sig))))
+    monkeypatch.setattr(ks.os, "kill", lambda pid, sig: None)     # 组长的 pid 还在进程表里
+    monkeypatch.setattr(ks, "_proc_kind", lambda pid: "gone")     # 它已经退出 (命令行是空的), 组里可能还有子进程
+    a = ks.build_parser().parse_args(["public-abort", "--compose-file", "x", "--touched-file", str(site["touched"])])
+    fake = _fake(site, formal="running", swap=False)
+    pid_file = Path(str(site["touched"]) + ".pid")
+
+    _fake_proc(tmp_path, monkeypatch, {4242: _stat(4242, "Z", 4242, 1), 4243: _stat(4243, "Z", 4242, 1)})
+    pid_file.write_text("4242 4242")
+    assert ks.public_abort(fake, a, sleep=slept.append) == 0
+    assert sent == [(4242, int(_signal.SIGTERM)), (4242, 0)] and slept == [0.5]
+    assert "可能还没有结束" not in capsys.readouterr().out
+
+    sent.clear(), slept.clear()
+    (tmp_path / "proc" / "4243" / "stat").write_bytes(_stat(4243, "S", 4242, 1))  # 子进程其实还在 (比如没理会 SIGTERM)
+    pid_file.write_text("4242 4242")
+    assert ks.public_abort(fake, a, sleep=slept.append) == 0
+    assert [sig for _, sig in sent if sig] == [int(_signal.SIGTERM), int(_signal.SIGKILL)]
+    assert slept == [0.5] * 20 and "deploy-public 进程 4242 可能还没有结束" in capsys.readouterr().out
+    assert "formal:stop" not in fake.events  # 两次都没动过正式容器
 
 
 def test_isolation_check_with_the_real_probe_script(site):
@@ -1621,6 +1757,102 @@ def test_startup_refusal_is_carried_verbatim_into_the_failure_reason(site, capsy
     assert _run(fake2, site) == 1
     out = capsys.readouterr().out
     assert "容器没有进入 healthy 状态" in out and "启动报错" not in out
+
+
+def test_startup_error_is_scrubbed_before_it_is_carried_out(site, capsys, monkeypatch, tmp_path):
+    """启动报错里带着 key 片段 (合并审查 LOW-2): 打进 job 日志的日志末尾、失败原因、步骤摘要三处都只有 <已隐去>。"""
+    fake_key = "sk-" + "ant-" + "api03-" + "NeverPrinted" + "0" * 12  # 运行时拼接: 源码里不留完整的密钥形状
+    assert ks.scrub(fake_key) == "<已隐去>"
+    summary = tmp_path / "step_summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    fake = _fake(site, formal="running", swap=False, cols={"stage": _cols(4329)})
+    fake.exited.add(TEMP)
+    fake.logs_text = f"INFO: starting\nRuntimeError: provider rejected the key {fake_key} (401)\n"
+    assert _run(fake, site) == 1
+    out, md = capsys.readouterr().out, summary.read_text(encoding="utf-8")
+    for text in (out, md):
+        assert fake_key not in text and "NeverPrinted" not in text
+    line = "RuntimeError: provider rejected the key <已隐去> (401)"
+    printed_tail, _, after = out.partition("失败：")
+    assert "日志末尾：" in printed_tail and line in printed_tail            # 打印出来的日志末尾
+    assert f"启动报错：{line}" in after and f"启动报错：{line}" in md       # 失败原因 (标准输出里的和摘要里的)
+
+
+ODD_STUDY = "study_ACME-2031.onc"  # 以 study 开头 (公开档启动自检会把它列出来), 但不是本仓约定的写法
+
+
+def _startup_refusal_out(site, capsys, monkeypatch, tmp_path, line: str) -> tuple[str, str]:
+    summary = tmp_path / "step_summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    fake = _fake(site, formal="running", swap=False, cols={"stage": _cols(4329)})
+    fake.exited.add(TEMP)
+    fake.logs_text = "INFO: Started server process\nTraceback (most recent call last):\n  File ...\n" + line + "\n"
+    assert _run(fake, site) == 1
+    return capsys.readouterr().out, summary.read_text(encoding="utf-8")
+
+
+def test_study_collection_names_in_a_startup_error_are_hidden(site, capsys, monkeypatch, tmp_path):
+    """公开档启动自检列出 study 集合时 (合并审查 LOW-3), 不按约定的名字不进 job 日志、失败原因和摘要。
+    报错文本取自真实的 server.instance.check_chroma, 不是手抄的: 那边改了措辞, 这条测试跟着变。"""
+    from types import SimpleNamespace
+
+    from server import instance
+
+    s = SimpleNamespace(instance="public", study_collection_name="study_st01", study_docs_collection_name="study_st01_docs")
+    client = SimpleNamespace(list_collections=lambda: [SimpleNamespace(name=n) for n in
+                                                       ("sdtm_kb_v1", "study_st01", ODD_STUDY, "study_st01_docs")])
+    with pytest.raises(RuntimeError) as e:
+        instance.check_chroma(s, client)
+    refusal = f"RuntimeError: {e.value}"
+    assert ODD_STUDY in refusal and "study_st01_docs" in refusal  # 真实的报错确实带着名字 (否则下面什么都没验)
+    out, md = _startup_refusal_out(site, capsys, monkeypatch, tmp_path, refusal)
+    hidden = f"<名字不按约定，已隐去：sha256 前 10 位 {hashlib.sha256(ODD_STUDY.encode()).hexdigest()[:10]}，长 {len(ODD_STUDY)}>"
+    shown = refusal.replace(ODD_STUDY, hidden)
+    for text in (out, md):
+        assert ODD_STUDY not in text and "ACME" not in text and "2031" not in text
+        assert f"启动报错：{shown}" in text                     # 失败原因: 其余部分原样, 约定写法的名字照常写出
+    printed_tail = out.partition("失败：")[0]
+    assert "日志末尾：" in printed_tail and shown in printed_tail  # 打印出来的日志末尾也是处理过的
+
+
+def test_configured_study_collection_name_in_a_startup_error_is_hidden(site, capsys, monkeypatch, tmp_path):
+    """另一条会带出集合名的启动报错: check_startup 的 collection_name=… (同样取自真实的函数)。"""
+    from server import instance
+    from server.config import Settings
+
+    with pytest.raises(RuntimeError) as e:
+        instance.check_startup(Settings(instance="public", collection_name=ODD_STUDY, data_dir_override=str(tmp_path)))
+    refusal = f"RuntimeError: {e.value}"
+    assert f"collection_name={ODD_STUDY!r} is a study collection" in refusal
+    out, md = _startup_refusal_out(site, capsys, monkeypatch, tmp_path, refusal)
+    for text in (out, md):
+        assert ODD_STUDY not in text and "ACME" not in text and "启动报错：RuntimeError: SDTM_RAG_INSTANCE=public refuses" in text
+
+
+@pytest.mark.parametrize("text,want", [
+    ("study collections in chroma: ['study_st01', 'study_st01_docs']", None),          # 约定写法: 不动
+    ("study data present: ['/app/data/study', '/app/data/study/st01/cards']", None),   # 路径里单独的 study: 不动
+    ("found = sorted(c.name for c in cs if _is_study_collection(s, c.name))", None),   # 标识符中间的 study: 不动
+    ("SDTM_RAG_STUDY_DOCS_ENABLED=true; sdtm_rag_rate_limit_enabled", None),
+    ("RuntimeError: VARIABLE_INDEX section map", None),
+    ("['study_acme']", "['{study_acme}']"),
+    ('["study_acme", "Study_ACME"]', '["{study_acme}", "{Study_ACME}"]'),
+    ("collection=study_acme chunks=3", "collection={study_acme} chunks=3"),
+    ("opened /c/study_acme", "opened /c/{study_acme}"),
+    ("study_st01_acme and (study_st2031004)", "{study_st01_acme} and ({study_st2031004})"),
+    ("the study_st01. And study_x.y-z, then", "the {study_st01.} And {study_x.y-z}, then"),  # 句号粘在后面: 宁可多隐
+    ("log: study_试验_01 loaded", "log: {study_试验_01} loaded"),
+    ("s.study_collection_name is unset", "s.{study_collection_name} is unset"),               # 代码里的标识符也会被隐去 (宁可多隐)
+])
+def test_hide_study_names(text, want):
+    import re
+
+    expected = text if want is None else re.sub(r"\{([^}]+)\}", lambda m: ks._show_collection(m.group(1)), want)
+    got = ks._hide_study_names(text)
+    assert got == expected
+    if want is not None:
+        for name in re.findall(r"\{([^}]+)\}", want):
+            assert name not in got and "已隐去" in got
 
 
 def test_accept_check_gives_up_at_once_when_the_container_exits(site):

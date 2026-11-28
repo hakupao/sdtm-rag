@@ -1045,9 +1045,12 @@ def accept_check(docker: Docker, name: str, *, tries: int = 60, sleep=time.sleep
         sleep(3)
     if not healthy:
         logs = docker.run(["logs", "--tail", "40", name])
-        tail = scrub((logs.stdout + logs.stderr).decode("utf-8", "replace")).strip().splitlines()[-40:]
+        # 带出之前先过两道：scrub 隐去 key 片段；_hide_study_names 隐去不按约定的 study 集合名。
+        # 两道都作用在整段日志上，下面打印的日志末尾和失败原因里的那一行用的是同一份
+        text = _hide_study_names(scrub((logs.stdout + logs.stderr).decode("utf-8", "replace")))
+        tail = text.strip().splitlines()[-40:]
         print(f"[deploy-public] {name} 未就绪，日志末尾：\n" + "\n".join(tail))
-        # 应用拒绝启动时（公开档的各项启动自检）最后一条报错原样带进失败原因，不用翻日志
+        # 应用拒绝启动时（公开档的各项启动自检）最后一条报错带进失败原因，不用翻日志
         errors = [ln.strip() for ln in tail if re.search(r"\b\w*(Error|Exception)\b:", ln)]
         return "容器没有进入 healthy 状态" + (f"；启动报错：{errors[-1][:600]}" if errors else "")
     r = docker.run(["exec", name, "python", "-c", ACCEPT_PY])
@@ -1158,14 +1161,32 @@ def live_extra_collections(docker: Docker, image: str, data_root: str, ts: str) 
     return sorted(names - {KB_COLLECTION})
 
 
-# 可以原样写进日志的集合名：本仓约定的代号形态。其余的名字可能带着真实研究的标识，只写指纹和长度
-SAFE_COLLECTION_RE = re.compile(r"study_st\d{2,}(_[a-z0-9]+)*|sdtm_[a-z0-9_]+")
+# 可以原样写进日志的集合名：只有本仓现用的三种写法（server/config.py 的默认值 sdtm_kb_v1 / study_st01 / study_st01_docs；
+# 版本号、研究序号可以变）。后缀不放开（任意后缀可以带着真实研究的标识）；数字写成 [0-9] 并限位数（不限长的数字串
+# 本身就可能是真实研究的编号，\d 还会认其它文字里的数字）。其余的名字只写指纹和长度
+SAFE_COLLECTION_RE = re.compile(r"study_st[0-9]{2,3}(_docs)?|sdtm_kb_v[0-9]{1,3}")
 
 
 def _show_collection(name: str) -> str:
     if SAFE_COLLECTION_RE.fullmatch(name):
         return name
     return f"<名字不按约定，已隐去：sha256 前 10 位 {hashlib.sha256(name.encode('utf-8')).hexdigest()[:10]}，长 {len(name)}>"
+
+
+# 容器日志里以 study 开头的词（前面不是字母 / 数字 / 下划线，一直取到空白、引号、括号、逗号等分隔符为止）
+STUDY_NAME_RE = re.compile(r"(?i)(?<![A-Za-z0-9_])study[^\s'\"`\[\]{}(),;:=<>|/\\]+")
+
+
+def _hide_study_names(text: str) -> str:
+    """容器日志带出（打进 job 日志、写进失败原因和摘要）之前：以 study 开头的词按 _show_collection 的白名单处理。
+    公开档的启动自检会把名字以 study 开头的集合列进报错（server/instance.py 的 check_chroma；check_startup 的
+    collection_name 那一条同理），这样的名字可能带着真实研究的标识。按前面的顺序这类报错本来走不到（临时容器用的副本
+    刚核对过集合恰为 KB_COLLECTION），但正式容器复验离红线检查隔着几分钟的验收，所以这里再挡一道，不靠那个前提。
+    宁可多隐：日志里别的 study 开头的词（比如代码里的标识符）也会被换成指纹。
+    挡不住的（前提，README「公开实例」写着）：集合名不以 study 开头——只有公开站把 SDTM_RAG_STUDY_COLLECTION_NAME /
+    SDTM_RAG_STUDY_DOCS_COLLECTION_NAME 配成别的名字、公开 chroma 里又恰好有这个集合时才会被列出来；
+    以及集合名里带空白 / 引号 / 括号之类的分隔符（chromadb 不允许这样的名字）。"""
+    return STUDY_NAME_RE.sub(lambda m: _show_collection(m.group(0)), text)
 
 
 def live_contaminated_stop(docker: Docker, a: argparse.Namespace, name: str, image: str, extra: list[str]) -> int:
@@ -1428,11 +1449,48 @@ def _proc_kind(pid: int) -> str:
     return "deploy" if "kbsync" in cmd and "deploy-public" in cmd else "other"
 
 
+def _only_zombies_left(pid: int, pgid: int, whole: bool) -> bool:
+    """信号 0 还发得出去（进程表里还有条目）时再问一句：剩下的是不是都已经退出、只差没人回收（僵尸）。
+    runner 的 job 容器里 1 号进程是 sleep，不回收孤儿：被结束的子进程一直以僵尸留在进程表里，对它发信号 0 永远成功。
+    看的是整个组（whole）或那一个进程。只在有把握时返回 True：/proc 认得本进程（同一个 pid 命名空间）、读到了至少一个目标、
+    并且每一个都是「状态 Z 且线程数为 1」——主线程先退出而别的线程还在跑的进程，状态同样是 Z，线程数大于 1，它还在执行。
+    其余情况一律 False，按「还没结束」处理：没有 /proc、一个目标都没读到、有一行认不出来、读的时候被拒绝。
+    前提：组里的进程对本进程可见（同一用户；/proc 没有用 hidepid 藏起别人的进程）。"""
+    try:
+        if int(Path("/proc/self/stat").read_bytes().split(None, 1)[0]) != os.getpid():
+            return False
+        stats = ([Path(f"/proc/{pid}/stat")] if not whole
+                 else [p / "stat" for p in Path("/proc").iterdir() if p.name.isdigit()])
+    except (OSError, ValueError, IndexError):
+        return False
+    seen = 0
+    for st in stats:
+        try:
+            raw = st.read_bytes()
+        except (FileNotFoundError, NotADirectoryError, ProcessLookupError):
+            continue  # 列出来之后才消失：已经被回收
+        except OSError:
+            return False
+        try:
+            # 进程名（第 2 个字段）里可以有 ")"、空格、非 UTF-8 字节：按字节读，从最后一个 ")" 之后取
+            f = raw.rsplit(b")", 1)[1].split()
+            state, pgrp, threads = f[0], int(f[2]), int(f[17])  # proc(5)：第 3 / 5 / 20 个字段
+        except (IndexError, ValueError):
+            return False
+        if whole and pgrp != pgid:
+            continue
+        if state != b"Z" or threads != 1:
+            return False
+        seen += 1
+    return seen > 0
+
+
 def _end_process_group(pid: int, pgid: int, sleep) -> bool:
     """结束还在跑的编排进程。它是自己那个进程组的组长（main() 里 setpgid 过）时整组结束——连同它起的 docker / compose
     子进程，组长已经不在（含已退出但没被回收）也照发，因为组里可能还剩子进程；否则只结束这一个进程。
     不发信号的情况：pid 不合理（<= 1 或就是本进程）；pid 已经被别的进程复用（原来那一组必然已经全部退出）；
-    组就是本进程所在的组时不对整组发。返回「没有需要担心的进程了」。"""
+    组就是本进程所在的组时不对整组发。返回「没有需要担心的进程了」：信号 0 发不出去了，或者剩下的全是僵尸
+    （_only_zombies_left；先发过结束信号才问这一句）。"""
     if pid <= 1 or pid == os.getpid():
         return True
     whole = pgid == pid and pgid != os.getpgrp()
@@ -1458,6 +1516,8 @@ def _end_process_group(pid: int, pgid: int, sleep) -> bool:
             for _ in range(10):
                 sleep(0.5)
                 send(0)  # 都没了会抛 ProcessLookupError
+                if _only_zombies_left(pid, pgid, whole):
+                    return True
     except ProcessLookupError:
         return True
     return False
