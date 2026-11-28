@@ -64,9 +64,9 @@
 以后的做法 (已写进 `PLAN.md` §6 与 `_progress.json` 的 `todo_later`): **并行分支合并之前, 先把它们试合到一起, 在深度 1 的克隆 + 独立 venv 里跑一遍全量测试。**
 
 ## 第 2 步: 本机验收 + 独立审查
-- 本机 `pytest -m "not slow"`, 最终代码 (本文件所在的提交): **3542 passed / 0 failed / 2 skipped** (两个 skip 都是要 playwright 的真浏览器闸)。修正前是 2 failed (上节)。「用真实隔离探测脚本」那条 (`test_isolation_check_with_the_real_probe_script`, 合并前是 skip) 现在真的运行并通过。
+- 本机 `pytest -m "not slow"`: `5556687` 上 **3542 passed / 0 failed / 2 skipped** (两个 skip 都是要 playwright 的真浏览器闸); 修正前是 2 failed (上节)。其后两处测试改动 (僵尸判断 `613f048`、假密钥改写 `27da769`) 当时各只跑了相关文件; 收尾时在 `27da769` (其后只有文档提交) 上又跑了一趟全量: **3542 passed / 0 failed / 2 skipped**。「用真实隔离探测脚本」那条 (`test_isolation_check_with_the_real_probe_script`, 合并前是 skip) 现在真的运行并通过。
 - CI 同款 (深度 1 的全新克隆 + 独立 venv, 无 `data/`): `e50a9f8` 上 3483 passed / 0 failed / 61 skipped; 4 条修正过的测试用 `-rA` 看都是 PASSED, 不是 SKIPPED。
-- 主仓 `data/`: 运行前后对比 2090 个文件的大小与修改时间, 以及备份目录之外 1725 个文件的 sha256。**只有 `data/chroma` 下 9 个文件的修改时间变了**, 其中 `chroma.sqlite3` 和 2 个 `data_level0.bin` 内容有变、大小不变 (chromadb 打开索引时自己改写, 与 `p3_merge_deploy.md` 记的现象相同)。只读核对: 三个集合 4333 / 959 / 125 条, stamp `477bac3ce565…` / 4333, `check_index_freshness` OK。`data/study`、`data/meta` 0 变化。之后的几趟全量同理。
+- 主仓 `data/`: 运行前后对比 2090 个文件的大小与修改时间, 以及备份目录之外 1725 个文件的 sha256。**只有 `data/chroma` 下 9 个文件的修改时间变了**, 其中 `chroma.sqlite3` 和 2 个 `data_level0.bin` 内容有变、大小不变 (chromadb 打开索引时自己改写, 与 `p3_merge_deploy.md` 记的现象相同)。只读核对: 三个集合 4333 / 959 / 125 条, stamp `477bac3ce565…` / 4333, `check_index_freshness` OK。`data/study`、`data/meta` 0 变化。收尾那趟全量之后又拿最初的记录比了一次 (中间共跑过六趟全量和若干单文件): 结果相同 —— 仍然只有 `data/chroma` 下那 9 个文件的修改时间变了, 0 个文件大小变化, 内容有变的仍是 `chroma.sqlite3` 和 2 个 `data_level0.bin`; 三个集合 4333 / 959 / 125 条, freshness OK。
 - **独立审查 (规则 D)**: `oh-my-claudecode:security-reviewer` (opus), 只读; 任务书 `subagent_prompts/review_tunnel_leg_merge.md`。范围: (A) 公开腿分支上没被独立审查过的部分; (B) 合并结果 (冲突、squash 是否忠实、快照、4 条测试的修正、两条线的接缝、共享文件); (C) 私有站行为不变; 外加推送前内容检查。
   结论 **PASS-with-fixes**: CRITICAL 0 / HIGH 0 / MEDIUM 2 / LOW 6。「没有发现会阻止 push 或私有站重新部署的问题。」审查者自己做了 20 多处变异 (红线检查 9 处里 8 处被抓; `server/auth.py` 私有档 4 处全被抓)。
 
@@ -122,8 +122,99 @@
   - 它另外发现一个**改之前就有**的缺口: 把兜底改成「只发 SIGTERM、不升级到 SIGKILL」, 这条测试仍然通过 (子进程不忽略 SIGTERM)。记入 `todo_later`。
 - 以后的做法 (已记入 `_progress.json` 的 `todo_later`): **涉及进程、信号、文件系统语义的测试, 合并前在 runner 镜像里跑一遍。**
 
-## 第 4–7 步 (续)
-(第二次 push、重新只构建、测试端口、部署、kb-sync 空跑核对、收尾: 各步完成后续写)
+## 第 3 步 (续): 第二次 push
+- 提交 `613f048` (只改那一条测试 + 失败归档 + checkpoint 续写, 带 `[skip ci]`)。推送前检查 (范围 `5556687..613f048`, 138 行新增): 用户名 / home 路径 / 邮箱 / 真名 / 口令原值 0; 密钥形状 2 行, 都是本文件「推送前检查」一节里列举口径名称与已放行假值名称的那两行自己。
+- `git push origin main` (非强推): Gitea 与 GitHub 都是 `5556687..613f048`; 两个远端的 main = `613f048a4a8b9f8e2fecf5b7e2f6876c8f02c1a7`。推后 90 秒没有被触发的运行。
+
+## 第 4 步 attempt 2: 只构建 run 215 —— success
+- run 215 / job 457 (tag 空, deploy=false, head `613f048`): checkout / 测试 / 登录 / 确定标签 / 构建并推送 success; 部署类步骤全 skipped; `deploy_public` (job 458) skipped。镜像 `613f048…` digest `sha256:9e1ac10b41642c1484e074ac8de68930e190a899a5627f7be98ec0e3a95078c0`。
+- CI 测试: **3483 passed / 0 failed / 61 skipped**。与 run 214 整份对照 (`-q` 不打印每条测试的名字, 所以按测试点阵逐位比): 3542 位里只有 1 位不同 (第 1292 位 `F` → `.`, 就是那一条); `SKIPPED` 行 59 行逐行相同。没有别的只在 Linux runner 上红的测试被这次修正掩盖或带出。
+- **标签步骤在两种合法输入下的真实输出** (对照 `p3_public_leg_impl.md` §3.4 的改前改后表: 两种合法输入下三样逐项相同):
+
+| 输入 | 改之后 (这次) | 改之前 (上一次上线) |
+|---|---|---|
+| tag 留空 (只构建) | run 215: `部署标签：613f048a4a8b9f8e2fecf5b7e2f6876c8f02c1a7` (= 这次运行的提交), 后续「构建并推送」用这个标签成功 | run 211: `部署标签：f798709476b75bfb8959cd1d0ca4b252cc122c5e` |
+| 合法的 40 位提交号 (正式部署) | run 216: `部署标签：613f048a4a8b9f8e2fecf5b7e2f6876c8f02c1a7` (= 填的值), 测试与构建 skipped, 后续步骤用这个标签部署成功 | run 212: `部署标签：f798709476b75bfb8959cd1d0ca4b252cc122c5e` |
+
+## 第 4 步: 测试端口验证 —— PASS (`p3_tunnel_leg_merge_testport_613f048.sh` + `p3_tunnel_leg_merge_testport_ratelimit.sh`)
+新镜像 `613f048` (镜像 ID `sha256:9e1ac10b…`) 对线上镜像 `f798709` (`sha256:8d1ce749…`), 各用线上 chroma 的一份副本, 线上 meta 与生产 `.env` 只读挂载; 不发布端口。
+
+| 判据 | 新镜像 | 线上镜像 (对照) |
+|---|---|---|
+| freshness | OK, `477bac3ce565…`, 4333 条 | 同 |
+| 容器里读到的数据 (防挂错) | 集合 4333 / 959 / 125; `model_defhome` 75, EPOCH → `model/02` | 同 |
+| CDISC 140 题 | 138 满分 / avg 0.9917, 非满分 q38、q126 | 同; **逐题 recall 0 差** |
+| study 51 条 | avg 0.875, 满分 45 | 同; **逐题 recall 0 差** |
+| `/api/ask` (真答题) | 200 | 200 |
+| `/api/info` | 19 个键, 无 tier / providers / quota | 键集相同 |
+
+- `top5_sources` 不同的题数 (不是判据, 如实记录): CDISC 1 题, study 3 题, recall 都不变。同一份索引两趟之间的波动, `kb_update_2026.11.28.md`「发现」第 1 条记录过同类现象 (那次 CDISC 侧用的是不同的索引, 这次是同一份索引的两个副本, 说明 CDISC 侧也有这种波动)。预登记判据 (recall 相差不超过 1 题) 满足。
+- **私有档行为不变**:
+  - 生产 `.env` 下两边读到的开关相同: `auth_enabled=False`, `rate_limit_enabled=True`, `security_headers_enabled=True`, 限额未开。
+    - **更正 (规则 6 成因 A, 抽取端取空)**: 脚本那一趟打印的 `'tier': None` 不是「档位未设」—— 我用了一个猜的属性名 (`instance_tier`) 加 `getattr(…, None)`, 两个镜像里都没有这个属性, 取到的是空值, 什么都证明不了。真实的属性是 `settings.instance`。补测 (新旧镜像各 `docker run --rm --network none`, 只读挂生产 `.env`, 不起服务): 两边都是 `instance = 'private'`; 线上容器里 `auth._is_public(settings)` = False。脚本里的取法已改成 `settings.instance` (取不到会直接报错)。
+    - 私有档的旁证 (第一趟就有): `/openapi.json` 与 `/docs` 两边都是 200 (公开档会是 404), `/api/info` 没有 `tier` 键。
+  - 响应头: 13 个探测 (首页、静态文件、health、info、openapi、docs、不存在的路径、GET / POST login、422、flag、带伪造的 `X-Forwarded-Proto` / `CF-Connecting-IP` 的请求、真答题) 新旧**逐项相同** (状态码、响应头名集合、除 date / content-length / etag / last-modified 外各头的值)。探测数与每个响应的头数有下限断言, 不是空比较。
+  - HSTS: 新旧都是 0 次。新镜像出现过的全部响应头名: accept-ranges、cache-control、connection、content-length、content-security-policy、content-type、date、etag、last-modified、referrer-policy、server、x-content-type-options、x-frame-options。
+  - cookie: **新旧都是 0 条 `Set-Cookie`, 真机上无 cookie 可比** —— 私有站生产配置下登录门和限额都没开, 根本不发 cookie。「私有档 cookie 不带 `Secure`」的依据是单测 (`test_session_cookie_secure_follows_tier`、`test_private_visitor_cookie_not_secure_by_default`) 和审查者对这两处做的变异 (都被抓)。
+  - 限流: 私有站生产 `.env` 里限流**本来就开着** (新旧都是每分钟 30 / 突发 10, 不采信转发头), 不是这次合并带来的; 公开档新加的那组取值 (60 / 20) 只写在 `compose.public.yml` 里。条件对等的测量 (两边都空闲 75 秒后各连发 40 个 `/api/info`, 正反顺序各一轮): 四次都是前 10 个 200、后 30 个 429; 429 的响应头名、`retry-after: 2`、正文 `Too Many Requests` 新旧相同。
+    - 第一趟脚本里的连发 (`R` 段) 得到 200 的个数是新 10 / 旧 7。原因在我的脚本: 两边连发前的空闲时间不同 (新的那边多等了旧的那边答题的时间, 桶回满了), 那组数不能用来比较, 所以补了上面这一趟。
+  - 大小写变体: 同一对取值不同的变量 (`SDTM_RAG_RATE_LIMIT_BURST` / `sdtm_rag_rate_limit_burst`) —— 直接调 `_check_public_env_case_variants` 会拒绝 (`public tier: conflicting case variants …`, 证明这对变量正是那道检查要拦的); 带着它按生产 env (私有档) 启动新镜像, 照常 healthy, `/api/info` 19 个键。
+- 线上不受影响: 验证前后线上容器镜像与启动时间不变; 临时容器与副本已清 (脚本有出错清理)。
+
+## 第 5 步: 正式部署 —— run 216 / job 459 success
+- 派发: tag = `613f048a4a8b9f8e2fecf5b7e2f6876c8f02c1a7`, deploy=true, 没有用 `force_data_mismatch`。只构建与部署之间没有 push。
+- 日志: 部署前线上镜像 `f798709…`; KB 对齐 `{"prod_fp12": "477bac3ce565", "target_fp12": "477bac3ce565", "decision": "same"}`, 不换数据; 健康检查 200; 测试、构建、新鲜度、换数据收尾、两个退回步骤都 skipped。
+- `deploy_public` (job 460) **skipped** (仓库变量为空)。
+- 部署后: api / ui = `613f048…`, api healthy; 容器内 `check_index_freshness` OK (`477bac3ce565…`); 局域网 `/api/health` 200, `/api/info` 19 个键、无 tier / providers / quota、`chunk_count` 4333、`index_fresh` True, 响应头里没有 HSTS; 容器里 `server.auth.PUBLIC_EDGE_LEVEL` = 1 (镜像下限标记在线上镜像里了)。
+- 快照 (`p3_tunnel_leg_merge_snapshot.sh`, 不含 mtime): 合并前、部署前两次无差异; 部署前 → 部署后只差 api / ui 两行镜像。
+  - 私有数据没变: stamp `477bac3ce565…` / 4333; `meta.yaml` `b484d49ef76c`、`implicit_relations.json` `c3dbe292a00b`; chroma 与 meta 目录 inode 不变, 130 个文件的文件名清单指纹不变; `*_prev_*`、`*_failed_*` 原样; 没有 journal / guard / cand。
+  - 公开侧没变: `sdtm-rag-public-api` 的容器 Id、镜像 `099c2c9…` (镜像 ID `sha256:3886799a…`)、状态 exited、StartedAt / FinishedAt、重启次数都不变; 公开网络 Id 不变, 子网仍是 `172.18.0.0/16`, 0 个容器; 没有连接器容器; 隔离规则表 0 张; 公开数据根 (9 个文件) 的文件名 / inode / 大小 / mtime 清单指纹不变 (`57bde78cb564aa66`), 最新的 mtime 仍是 2026-11-26。没有读公开数据根里任何文件的内容, 没有碰 `/opt/sdtm-rag-public/`。
+
+## 第 6 步: kb-sync 空跑核对 (公开腿演练的阶段 A) —— 与预期一致
+- 手动派发 kb-sync (工作流在 main = `613f048` 上运行; `ref`、`public_baseline_image` 都留空); 派发前仓库变量为空, pedia 最新的 `kb-*` tag 仍是 `kb-2026.11.28`。run 217 success, 约 30 秒。
+- `private` (job 461) success: KB ref `kb-2026.11.28` → A 仓提交 `b2bd837…`, 指纹 `477bac3ce565`, 线上镜像 `613f048…`; 检测 `{"result": "same"}` →「no-op：生产 chroma 已是该 KB 指纹」; 构建候选镜像 / 候选入库并运行 CDISC 闸 / 删除候选镜像 都 skipped。没有入库, 没有 embedding 费用。
+- `public` (job 462) **skipped**。
+- 之后的快照与部署后那一份无差异: 线上 api 没有被重启 (启动时间不变); 私有数据、公开容器、公开网络、公开数据根都不变; 没有候选镜像残留。
+- 这是两 job 版的 kb-sync 和私有腿改过的「确定 KB ref」第一次在这台 Gitea 上真实运行。
+
+## 回滚办法
+- 手动运行 `sdtm-rag` 工作流: `tag=f798709476b75bfb8959cd1d0ca4b252cc122c5e`, deploy=true。KB 指纹相同 (`477bac3ce565`), 预检会判 same, 不换数据; 私有 `deploy` job 不做镜像下限检查, 旧镜像可以回滚; `deploy_public` 变量未开, 会跳过。
+- ⚠ 变量打开之后就不能这样回滚了: 同一个 tag 也作用于公开站, 而 `f798709` 过不了镜像下限 (`p3_public_leg_impl.md` §8)。
+- 本仓回退: 对 `319654c`、`781521d`、`e50a9f8`、`5556687`、`613f048` 做 `git revert` (带 `[skip ci]`), 再走只构建 → 测试端口 → 部署。kb-sync 工作流从 main 的 checkout 运行, revert 之后下一次运行即回到单 job 的写法。
+
+## 收尾阶段的一处测试改写 (协调方要求; 不经过 CI)
+密钥扫描器对已推送的提交 `781521d` 报了两处 (JWT 形状、Bearer 形状), 是 `tests/test_kbsync_public.py::test_scrub_hides_key_shapes` 的参数化假值, 不是真密钥 (协调方核对过: 本机 `.env` 里的真实密钥在已推送内容里 0 命中)。已推送的历史不改。
+- 改法: 这个 parametrize 的 13 个假值改成运行时拼接 (`FAKE_SECRETS`; JWT 那一条用 base64 现算), 断言没有动。源码里不再有完整的密钥 / token 形状。
+- 核对: `p3_tunnel_leg_merge_scrub_equiv.py` 用 AST 取出 `613f048` 里的字面量求值, 与导入当前模块得到的参数逐个比较 → 13 个逐字相同, 顺序相同。本机 `tests/test_kbsync_public.py` 89 passed (其中这条 13 个用例)。
+- 独立审查 (同一位审查者, 第三次窄范围; 任务书 `subagent_prompts/review_tunnel_leg_merge_round3.md`): **PASS**。它没有用我的脚本, 自己在两个副本里真实导入改前、改后的模块逐个比较: 13 个参数逐字相同、顺序相同; `pytest --collect-only` 的用例 id 改前改后相同 (全文件 89 条, 这条 13 个); 新名字 (`_b64url`、`FAKE_SECRETS`) 不与别处冲突; 参数列表里已经没有完整的密钥 / token 形状。它建议加一行个数断言 (列表被清空时 parametrize 只变成 1 条 skip, 不会红) —— 已加 (`assert len(FAKE_SECRETS) == 13`), 加完本机该文件 89 passed。它没法确认的: 改写后能不能过那个外部扫描器。
+- 推送前检查发现我第一版改写把 JWT 里原先编码着的示例串写成了明文, 新带出一处与某个本地口令片段的偶然重合 (不是泄漏, 同类情形见上文「推送前检查」)。还没有推送, 就把那一段也改成运行时生成 (`_LETTERS`、`_DIGITS`), 并重做了未推送的本地提交 (没有强推); 最终的测试提交是 `27da769`。同一位审查者对 `27da769` 复核: **PASS** (13 个参数仍逐字相同; 用例 id 不变; 把列表删短一个, 个数断言在收集阶段报错; 源码里已没有 JWT 形状)。重合消失 (该文件 0 命中)。
+- 文件里还有两处带星号的打码形态假值没有动 (这次没有被报; 不在「只改这一处」的范围), 其它测试文件里完整形状的假密钥也没有处理, 记入 `todo_later`。
+
+## 仍未验证的事项
+1. **收尾阶段那处测试改写没有经过 CI**, 下次构建时才会跑 (本机该文件全部通过)。
+2. 公开侧的一切都还没有真实运行过: `deploy_public` 的全部步骤、kb-sync 的 `public` 腿、镜像下限预检脚本在真实镜像里的表现、临时容器 (无网络) 能否起到 healthy、两段 key 探测、红线检查、中断兜底 (`p3_public_leg_impl.md` §7; `p3_step3.4_tunnel.md`「合并前没法验证的事项」)。
+3. Gitea / act_runner: job 级 `vars` 门控在「变量未开 → 跳过」这个方向上已由 run 216 (`deploy_public`) 与 217 (kb-sync `public`) 证实 (run 214 / 215 里 `deploy_public` 也是 skipped, 但那两次 deploy=false, 区分不出是不是变量门控); `always()` 那半边 (私有腿失败后公开腿照跑)、变量打开后的行为、`concurrency` 是否真的让两个 workflow 排队、取消时兜底步骤是否执行, 都没有验证。
+4. 定时触发: 最近 30 次运行里没有任何定时触发的 kb-sync (只有手动派发的)。cron 写的是 `17 3 * * *`: 按 UTC 算的话 03:17Z 落在这次会话中间, 而 run 215 → 216 → 217 的编号是连续的 (03:13Z – 03:25Z), 中间没有别的运行, 03:17Z 没有触发; 按日本时间算的话下一次是 18:17Z, 上两个 18:17Z (11-26、11-27) 也都没有运行。定时器看起来没有在跑, 没有查原因。如果它之后恢复, 那会是两 job 版第一次无人值守运行, 预期是 private same / public skipped。
+5. 私有档的 cookie 属性在真机上无 cookie 可比 (上文); 登录门打开时的 session cookie 只有单测和变异作依据。
+6. 私有 `deploy` job 加固后「拒绝不合法输入」那半边 (多行、结尾换行) 只有本机用真实 bash 跑的测试, 没有在 Gitea 上派发过不合法的 tag。
+7. 在 runner 镜像里跑完整的 CI 测试命令没有做成 (我放进容器的是不带 `.git` 的归档, 收集阶段报 2 个错); 依据是 run 215 自己的结果。
+8. 独立审查留下、这次没有改的: LOW-1 / LOW-2 / LOW-3、`_end_process_group` 对僵尸的处理、兜底测试「只发 SIGTERM」的缺口、README 里镜像下限的说法 (`_progress.json` 的 `todo_later`, 前四项标了「必须在打开公开部署开关之前处理」)。
+
+## 小结 (规则 C)
+- **保留下来的做法**: squash 之前先在暂存区改掉含用户名的路径, 提交信息自己写; 合并结果用机械核对 (树 diff 为空 / 逐补丁比较 / numstat) 而不是靠读; 推送前检查逐提交扫 `git log -p`; 测试端口的比较脚本用 `r["键"]` 取值并加下限断言; 变异每次先确认打上了 (这次拦下一次没打上的); 部署前后用不含 mtime 的快照做 diff, 公开侧只取元数据; 只构建与正式部署之间不动 main。
+- **必须补上的缺口**:
+  1. 两条分支各自全绿, 合并后红了 5 条测试, 三种原因都只在「合到一起」或「换个环境」时才出现: 同一个快照文件被两条测试当成两种东西用 (2 条); CI 的 checkout 深度是 1, 取不到基点提交 (2 条); CI 的 job 容器 1 号进程不回收孤儿, 僵尸被当成活进程 (1 条)。前两种靠「深度 1 的克隆 + 独立 venv」能在 push 前发现; 第三种只有在 Linux runner 镜像里才能发现, 我的浅克隆模拟在 macOS 上, 漏了, 付出了一次失败的只构建。⇒ 并行分支合并前: 试合 → 深度 1 的克隆跑全量 → 涉及进程 / 信号 / 文件系统语义的测试再在 runner 镜像里跑一遍。
+  2. 「取得到时才核对」是一种会静默失效的闸 (成因 C 的变体): 我第一版的基点 fixture 核对在 CI 里从不执行, 是独立审查做「workflow 与 fixture 同步改」的变异才发现的。
+  3. 我的测试端口脚本第一趟的限流对比条件不对等 (两边空闲时间不同), 得到了一组看起来「行为不同」的数; 对比两边时, 有状态的东西 (令牌桶) 要先回到同一个起点。
+  4. 测试数据里的假密钥要在运行时拼, 不要写成完整的密钥形状 (公开仓库会被扫描器报警)。
+- **关键决策复盘**: (1) 覆盖快照后本机一红就停下来问, 同时顺手做了浅克隆模拟, 一次把 4 条都报上去, 而不是修两条再撞两条; (2) 审查的 MEDIUM-1 当场改掉 (把 blob 号写死) 而不是记成后续项, 因为它正是协调方要求确认的「检出能力」; (3) 窄范围审查的两条可选建议没有采纳, 保持在 runner 镜像里验证过的版本, 没有为了更严而把一个没在 Linux 上跑过的写法推上去; (4) 协调方中途追加的假密钥改写没有插进只构建与部署之间, 放到部署之后单独提交, 换来「部署的镜像 = 验过的那个提交」。
+
+## 结束状态
+- 收尾的两个提交 (都带 `[skip ci]`): `27da769` 只改 `tests/test_kbsync_public.py` (假密钥改写); 另一个是文档 (本文件 + 四个脚本 + 进度 / trace / 复盘)。推送前检查同一口径再扫一遍 (结果在向协调方的最终汇报里)。
+- `git status -sb`: `## main...origin/main`, 工作区干净; main = origin/main (Gitea 与 GitHub 相同), sha 见本提交。
+- 线上镜像对应提交 `613f048a4a8b9f8e2fecf5b7e2f6876c8f02c1a7`; 其后只有这两个收尾提交 (测试 + 文档, 没有运行时代码)。
+- 两条分支 `hakupao/public-tunnel` (`9d21808`)、`hakupao/public-kb-leg` (`1265aa6`) 和它们的子工作区都没有动, 留给协调方处理。
+- Gitea 仓库变量仍为空; 公开侧没有任何变化。
 
 ## 复跑命令
 ```sh
@@ -147,4 +238,20 @@ env -u VIRTUAL_ENV .venv/bin/python -m pytest tests/test_workflow_conditions.py 
 # 变异 (在深度 1 的副本里; 改完先用 cmp 确认文件确实变了)
 sed -i '' 's/seq 1 60/seq 1 5/' .gitea/workflows/sdtm-rag.yml tests/fixtures/workflows/base_9a8ad43_sdtm-rag.yml
 $R/.venv/bin/python -m pytest tests/test_workflow_conditions.py -q -o addopts="" -p no:cacheprovider -k changed_only
+# Gitea API (账号与口令取自 git credential, 不写进任何文件; 下面用占位符)
+API=https://git.bojiang.org/api/v1/repos/bojiang/sdtm-rag
+curl -u <账号>:$P -H 'Content-Type: application/json' -X POST $API/actions/workflows/sdtm-rag.yml/dispatches \
+  -d '{"ref":"main","inputs":{"tag":"<空或40位SHA>","deploy":"false|true","force_data_mismatch":"false"}}'
+curl -u <账号>:$P -H 'Content-Type: application/json' -X POST $API/actions/workflows/kb-sync.yml/dispatches -d '{"ref":"main","inputs":{"ref":"","public_baseline_image":""}}'
+curl -u <账号>:$P $API/actions/runs/<run>/jobs; curl -u <账号>:$P $API/actions/jobs/<job>/logs      # 214/455·456, 215/457·458, 216/459·460, 217/461·462
+curl -u <账号>:$P $API/actions/variables                                                              # []
+# 两次 CI 的测试点阵逐位比 (日志每行去掉时间戳前缀后)
+python3 -c "import re,sys; m=[''.join(re.match(r'^([.sFEx]+) +\[ *\d+%\]',l).group(1) for l in open(f) if re.match(r'^[.sFEx]+ +\[ *\d+%\]',l)) for f in sys.argv[1:3]]; print(len(m[0]),len(m[1]),[(i,a,b) for i,(a,b) in enumerate(zip(*m)) if a!=b])" <job455 日志> <job457 日志>
+# 测试端口 / 限流补测 / 快照 (在 VM 内执行)
+VM='ssh <mini 主机> export PATH=/opt/homebrew/bin:$PATH LIMA_HOME=/Volumes/DevSSD/lima; limactl shell deploy -- bash -s'
+cat .work/10_split_and_public/evidence/checkpoints/p3_tunnel_leg_merge_testport_613f048.sh   | $VM
+cat .work/10_split_and_public/evidence/checkpoints/p3_tunnel_leg_merge_testport_ratelimit.sh | $VM
+cat .work/10_split_and_public/evidence/checkpoints/p3_tunnel_leg_merge_snapshot.sh           | $VM     # 合并前 / 部署前 / 部署后 / kb-sync 后各一次, 两两 diff
+# 假密钥改写的等价核对
+$PY .work/10_split_and_public/evidence/checkpoints/p3_tunnel_leg_merge_scrub_equiv.py && $PY -m pytest tests/test_kbsync_public.py -q -o addopts="" -p no:cacheprovider
 ```
