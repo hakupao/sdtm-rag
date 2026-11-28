@@ -1,12 +1,14 @@
-"""「打开公开部署开关之前」那几处修正的变异验证 (docs/RULES.md 规则 5)。跑法 (仓根):
+"""「打开公开部署开关之前」那几处修正的变异验证 (docs/RULES.md 规则 5)。跑法 (仓根; 必须指到仓库的一份副本上):
 
-    .venv/bin/python .work/10_split_and_public/evidence/checkpoints/pre_switch_fixes_mutations.py
+    mkdir -p <临时目录>/mut && git archive HEAD | tar -x -C <临时目录>/mut \\
+      && rmdir <临时目录>/mut/vendor/sdtm-pedia && ln -s "$PWD/vendor/sdtm-pedia" <临时目录>/mut/vendor/sdtm-pedia
+    PSF_MUT_ROOT=<临时目录>/mut .venv/bin/python .work/10_split_and_public/evidence/checkpoints/pre_switch_fixes_mutations.py
 
 写法照 p3_step3.4_mutations.py: 每个变异先比对磁盘 sha (与启动时冻结的基线不符即拒跑) → 精确替换一处 (原文须恰好
 出现 1 次) → 回读, 必须逐字等于「原文替换后」→ 跑测试 → finally 用启动时冻结的原始字节写回并再比 sha。
 判定不只看退出码: 每个变异预登记「应该打红的用例」。killed = 有用例失败、没有 error、打红的用例里有预登记的那条。
 退出码非零但不满足这三条记 INVALID, 和 SURVIVED 一样算没通过。
-直接改文件: 别人 (或另一趟测试) 同时在用工作区时, 用 PSF_MUT_ROOT 指到仓库的一份副本上跑。
+直接改文件, 所以只在副本上跑: 不设 PSF_MUT_ROOT 就拒跑 (独立审查的建议: 默认改工作区的话, 中途被打断会把半变异态留在工作区里)。
 开跑前核对测试导入的 kbsync 就是 ROOT 下的那一份 (防「改的是这份、测的是另一份」)。
 """
 from __future__ import annotations
@@ -19,7 +21,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(os.environ.get("PSF_MUT_ROOT") or Path(__file__).resolve().parents[4]).resolve()
+if not os.environ.get("PSF_MUT_ROOT"):
+    raise SystemExit("先把仓库复制一份, 再用 PSF_MUT_ROOT 指过去 (见文件头); 本脚本不在工作区里直接改文件")
+ROOT = Path(os.environ["PSF_MUT_ROOT"]).resolve()
+WORKSPACE = Path(__file__).resolve().parents[4]
+if ROOT == WORKSPACE:
+    raise SystemExit("PSF_MUT_ROOT 指的就是工作区本身, 拒跑")
 TESTS = ["tests/test_kbsync.py", "tests/test_kbsync_public.py", "tests/test_kbsync_deploy_public.py",
          "tests/test_workflow_conditions.py"]
 KS = "deploy/kbsync/kbsync.py"
@@ -30,6 +37,10 @@ SCRUB = "test_startup_error_is_scrubbed_before_it_is_carried_out"
 HIDE_E2E = "test_study_collection_names_in_a_startup_error_are_hidden"
 HIDE_CFG = "test_configured_study_collection_name_in_a_startup_error_is_hidden"
 HIDE_UNIT = "test_hide_study_names"
+HIDE_WHOLE = "test_a_name_with_a_key_shaped_fragment_is_hidden_whole"
+GLUED = "test_stdout_and_stderr_of_the_container_log_are_not_glued_together"
+SETTINGS = "test_study_setting_names_match_the_settings_class"
+SEES = "test_the_schedule_check_sees_every_way_of_writing_it"
 VERBATIM = "test_startup_refusal_is_carried_verbatim_into_the_failure_reason"
 ZGROUP = "test_only_zombies_left_for_a_whole_group"
 ZONE = "test_only_zombies_left_for_a_single_process"
@@ -40,10 +51,12 @@ NOSCHED = "test_no_workflow_has_a_schedule_trigger"
 CRON = '  schedule:\n    - cron: "17 3 * * *"\n'
 
 SAFE = 'SAFE_COLLECTION_RE = re.compile(r"study_st[0-9]{2,3}(_docs)?|sdtm_kb_v[0-9]{1,3}")'
-LOGS = '        text = _hide_study_names(scrub((logs.stdout + logs.stderr).decode("utf-8", "replace")))\n'
-RAW = '(logs.stdout + logs.stderr).decode("utf-8", "replace")'
-TOKEN = '''STUDY_NAME_RE = re.compile(r"(?i)(?<![A-Za-z0-9_])study[^\\s'\\"`\\[\\]{}(),;:=<>|/\\\\]+")'''
-POLL = "                if _only_zombies_left(pid, pgid, whole):\n                    return True\n"
+LOGS = "        text = scrub(_hide_study_names(raw))\n"
+JOIN = 'raw = logs.stdout.decode("utf-8", "replace") + "\\n" + logs.stderr.decode("utf-8", "replace")'
+TOKEN = '''STUDY_NAME_RE = re.compile(r"(?i)study[^\\s'\\"`\\[\\]{}(),;:=<>|/\\\\]+")'''
+WORD = "        return word if word.lower() in STUDY_SETTING_NAMES else _show_collection(word)\n"
+KILL = "                    send(signal.SIGKILL)  # 都没了会抛 ProcessLookupError，同样算干净\n"
+POLL = "                if _only_zombies_left(pid, pgid, whole):\n" + KILL + "                    return True\n"
 
 MUTATIONS = [
     # (编号, 文件, 原文, 改成, 这条变异在验什么, 应该打红的用例名子串)
@@ -58,23 +71,32 @@ MUTATIONS = [
     ("L1g", KS, "    if SAFE_COLLECTION_RE.fullmatch(name):\n", "    if SAFE_COLLECTION_RE.match(name):\n",
      "只核对开头 (后面跟着什么都放行)", NAMES),
     # ── LOW-2: 启动报错带出之前先脱敏 ──
-    ("L2a", KS, LOGS, f"        text = _hide_study_names({RAW})\n", "容器日志带出之前不脱敏", SCRUB),
+    ("L2a", KS, LOGS, "        text = _hide_study_names(raw)\n", "容器日志带出之前不脱敏", SCRUB),
     ("L2b", KS, '"\\n".join(tail))\n        # 应用拒绝启动时',
-     f'"\\n".join({RAW}.strip().splitlines()[-40:]))\n        # 应用拒绝启动时',
+     '"\\n".join(raw.strip().splitlines()[-40:]))\n        # 应用拒绝启动时',
      "失败原因处理过, 但打印的日志末尾是原文", SCRUB),
     # ── LOW-3: 启动报错里的集合名 ──
-    ("L3a", KS, LOGS, f"        text = scrub({RAW})\n", "容器日志带出之前不隐去 study 集合名", HIDE_E2E),
-    ("L3b", KS, "    return STUDY_NAME_RE.sub(lambda m: _show_collection(m.group(0)), text)\n", "    return text\n",
-     "隐名函数什么都不做", HIDE_CFG),
-    ("L3c", KS, "    return STUDY_NAME_RE.sub(lambda m: _show_collection(m.group(0)), text)\n",
-     '    return STUDY_NAME_RE.sub(lambda m: m.group(0) if m.group(0).startswith("study_st") else "<x>", text)\n',
+    ("L3a", KS, LOGS, "        text = scrub(raw)\n", "容器日志带出之前不隐去 study 集合名", HIDE_E2E),
+    ("L3b", KS, "    return STUDY_NAME_RE.sub(show, text)\n", "    return text\n", "隐名函数什么都不做", HIDE_CFG),
+    ("L3c", KS, WORD, '        return word if word.lower() in STUDY_SETTING_NAMES or word.startswith("study_st") else "<x>"\n',
      "隐名时不走白名单 (study_st 开头的一律放行)", HIDE_UNIT),
     ("L3d", KS, TOKEN, TOKEN.replace("(?i)", ""), "只认小写的 study", HIDE_UNIT),
     ("L3e", KS, TOKEN, TOKEN.replace("|/\\\\]+", "|/\\\\.\\-]+"), "名字取到 . 或 - 就停 (后半截漏出来)", HIDE_E2E),
-    ("L3f", KS, TOKEN, TOKEN.replace("(?<![A-Za-z0-9_])", ""), "不看前一个字符 (标识符中间的 study 也被隐去)", HIDE_UNIT),
+    ("L3f", KS, TOKEN, TOKEN.replace("(?i)study", "(?i)(?<![A-Za-z0-9_])study"),
+     "要求 study 前面不是字母数字 (粘在别的词 / 颜色码 / 写出来的 \\n 后面的名字漏掉; 审查前的写法)", HIDE_UNIT),
     ("L3g", KS, LOGS, '        text = "<日志已隐去>"\n', "过度隐去: 整段日志都不带出 (防过度的闸)", VERBATIM),
+    ("L3h", KS, LOGS, "        text = _hide_study_names(scrub(raw))\n",
+     "先脱敏后隐名 (审查 MEDIUM: 名字被「<已隐去>」切成两段, 后半段漏出来)", HIDE_WHOLE),
+    ("L3i", KS, JOIN, 'raw = (logs.stdout + logs.stderr).decode("utf-8", "replace")', "stdout 与 stderr 直接相连", GLUED),
+    ("L3j", KS, WORD, "        return _show_collection(word)\n", "配置项的名字也被隐去 (报错里看不出是哪个开关)", HIDE_CFG),
+    ("L3k", KS, WORD, "        return word if any(word.lower().startswith(n) for n in STUDY_SETTING_NAMES) else _show_collection(word)\n",
+     "以配置项的名字开头就放行 (后面跟着什么都原样写出)", HIDE_UNIT),
+    ("L3l", KS, WORD, "        return word if word in STUDY_SETTING_NAMES else _show_collection(word)\n",
+     "配置项的名字只认小写 (环境变量写法的被隐去)", HIDE_UNIT),
+    ("L3m", KS, '    "study_docs_enabled", "study_docs_seats", "study_id",', '    "study_docs_enabled", "study_docs_seats", "study_id", "study_acme",',
+     "配置项名单里多了一个不是配置项的名字", SETTINGS),
     # ── _end_process_group: 僵尸不算「还在」 ──
-    ("Z1", KS, "                if _only_zombies_left(pid, pgid, whole):\n", "                if True:\n",
+    ("Z1", KS, POLL, "                if True:\n                    return True\n",
      "僵尸判断恒真 (活着的进程被当成已结束)", ZABORT),
     ("Z2", KS, POLL, "", "去掉僵尸排除 (回到改之前: 等满 20 轮并多打一行)", ZABORT),
     ("Z3", KS, '        if state != b"Z" or threads != 1:\n', '        if state != b"Z":\n',
@@ -98,6 +120,10 @@ MUTATIONS = [
     ("Z13", KS, "        except (FileNotFoundError, NotADirectoryError, ProcessLookupError):\n            continue",
      "        except (FileNotFoundError, NotADirectoryError, ProcessLookupError):\n            return True",
      "读不到那个进程就算「只剩僵尸」", ZONE),
+    ("Z14", KS, "        except OSError:\n            return False\n        try:\n", "        except OSError:\n            continue\n        try:\n",
+     "读的时候报错的进程被跳过 (审查的 M16: 看不见的活进程被当成不相干)", ZGROUP),
+    ("Z15", KS, KILL, "", "判成「只剩僵尸」时不补发 SIGKILL (判错时漏掉的进程没人结束)", ZABORT),
+    ("Z16", KS, POLL, KILL + POLL, "还没问僵尸就先发 SIGKILL (不给 SIGTERM 留时间)", ZABORT),
     # ── 兜底测试的缺口: 只发 SIGTERM、不升级 SIGKILL ──
     ("T1", KS, "        for sig in (signal.SIGTERM, signal.SIGKILL):\n", "        for sig in (signal.SIGTERM,):\n",
      "兜底只发 SIGTERM, 不升级到 SIGKILL", ALIVE),
@@ -113,6 +139,12 @@ MUTATIONS = [
      "kb-sync 多了手动派发以外的触发 (push)", NOSCHED),
     ("W4", KBWF, "on:\n  workflow_dispatch:\n", "on:\n  \"schedule\":\n    - \"cron\": \"17 3 * * *\"\n  workflow_dispatch:\n",
      "定时触发换个写法加回来 (带引号的键)", NOSCHED),
+    ("W5", KBWF, "on:\n  workflow_dispatch:\n", "on: {schedule: [{cron: \"17 3 * * *\"}]}\non:\n  workflow_dispatch:\n",
+     "重复的 on 键, 带定时的写在前面 (审查的 W2: PyYAML 默认取后一个)", NOSCHED),
+    ("W6", "tests/test_workflow_conditions.py", "        if dup:\n", "        if False:\n",
+     "测试用的加载器不再拒绝重复的键", SEES),
+    ("W7", "tests/test_workflow_conditions.py", '(^|[\\s{,\\[-])[\\"\']?(schedule|cron)', '^\\s*(-\\s*)?[\\"\']?(schedule|cron)',
+     "文本检查退回只看行首 (审查前的写法)", SEES),
 ]
 
 

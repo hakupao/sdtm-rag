@@ -1467,7 +1467,7 @@ def test_abort_ends_the_group_of_an_exited_but_unreaped_leader(monkeypatch):
 #    环境里才有 (CI 的 job 容器), 那一半由上面 test_abort_first_ends_a_deploy_process_that_is_still_alive 在 runner 里覆盖 ──
 def _stat(pid: int, state: str, pgrp: int, threads: int, comm: bytes = b"python3") -> bytes:
     """/proc/<pid>/stat 的一行, 字段顺序照 proc(5): 1 pid, 2 (comm), 3 state, 4 ppid, 5 pgrp, 6 session, …, 19 nice,
-    20 num_threads, 21 itrealvalue, …。无关的字段各放一个互不相同的数 (70 + 字段号): 取错位置就会拿到别的值。"""
+    20 num_threads, 21 itrealvalue, …。无关的字段各放一个互不相同的数 (7000 + 字段号): 取错位置就会拿到别的值。"""
     before = " ".join(str(7000 + n) for n in (4,))                 # ppid
     between = " ".join(str(7000 + n) for n in range(6, 20))        # session … nice
     after = " ".join(str(7000 + n) for n in range(21, 53))         # itrealvalue … exit_code
@@ -1476,7 +1476,8 @@ def _stat(pid: int, state: str, pgrp: int, threads: int, comm: bytes = b"python3
 
 
 def _fake_proc(tmp_path, monkeypatch, procs: dict, *, self_pid: int | None = None, mounted: bool = True):
-    """把 kbsync 看到的 /proc 换成 tmp 下的目录。procs: pid → stat 的原始字节 (None = 目录在、stat 已经读不到)。"""
+    """把 kbsync 看到的 /proc 换成 tmp 下的目录。procs: pid → stat 的原始字节 (None = 目录在、stat 已经读不到;
+    UNREADABLE = stat 在但读的时候报错 —— 用一个同名目录来造, root 身份下 chmod 000 挡不住读)。"""
     import os as _os
 
     real, root = ks.Path, tmp_path / "proc"
@@ -1493,10 +1494,13 @@ def _fake_proc(tmp_path, monkeypatch, procs: dict, *, self_pid: int | None = Non
     (root / "meminfo").write_text("MemTotal: 1 kB\n")  # /proc 下不是数字的条目: 不当成进程
     for pid, raw in procs.items():
         (root / str(pid)).mkdir(exist_ok=True)
-        if raw is not None:
+        if raw is UNREADABLE:
+            (root / str(pid) / "stat").mkdir()
+        elif raw is not None:
             (root / str(pid) / "stat").write_bytes(raw)
 
 
+UNREADABLE = object()
 G = 500  # 被结束的那个进程组 (组长的 pid = 组号)
 
 
@@ -1518,6 +1522,7 @@ G = 500  # 被结束的那个进程组 (组长的 pid = 组号)
     ({G: b"500 (x) Z 1 500 6 7\n"}, False),                                        # 行太短
     ({G: _stat(G, "Z", G, 1).replace(b" 500 ", b" five ")}, False),                # 组号不是数
     ({G: _stat(G, "Z", G, 1), 600: None}, True),                                   # 列出来之后才消失的: 已被回收, 跳过
+    ({G: _stat(G, "Z", G, 1), 601: UNREADABLE}, False),                            # 有一个读不了 (不是「不在了」): 它可能就是组里还活着的那个
 ])
 def test_only_zombies_left_for_a_whole_group(tmp_path, monkeypatch, procs, want):
     _fake_proc(tmp_path, monkeypatch, procs)
@@ -1551,7 +1556,7 @@ def test_only_zombies_left_refuses_without_a_usable_proc(tmp_path, monkeypatch):
 
 
 def test_abort_does_not_wait_on_zombies_but_still_waits_on_a_live_process(site, tmp_path, monkeypatch, capsys):
-    """信号 0 一直发得出去 (进程表里还有条目) 的两种情形。只剩僵尸: 发过 SIGTERM、查一轮就收工, 不多打那一行。
+    """信号 0 一直发得出去 (进程表里还有条目) 的两种情形。只剩僵尸: 发过 SIGTERM、查一轮就收工 (收工前补一次 SIGKILL), 不多打那一行。
     组里还有一个没结束的: 照旧升级到 SIGKILL、等满 20 轮、说「可能还没有结束」(僵尸判断不能把它也放过去)。"""
     import signal as _signal
 
@@ -1566,7 +1571,8 @@ def test_abort_does_not_wait_on_zombies_but_still_waits_on_a_live_process(site, 
     _fake_proc(tmp_path, monkeypatch, {4242: _stat(4242, "Z", 4242, 1), 4243: _stat(4243, "Z", 4242, 1)})
     pid_file.write_text("4242 4242")
     assert ks.public_abort(fake, a, sleep=slept.append) == 0
-    assert sent == [(4242, int(_signal.SIGTERM)), (4242, 0)] and slept == [0.5]
+    # 收工之前补发一次 SIGKILL (对僵尸没有作用; 万一判错了, 漏掉的进程也被结束)
+    assert sent == [(4242, int(_signal.SIGTERM)), (4242, 0), (4242, int(_signal.SIGKILL))] and slept == [0.5]
     assert "可能还没有结束" not in capsys.readouterr().out
 
     sent.clear(), slept.clear()
@@ -1821,20 +1827,77 @@ def test_configured_study_collection_name_in_a_startup_error_is_hidden(site, cap
     from server.config import Settings
 
     with pytest.raises(RuntimeError) as e:
-        instance.check_startup(Settings(instance="public", collection_name=ODD_STUDY, data_dir_override=str(tmp_path)))
+        instance.check_startup(Settings(instance="public", collection_name=ODD_STUDY, data_dir_override=str(tmp_path),
+                                        study_lookup_enabled=True, study_docs_enabled=True))
     refusal = f"RuntimeError: {e.value}"
     assert f"collection_name={ODD_STUDY!r} is a study collection" in refusal
+    assert "study_lookup_enabled=true" in refusal and "study_docs_enabled=true" in refusal
     out, md = _startup_refusal_out(site, capsys, monkeypatch, tmp_path, refusal)
     for text in (out, md):
         assert ODD_STUDY not in text and "ACME" not in text and "启动报错：RuntimeError: SDTM_RAG_INSTANCE=public refuses" in text
+        # 配置项的名字不是集合名, 照常写出: 否则报错里看不出是哪个开关 (临时容器验收完就删, 事后没有日志可翻)
+        assert "study_lookup_enabled=true; study_docs_enabled=true" in text
+
+
+def test_study_setting_names_match_the_settings_class():
+    """kbsync 只用标准库, 配置项的名字是抄过去的一张表: 这里核对它与 Settings 里含 study 的字段一致 (多了少了都红)。"""
+    from server.config import Settings
+
+    fields = [n for n in Settings.model_fields if "study" in n]
+    assert len(fields) >= 8  # 字段没取到的话, 下面是空集比空集
+    assert {n[n.index("study"):] for n in fields} == set(ks.STUDY_SETTING_NAMES)
+    assert all(n == n.lower() for n in ks.STUDY_SETTING_NAMES)  # 比较时把词转成小写
+
+
+@pytest.mark.parametrize("name", ["study_risk-assess.ONC2031X", "study_ask-abcdef.TRIAL42", "study_tvly-abcdef.ONC7"])
+def test_a_name_with_a_key_shaped_fragment_is_hidden_whole(site, capsys, monkeypatch, tmp_path, name):
+    """集合名中间有一段长得像 key 的片段 (risk-… 里的 sk-…): 先脱敏的话, 「<已隐去>」把名字切成两段, 后半段原样漏出去
+    (独立审查 2026-11-28 查到; 这几个名字 chromadb 都允许)。所以必须先隐名、后脱敏。"""
+    from types import SimpleNamespace
+
+    from server import instance
+
+    assert "<已隐去>" in ks.scrub(name)  # 这个名字确实会被脱敏规则命中 (否则这条测试什么都没验)
+    s = SimpleNamespace(instance="public", study_collection_name="study_st01", study_docs_collection_name="study_st01_docs")
+    client = SimpleNamespace(list_collections=lambda: [SimpleNamespace(name=n) for n in ("sdtm_kb_v1", name)])
+    with pytest.raises(RuntimeError) as e:
+        instance.check_chroma(s, client)
+    out, md = _startup_refusal_out(site, capsys, monkeypatch, tmp_path, f"RuntimeError: {e.value}")
+    tail = name.split(".", 1)[1]
+    hidden = f"['<名字不按约定，已隐去：sha256 前 10 位 {hashlib.sha256(name.encode()).hexdigest()[:10]}，长 {len(name)}>']"
+    for text in (out, md):
+        assert name not in text and tail not in text and hidden in text  # 整个名字一个指纹, 没有剩下的半截
+
+
+def test_stdout_and_stderr_of_the_container_log_are_not_glued_together(site, capsys):
+    """docker logs 的 stdout 最后一行没有换行时, 不能和 stderr 的第一行粘成一行 (粘上的话, 失败原因里带出的就不是那条报错)。"""
+    fake = _fake(site, formal="running", swap=False, cols={"stage": _cols(4329)})
+    fake.exited.add(TEMP)
+    orig = fake.run
+
+    def run(args, **kw):
+        if args[0] == "logs":
+            return subprocess.CompletedProcess(args, 0, b"INFO: Started server process",
+                                               f"RuntimeError: study collections in chroma: ['{ODD_STUDY}']\n".encode())
+        return orig(args, **kw)
+
+    fake.run = run
+    assert _run(fake, site) == 1
+    out = capsys.readouterr().out
+    assert "启动报错：RuntimeError: study collections in chroma: ['<名字不按约定" in out and ODD_STUDY not in out
+    assert "INFO: Started server process\nRuntimeError: study collections" in out  # 日志末尾里是两行
 
 
 @pytest.mark.parametrize("text,want", [
     ("study collections in chroma: ['study_st01', 'study_st01_docs']", None),          # 约定写法: 不动
     ("study data present: ['/app/data/study', '/app/data/study/st01/cards']", None),   # 路径里单独的 study: 不动
-    ("found = sorted(c.name for c in cs if _is_study_collection(s, c.name))", None),   # 标识符中间的 study: 不动
-    ("SDTM_RAG_STUDY_DOCS_ENABLED=true; sdtm_rag_rate_limit_enabled", None),
     ("RuntimeError: VARIABLE_INDEX section map", None),
+    # 配置项的名字 (整词相同, 不分大小写): 不动
+    ("refuses to start: study_lookup_enabled=true; study_docs_enabled=true", None),
+    ("SDTM_RAG_STUDY_DOCS_ENABLED=true; sdtm_rag_rate_limit_enabled", None),
+    ("s.study_collection_name / pdf_context_study_id / study_kb_root", None),
+    # 以配置项的名字开头、后面还有东西的: 不是配置项, 隐去
+    ("study_id_ACME2031 and study_kb_root.ACME", "{study_id_ACME2031} and {study_kb_root.ACME}"),
     ("['study_acme']", "['{study_acme}']"),
     ('["study_acme", "Study_ACME"]', '["{study_acme}", "{Study_ACME}"]'),
     ("collection=study_acme chunks=3", "collection={study_acme} chunks=3"),
@@ -1842,7 +1905,13 @@ def test_configured_study_collection_name_in_a_startup_error_is_hidden(site, cap
     ("study_st01_acme and (study_st2031004)", "{study_st01_acme} and ({study_st2031004})"),
     ("the study_st01. And study_x.y-z, then", "the {study_st01.} And {study_x.y-z}, then"),  # 句号粘在后面: 宁可多隐
     ("log: study_试验_01 loaded", "log: {study_试验_01} loaded"),
-    ("s.study_collection_name is unset", "s.{study_collection_name} is unset"),               # 代码里的标识符也会被隐去 (宁可多隐)
+    # 不看 study 前面是什么 (独立审查查到的三种漏法): 粘在别的词后面 / 写出来的 \n / 颜色码
+    ("INFO: upstudy_ACME2031 x", "INFO: up{study_ACME2031} x"),
+    ("msg='a\\nstudy_ACME2031'", "msg='a\\n{study_ACME2031}'"),
+    ("\x1b[0mstudy_ACME2031\x1b[0m", "\x1b[0m{study_ACME2031\x1b}[0m"),
+    ("mystudy_acme", "my{study_acme}"),
+    ("found = sorted(c.name for c in cs if _is_study_collection(s, c.name))",                 # 回溯里的标识符也有一截被隐去 (宁可多隐)
+     "found = sorted(c.name for c in cs if _is_{study_collection}(s, c.name))"),
 ])
 def test_hide_study_names(text, want):
     import re

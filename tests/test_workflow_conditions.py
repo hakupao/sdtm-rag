@@ -550,6 +550,28 @@ def test_kb_sync_private_leg_changed_only_where_intended():
     assert base[True]["workflow_dispatch"]["inputs"]["ref"] == WF["kb-sync"][True]["workflow_dispatch"]["inputs"]["ref"]
 
 
+class _NoDuplicateKeys(yaml.SafeLoader):
+    """同一个映射里键重复就报错。PyYAML 默认悄悄取最后一个; Gitea 那边的解析器怎么取没有核实, 所以一律不许重复。"""
+
+    def construct_mapping(self, node, deep=False):
+        keys = [self.construct_object(k, deep=True) for k, _ in node.value]
+        dup = sorted({str(k) for k in keys if keys.count(k) > 1})
+        if dup:
+            raise yaml.constructor.ConstructorError(None, None, f"重复的键: {dup}", node.start_mark)
+        return super().construct_mapping(node, deep)
+
+
+def _triggers(raw: str) -> set:
+    on = yaml.load(raw, Loader=_NoDuplicateKeys)[True]  # YAML 把键 `on` 读成 True  # noqa: S506 (SafeLoader 的子类)
+    return {on} if isinstance(on, str) else set(on)     # `on: push` / `on: [push, …]` / `on: {…}` 三种写法
+
+
+def _mentions_schedule(raw: str) -> bool:
+    """注释之外, 任何位置出现 schedule / cron 这两个键 (行首、`- ` 之后、`{` 或 `,` 之后; 带不带引号) 都算。"""
+    code = "\n".join(ln.split(" #", 1)[0] for ln in raw.splitlines() if not ln.lstrip().startswith("#"))
+    return re.search(r"(?m)(^|[\s{,\[-])[\"']?(schedule|cron)[\"']?\s*:", code) is not None
+
+
 def test_no_workflow_has_a_schedule_trigger():
     """本仓的 workflow 都没有定时触发 (协调方 2026-11-28 受托代裁)。这台 Gitea 只在「头提交不带跳过标记的 push 到 main」时
     登记定时任务, 登记后用的是那一刻的工作流内容和提交, 之后带 [skip ci] 的 push 不刷新: 留着 schedule, 哪一次不带标记的
@@ -559,15 +581,32 @@ def test_no_workflow_has_a_schedule_trigger():
     assert {f.name for f in files} >= {"kb-sync.yml", "sdtm-rag.yml"}  # 目录没找对的话, 下面的循环什么都不验
     for f in files:
         raw = f.read_text(encoding="utf-8")
-        on = yaml.safe_load(raw)[True]  # YAML 把键 `on` 读成 True
-        triggers = {on} if isinstance(on, str) else set(on)  # `on: push` / `on: [push, …]` / `on: {…}` 三种写法
-        assert "schedule" not in triggers, f.name
-        # 文本层面也不留 (注释之外): 写在别的层级、或 `on` 被重复定义时, 上面的解析结果看不到
-        code = "\n".join(ln.split(" #", 1)[0] for ln in raw.splitlines() if not ln.lstrip().startswith("#"))
-        assert not re.search(r"(?m)^\s*(-\s*)?[\"']?(schedule|cron)[\"']?\s*:", code), f.name
+        assert "schedule" not in _triggers(raw), f.name   # 解析结果里没有 (键重复时直接报错)
+        assert not _mentions_schedule(raw), f.name         # 文本里也没有: 写在别的层级时, 解析出的触发方式看不到
     assert set(WF["kb-sync"][True]) == {"workflow_dispatch"}  # kb-sync 只有手动派发
     assert set(WF["kb-sync"][True]["workflow_dispatch"]["inputs"]) == {"ref", "public_baseline_image"}
     assert set(WF["sdtm-rag"][True]) == {"push", "workflow_dispatch"}
+
+
+@pytest.mark.parametrize("head", [
+    "on:\n  schedule:\n    - cron: '17 3 * * *'\n  workflow_dispatch:\n",
+    "on: [workflow_dispatch, schedule]\n",
+    "on: {schedule: [{cron: '17 3 * * *'}], workflow_dispatch: {}}\n",
+    "on: schedule\n",
+    "on:\n  \"schedule\":\n    - \"cron\": \"17 3 * * *\"\n",
+    "on: {schedule: [{cron: '17 3 * * *'}]}\non:\n  workflow_dispatch:\n",   # 重复的 on 键, 带定时的在前 (PyYAML 默认取后一个)
+    "on:\n  workflow_dispatch:\non: {schedule: [{cron: '17 3 * * *'}]}\n",
+])
+def test_the_schedule_check_sees_every_way_of_writing_it(head):
+    """上面那条的两个判据自己要验得出来: 各种把定时加回来的写法, 至少被其中一个抓到。"""
+    raw = "name: x\n" + head + "jobs: {}\n"
+    try:
+        parsed = "schedule" in _triggers(raw)
+    except yaml.YAMLError:
+        parsed = True  # 键重复: 加载就报错
+    assert parsed or _mentions_schedule(raw)
+    clean = "name: x\non:\n  workflow_dispatch:\n    inputs: {}\n# schedule: 注释里提到不算\njobs: {}  # cron: 行尾注释也不算\n"
+    assert _triggers(clean) == {"workflow_dispatch"} and not _mentions_schedule(clean)
 
 
 def _bash_accepts(condition: str, var: str, value: str) -> bool:

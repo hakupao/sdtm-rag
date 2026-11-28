@@ -1045,9 +1045,12 @@ def accept_check(docker: Docker, name: str, *, tries: int = 60, sleep=time.sleep
         sleep(3)
     if not healthy:
         logs = docker.run(["logs", "--tail", "40", name])
-        # 带出之前先过两道：scrub 隐去 key 片段；_hide_study_names 隐去不按约定的 study 集合名。
-        # 两道都作用在整段日志上，下面打印的日志末尾和失败原因里的那一行用的是同一份
-        text = _hide_study_names(scrub((logs.stdout + logs.stderr).decode("utf-8", "replace")))
+        # 带出之前过两道，都作用在整段日志上（下面打印的日志末尾和失败原因里的那一行用的是同一份）。顺序不能换：
+        # 先 _hide_study_names（不按约定的 study 集合名），再 scrub（key 片段）。反过来的话，scrub 会在名字中间留下
+        # 「<已隐去>」，把一个名字切成两段，后半段原样漏出去（名字里有 risk-… / ask-… 这样的片段时；独立审查查到的）。
+        # stdout 与 stderr 之间补一个换行：直接相连的话，前一段的最后一行会和后一段的第一行粘成一行
+        raw = logs.stdout.decode("utf-8", "replace") + "\n" + logs.stderr.decode("utf-8", "replace")
+        text = scrub(_hide_study_names(raw))
         tail = text.strip().splitlines()[-40:]
         print(f"[deploy-public] {name} 未就绪，日志末尾：\n" + "\n".join(tail))
         # 应用拒绝启动时（公开档的各项启动自检）最后一条报错带进失败原因，不用翻日志
@@ -1173,20 +1176,35 @@ def _show_collection(name: str) -> str:
     return f"<名字不按约定，已隐去：sha256 前 10 位 {hashlib.sha256(name.encode('utf-8')).hexdigest()[:10]}，长 {len(name)}>"
 
 
-# 容器日志里以 study 开头的词（前面不是字母 / 数字 / 下划线，一直取到空白、引号、括号、逗号等分隔符为止）
-STUDY_NAME_RE = re.compile(r"(?i)(?<![A-Za-z0-9_])study[^\s'\"`\[\]{}(),;:=<>|/\\]+")
+# 容器日志里从 study 起的词（不分大小写，不看前一个字符，一直取到空白、引号、括号、逗号等分隔符为止）
+STUDY_NAME_RE = re.compile(r"(?i)study[^\s'\"`\[\]{}(),;:=<>|/\\]+")
+# 配置项的名字：server/config.py 的 Settings 里含 study 的字段，各取从 study 起的那一段。它们会出现在启动报错里
+# （比如 study_docs_enabled=true），是代码里的固定标识符，不是集合名，照常写出——否则报错就看不出是哪个开关。
+# tests/test_kbsync_deploy_public.py 核对这张表与 Settings 一致（本文件只用标准库，不能 import server）
+STUDY_SETTING_NAMES = frozenset({
+    "study_aliases_path", "study_catalog_path", "study_collection_name", "study_docs_collection_name",
+    "study_docs_enabled", "study_docs_seats", "study_id", "study_kb_root", "study_lookup_enabled"})
 
 
 def _hide_study_names(text: str) -> str:
-    """容器日志带出（打进 job 日志、写进失败原因和摘要）之前：以 study 开头的词按 _show_collection 的白名单处理。
+    """容器日志带出（打进 job 日志、写进失败原因和摘要）之前：从 study 起的词，除了配置项的名字（整词相同才算），
+    都按 _show_collection 的白名单处理——不在白名单里的换成指纹和长度。
     公开档的启动自检会把名字以 study 开头的集合列进报错（server/instance.py 的 check_chroma；check_startup 的
     collection_name 那一条同理），这样的名字可能带着真实研究的标识。按前面的顺序这类报错本来走不到（临时容器用的副本
     刚核对过集合恰为 KB_COLLECTION），但正式容器复验离红线检查隔着几分钟的验收，所以这里再挡一道，不靠那个前提。
-    宁可多隐：日志里别的 study 开头的词（比如代码里的标识符）也会被换成指纹。
-    挡不住的（前提，README「公开实例」写着）：集合名不以 study 开头——只有公开站把 SDTM_RAG_STUDY_COLLECTION_NAME /
-    SDTM_RAG_STUDY_DOCS_COLLECTION_NAME 配成别的名字、公开 chroma 里又恰好有这个集合时才会被列出来；
-    以及集合名里带空白 / 引号 / 括号之类的分隔符（chromadb 不允许这样的名字）。"""
-    return STUDY_NAME_RE.sub(lambda m: _show_collection(m.group(0)), text)
+    宁可多隐：不看 study 前面是什么字符（粘在别的词后面、跟在颜色码或写出来的 \\n 后面都照样处理），
+    所以日志里别的含 study 的标识符（比如回溯里的函数名）也会有一截被换成指纹。
+    挡不住的（前提，README「公开实例」写着）：
+    1. 集合名里没有 study——只有公开站把 SDTM_RAG_STUDY_COLLECTION_NAME / SDTM_RAG_STUDY_DOCS_COLLECTION_NAME
+       配成别的名字、公开 chroma 里又恰好有这个集合时，启动自检才会列出这样的名字；
+    2. 路径里的目录名：启动自检发现研究数据目录时会把路径列出来（study data present），路径按配置原样带出；默认配置下
+       路径里只有代号，只有把 SDTM_RAG_STUDY_KB_ROOT 之类的路径配置成带真实标识的目录才会漏；
+    3. 集合名里带空白 / 引号 / 括号之类的分隔符（chromadb 不允许这样的名字）。"""
+    def show(m: re.Match) -> str:
+        word = m.group(0)
+        return word if word.lower() in STUDY_SETTING_NAMES else _show_collection(word)
+
+    return STUDY_NAME_RE.sub(show, text)
 
 
 def live_contaminated_stop(docker: Docker, a: argparse.Namespace, name: str, image: str, extra: list[str]) -> int:
@@ -1490,7 +1508,8 @@ def _end_process_group(pid: int, pgid: int, sleep) -> bool:
     子进程，组长已经不在（含已退出但没被回收）也照发，因为组里可能还剩子进程；否则只结束这一个进程。
     不发信号的情况：pid 不合理（<= 1 或就是本进程）；pid 已经被别的进程复用（原来那一组必然已经全部退出）；
     组就是本进程所在的组时不对整组发。返回「没有需要担心的进程了」：信号 0 发不出去了，或者剩下的全是僵尸
-    （_only_zombies_left；先发过结束信号才问这一句）。"""
+    （_only_zombies_left；先发过结束信号才问这一句）。判成「只剩僵尸」时返回之前补发一次 SIGKILL：对僵尸没有作用，
+    而万一判错了（列目录和读状态之间，组里有进程刚起了子进程然后自己退出），漏掉的那个也被结束。"""
     if pid <= 1 or pid == os.getpid():
         return True
     whole = pgid == pid and pgid != os.getpgrp()
@@ -1517,6 +1536,7 @@ def _end_process_group(pid: int, pgid: int, sleep) -> bool:
                 sleep(0.5)
                 send(0)  # 都没了会抛 ProcessLookupError
                 if _only_zombies_left(pid, pgid, whole):
+                    send(signal.SIGKILL)  # 都没了会抛 ProcessLookupError，同样算干净
                     return True
     except ProcessLookupError:
         return True
