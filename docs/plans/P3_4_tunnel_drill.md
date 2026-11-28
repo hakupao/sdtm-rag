@@ -1,7 +1,10 @@
 # 公开站隧道与网络隔离：合并后的演练方案
 
 > 写于 2026-11-28。**第 1–4 步已于 2026-11-28 执行**，结果都与预期一致，记录在
-> `.work/10_split_and_public/evidence/checkpoints/p3_stageB_network_isolation.md`；**第 5 步起未执行**。
+> `.work/10_split_and_public/evidence/checkpoints/p3_stageB_network_isolation.md`。
+> **第 5 步试了一次、没有做成**（2026-11-28，run id 219）：部署在「临时容器验收」失败（没有网络的临时容器里，公开档的启动自检
+> 给免费模型定不了价），公开容器仍是「已创建、从未启动」，镜像和数据都没有换；第 5 步的只读核对、5a、5b 都没有做，env 文件没有动。
+> 记录在 `.work/10_split_and_public/evidence/checkpoints/p3_stageDE_first_public_deploy.md`。**第 6 步起未执行**。
 > 所以第 1 步「预期」里写的是执行之前的现状，现在的现状见该步末尾的补充。
 > 每一步都会动虚拟机，执行前由协调方取得主人同意。
 > 主人在 Cloudflare 后台做的部分见 `docs/plans/P3_4_tunnel_owner_steps.md`（下称「操作说明」）。

@@ -20,7 +20,7 @@ FastAPI (`server/`) + Chroma + BM25 + Chat UI (`webchat/`) + Streamlit 调试 UI
 | 「P2 开始」 | 读 `.work/10_split_and_public/PLAN.md` §2 P2 + §6 并行分线 (先 P2.0 接缝, 再 L1-L4) |
 | 「收尾」 | 执行下方收尾清单 |
 | 「部署」 | 按 `deploy/README.md`: 只构建 (deploy 取消勾选) → 测试端口验证 → 正式部署 |
-| ⚠ 自动部署 | 改 server/ui/webchat/scripts/eval/README.md/pyproject 等运行时路径的 push 即部署; 只改文档/测试的提交加 `[skip ci]` |
+| ⚠ 自动部署 | 改 server/ui/webchat/scripts/eval/README.md/pyproject 等运行时路径的 push 即部署; 只改文档/测试的提交加 `[skip ci]`。变量 `SDTM_RAG_PUBLIC_DEPLOY` 开着时 (现状见 `docs/PROGRESS.md`), 同一次运行在私有部署成功后还会跑公开部署 `deploy_public` (手动派发时勾着 `deploy` 也一样; 只构建不会) |
 | 「KB 更新」 | 手动派发 Gitea `kb-sync` (没有定时触发; `ref` 留空 = A 仓最新的 `kb-*` tag), 等它对新 tag `kb-YYYY.MM.DD` 判定 PASS (过闸的候选 chroma 保留在数据根) → 升级 submodule (`cd vendor/sdtm-pedia && git fetch --depth 1 origin tag <tag> && git checkout <tag>`) → 运行 `.venv/bin/python -m scripts.check_index_freshness`; 结果为 STALE 时在本机运行 `-m scripts.ingest` 和 `-m scripts.build_meta` (meta.yaml 有改动时一并提交) → 运行两条检索闸和 pytest → push (部署时自动换入过闸的 chroma/meta; 没有过闸候选时部署失败, 生产保持不变; 详见 `deploy/README.md`)。公开站 (变量 `SDTM_RAG_PUBLIC_DEPLOY`, 默认关): 开着时 kb-sync 的 `public` 腿另建公开候选, 部署时 `deploy_public` 先用临时容器验收再换 (README「公开实例」) |
 
 ## 规则 (每条必守)
