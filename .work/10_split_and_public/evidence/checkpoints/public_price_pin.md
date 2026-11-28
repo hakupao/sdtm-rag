@@ -86,8 +86,12 @@ LITELLM_LOCAL_MODEL_COST_MAP=True .venv/bin/python -c "import litellm; print([k 
 | `deploy/README.md` | 不在 | 「公开实例」「启动失败常见原因」各加一条 |
 | `.work/10_split_and_public/…` (本文件、两个脚本、`_progress.json`、`trace.jsonl`、审查任务书) | 不在 | |
 | `docs/retrospectives/RETROSPECTIVE_public_kb_leg.md` | 不在 | 追加一节 |
+| `docs/design/P2_request_context.md` | 不在 | 两处补注: 结算的下限、公开档启动自检多一行 (契约的接口形状没有变) |
 
-⇒ **合并到 main 并 push 会命中路径过滤**: 构建新镜像、部署私有站; 公开部署开关现在开着, 所以同一次运行还会带上公开部署 (预检 → 隔离核对 → 临时验收 → key 探测 → 换入候选 → `up --no-start`)。这需要主人另行同意; 不想连带公开部署的话, 用「只构建」(deploy 不勾)。
+⇒ 改动命中路径过滤, 但**合并后会不会自动构建和部署, 取决于怎么合并** (本仓的规矩: push 的头提交带 `[skip ci]` 就不触发工作流):
+- **快进合并** (分支现在的头提交是带 `[skip ci]` 的文档提交): push 之后**不会**触发任何运行, `server/` 的改动进了 main 却没有新镜像。要部署得手动运行 `sdtm-rag` 工作流 (留空 tag = 构建当前提交)。
+- **squash 合并, 或合并提交 / 头提交不带 `[skip ci]`**: push 即触发 —— 构建新镜像、部署私有站; 公开部署开关现在开着, 同一次运行还会带上公开部署 (预检 → 隔离核对 → 临时验收 → key 探测 → 换入候选 → `up --no-start`)。
+- 两条路都要主人另行同意。手动运行时不想连带部署, 取消勾选 deploy (只构建)。头提交要不要带 `[skip ci]` 由协调方定, 本会话没有为此改写提交。
 
 ## 6. 同类问题 (第 5 条): 启动时还有没有别的依赖联网
 
@@ -107,7 +111,7 @@ LITELLM_LOCAL_MODEL_COST_MAP=True .venv/bin/python -c "import litellm; print([k 
 
 ## 7. 验证
 
-提交号见文末「提交」(都在变基到 main `45fc1c6` 之后)。独立审查看的是 `97d6aa0`; 之后的修正在 `990e75d`、`a464243`、`0eb2c1e`。
+提交号见文末「提交」(都在变基到 main `45fc1c6` 之后)。独立审查第一轮看的是 `97d6aa0`; 之后的修正在 `990e75d`、`a464243`、`0eb2c1e`, 第二轮复核看的是 `97d6aa0..769f03f`; 复核后只补了测试 (`4a53fe5`)。
 
 ### 7.1 单测 (`tests/test_public_price_pin.py`)
 
@@ -118,7 +122,7 @@ LITELLM_LOCAL_MODEL_COST_MAP=True .venv/bin/python -c "import litellm; print([k 
 | 只认本名或日期后缀、只认本服务商的前缀; 少了一行不会被更短的键顶上 | `test_a_pinned_row_matches_the_id_or_a_dated_snapshot_only` (25 组)、`test_a_missing_row_is_not_covered_by_a_shorter_key` | 共用 |
 | 分档边界 (100000 / 100001 / 长度未知; 带日期后缀的快照同样分档) | `test_haiku_5_5_is_priced_by_prompt_length` | 共用 |
 | 预留按高档、回报用量按实际档 (含经过真实的预留 / 结算存储走一遍) | `test_the_meter_reserves_at_the_upper_tier_and_settles_at_the_reported_one`、`test_reserve_and_settle_through_the_store_use_those_tiers` | 公开 |
-| 回报的名字不在表里时不低于所预留模型的固定价; 所预留模型不在表里时计价链不变 | `test_settle_never_charges_less_than_the_reserved_models_pinned_price` / `test_settle_keeps_the_old_price_chain_when_the_reserved_model_is_not_pinned` | 公开 / 私有 (开计量) **各一条** |
+| 回报的名字不在表里时不低于所预留模型的固定价 (有用量: 按回报的档位; 流中断没有用量: 按高档); 所预留模型不在表里时计价链不变 | `test_settle_never_charges_less_than_the_reserved_models_pinned_price`、`test_the_floor_also_holds_for_a_stream_that_ended_without_usage` / `test_settle_keeps_the_old_price_chain_when_the_reserved_model_is_not_pinned` | 公开 / 私有 (开计量) **各一条** |
 | 表内模型不经过 litellm (把 litellm 的计价函数换成一调用就报错的) | `test_a_pinned_model_is_priced_without_litellm[public]` / `[private]` | **各一条** |
 | 公开站现在的配置能过成本自检并建出应用 | `test_the_deployed_public_config_passes_the_cost_check` | 公开 |
 | 没有固定价格的可选模型: 公开拒绝并报出模型; 私有照常启动 | `test_public_refuses_a_selectable_model_without_a_pinned_price` / `test_private_starts_with_the_same_unpinned_model` | **各一条** |
@@ -143,9 +147,10 @@ LITELLM_LOCAL_MODEL_COST_MAP=True .venv/bin/python -c "import litellm; print([k 
 | 环境 | 提交 | 结果 |
 |---|---|---|
 | 深度为 1 的克隆 + 独立 venv (CI 同款; 没有 `data/`) | `97d6aa0` | 3596 passed / 0 failed / 61 skipped (59 条是 `local_data`, 2 条要 playwright) |
-| 同上 | `0eb2c1e` (最终的代码与测试) | 3611 passed / 0 failed / 61 skipped |
+| 同上 | `0eb2c1e` (最终的代码) | 3611 passed / 0 failed / 61 skipped |
+| 同上 | `4a53fe5` (最终的测试) | 3612 passed / 0 failed / 61 skipped |
 
-基线对照: 上一个单元在 `2834d5e` 的浅克隆是 3566 / 0 / 61; 这次多出的就是新文件里的用例 (`97d6aa0` 时 30 条, 最终 45 条)。
+基线对照: 上一个单元在 `2834d5e` 的浅克隆是 3566 / 0 / 61; 这次多出的就是新文件里的用例 (`97d6aa0` 时 30 条, 最终 46 条)。
 
 ```sh
 T=<临时目录>; git clone --depth 1 --branch hakupao/public-price-pin file://<主仓路径> $T/shallow && cd $T/shallow \
@@ -211,11 +216,23 @@ docker run --rm -i --name ppp-offline-probe --network none --cap-drop ALL --secu
 
 两位审查者都没能核实的: Anthropic / DeepSeek 在响应里回报的模型名的实际写法 (没有发真实请求); 部署机上公开站 env 文件的真实内容; 真实镜像里的离线对照 (审查者没有 docker, §7.4 是实现者自己跑的, 没有第二个人复跑)。
 
-**审查之后的修正 (`990e75d` 里的探针改动、`a464243`、`0eb2c1e`) 没有再经独立审查**; 它们由测试和变异覆盖 (文末), 最终文件在真实镜像里跑过一次 (§7.4 第 3 次)。
+### 第二轮: 审查之后的修正送回同两位审查者复核 (范围 `git diff 97d6aa0..769f03f -- server/ tests/test_public_price_pin.py`)
 
-## 变异结果 (最终; 测试与被测代码 = `a464243`, 脚本 = `0eb2c1e`)
+| 审查者 | 结论 | 要点 |
+|---|---|---|
+| 安全审查 | **PASS**, 没有必须改的 | 前缀限制没有绕过也没有误伤: 公开站现在的模型串 `anthropic/claude-haiku-5-5` 和服务商可能回报的裸名都命中; 多段前缀、空前缀、别家前缀都不命中。结算的下限没有新的少记路径; `model` 只来自走服务端 key 时上游的响应, 访客控制不了 |
+| 代码审查 | **PASS-with-fixes** (要补的只有测试) | 在新旧两份副本上逐情形对照结算价: 唯一的数值变化是「回退到不在表里、别的来源报价偏低的模型」从按那个低价记变成按所预留模型的固定价记 (多记方向)。「取较高者」相对它第一轮的建议, 没有哪种情形更差。它另打的 5 个变异里 3 个存活 (Y1、Y5: 没有用量的流式结算分支上的下限没有测试锁住; Y2: 下限有没有按回报的档位算看不出来) |
 
-`29/29 killed`, 基线和还原后都是 `45 passed`。三个文件的 sha256 前 16 位: `cost.py 11424dac266090b0`、`instance.py a665259d54e754a1`、`quota.py d4337733a7d70284`。
+处理: Y1 / Y5 / Y2 各补了断言, 并收进变异脚本 (Q10、Q11、Q12), 提交 `4a53fe5` —— **只改了测试和变异脚本, `server/` 三个文件自 `a464243` 起没有再动** (sha 见「变异结果」, 与 §7.4 第 3 次载入的相同)。`4a53fe5` 这三条断言本身没有再送审。
+
+复核里提到、没有改的:
+- (两位都提到, 改之前就有) 服务商回报的名字如果是表里没有的写法 (如带非日期后缀), 那次调用按回退费率记, 是实际价的几十倍 —— 只会让免费池更快用完, 不会少记。`p3_step3.3.md` 那次真答题记录的 `model_used=claude-haiku-5-5` 是裸名, 能命中。安全审查者的可选建议 (这种情形改用所预留模型的固定价) 没有采纳: 分不清「同一模型的另一种写法」和「回退到了另一个模型」时, 宁可多记。
+- (安全, 可选) 将来加别家的价格行却忘了加前缀映射时, 带前缀的写法会抛 `KeyError`; 现在有测试断言两张表的服务商一致, 漏到运行时的后果是那次预留按全额扣 (多记)。
+- (代码, 私有档) 相对 `97d6aa0`: `bedrock/claude-sonnet-4-6`、`openai/deepseek-v4-pro`、`openrouter/deepseek-v4-pro` 这类别的渠道的写法不再按第一方价 (成本显示变成「—」或改由 litellm 给价, 开了计量时按回退费率); 仓库里没有任何地方用到这些写法。
+
+## 变异结果 (最终; 被测代码 = `a464243`, 测试与脚本 = `4a53fe5`)
+
+`32/32 killed`, 基线和还原后都是 `46 passed`。三个文件的 sha256 前 16 位: `cost.py 11424dac266090b0`、`instance.py a665259d54e754a1`、`quota.py d4337733a7d70284`。
 
 | 组 | 编号 | 变异 | 打红的预登记用例 |
 |---|---|---|---|
@@ -224,7 +241,7 @@ docker run --rm -i --name ppp-offline-probe --network none --cap-drop ALL --secu
 | 匹配规则 | C7、C8、C13、C14、C15 | 退回宽松前缀; 日期后缀只匹配开头; 后缀放宽到 `@`; 不看服务商前缀; 前缀判断写反 | 匹配规则那一组 |
 | 分档 | C9、C10、C11、C16 | 拿掉高档; 边界写成大于等于; 长度未知不取高档; 分档表按原始模型名查 | 分档那一条 |
 | 计量 | Q1–Q5 | 不查固定表; 估算长度按自己的档; 结算一律按高档; `reported` 不起作用; 没有用量的流式结算按低档 | 「不经过 litellm」「预留按高档 / 回报按实际档」「经过存储走一遍」 |
-| 结算下限 | Q6–Q9 | 去掉下限; 写成上限; 所预留模型不在表里时也套; 直接改用所预留模型的价 | 下限那两条 |
+| 结算下限 | Q6–Q12 | 去掉下限; 写成上限; 所预留模型不在表里时也套; 直接改用所预留模型的价; 没有用量的流式结算不套下限; 下限只在有用量时生效; 下限一律按高档 | 下限那三条 |
 | 启动自检 | I1–I3 | 不再要求固定价格; 用 id 而不是模型串去查; 显式配了可选模型的私有档也跑公开自检 | 「公开拒绝」; 离线场景; 「私有照常启动」 |
 | 修之前 | PRE | 三个文件整个换回 `0a85a43` 的字节 (sha `fc8264ed3c…`、`0aab05b97b…`、`fb515bdb53…`) | 离线场景那一条, 输出里有 `selectable model 'm1': one answer round reserves $0.700 > free pool / 10 = $0.300` |
 
@@ -234,7 +251,7 @@ T=<临时目录>; mkdir -p $T/mut $T/pre && git archive HEAD | tar -x -C $T/mut 
 PPP_MUT_ROOT=$T/mut PPP_PREFIX_ROOT=$T/pre .venv/bin/python .work/10_split_and_public/evidence/checkpoints/public_price_pin_mutations.py
 ```
 
-历次: 第一版代码 (`955190f`) 19 / 20 (I3 初版 INVALID → 改窄后 killed); `97d6aa0` 20 / 21 (PRE INVALID, 见 §7.2); `a464243` 28 条全部 killed, PRE 那一步因脚本里新加的常量与已有变量重名而报错 (脚本自己的错, `0eb2c1e` 改名); 最终 29 / 29。
+历次: 第一版代码 (`955190f`) 19 / 20 (I3 初版 INVALID → 改窄后 killed); `97d6aa0` 20 / 21 (PRE INVALID, 见 §7.2); `a464243` 28 条全部 killed, PRE 那一步因脚本里新加的常量与已有变量重名而报错 (脚本自己的错, `0eb2c1e` 改名) → 29 / 29; 复核后加三条, 最终 32 / 32。
 
 ## 提交 (分支 `hakupao/public-price-pin`, 基于 main `45fc1c6`; 没有 push)
 
@@ -245,10 +262,12 @@ PPP_MUT_ROOT=$T/mut PPP_PREFIX_ROOT=$T/pre .venv/bin/python .work/10_split_and_p
 | `990e75d` `[skip ci]` | 本文件、README、复盘、进度登记、审查任务书; 离线探针改成新旧代码都能跑 | 否 |
 | `a464243` | 审查意见: 服务商前缀、结算下限、报错补充; 测试与变异 | 是 |
 | `0eb2c1e` `[skip ci]` | 变异脚本常量改名 | 否 |
-| 之后的一个文档提交 `[skip ci]` | 本文件的审查 / 变异 / 提交三节, 进度与 trace | 否 |
+| `769f03f` `[skip ci]` | 本文件的审查 / 变异 / 提交三节, 进度与 trace | 否 |
+| `4a53fe5` `[skip ci]` | 复核意见: 三条断言 + 三条变异 | 否 |
+| 之后的一个文档提交 `[skip ci]` (分支头) | 本文件的第二轮复核、合并方式与红线扫描的说明改准; 设计文档两处补注; 进度与 trace | 否 |
 
-提交信息带 `[skip ci]` 只对「这个提交是 push 的头提交」有意义; 这些提交合并进 main 时, 整体仍然命中路径过滤 (§5)。
-提交时的红线检查: 工作区没有研究数据的 catalog, hook 按具名开关 `OIDSCAN_NO_CATALOG=1` 跳过; 每次提交之前另用主仓的 catalog 对暂存文件手动跑了同一个扫描 (`.venv/bin/python -m scripts.precommit_oidscan --catalog <主仓>/data/study/st01/catalog.json`), 结果都是 CLEAN。没有用 `--no-verify`。
+提交信息里的 `[skip ci]` 只在「这个提交是 push 的头提交」时起作用; 合并后是否触发构建和部署见 §5 (快进合并不会触发)。
+提交时的红线检查: 工作区没有研究数据的 catalog (在主仓的 gitignored 目录里), hook 按具名开关 `OIDSCAN_NO_CATALOG=1` 跳过 —— **hook 本身没有做任何检查**。替代做法: 提交之前用主仓的 catalog (只读) 对暂存文件手动跑同一个扫描 (`.venv/bin/python -m scripts.precommit_oidscan --catalog <主仓>/data/study/st01/catalog.json`), 结果 CLEAN; `0eb2c1e` (只改了变异脚本里一个常量名) 那一次漏了这一步。最后对整个分支改过的全部文件补扫一遍: `.venv/bin/python scripts/oidscan_evidence.py $(git diff --name-only 45fc1c6..HEAD) --catalog <同上>` → `CLEAN: 0 处未在 allowlist 的 OID/label 命中`。没有用 `--no-verify`。
 
 ## 9. 还没有做 / 留给后面的
 - 合并、构建新镜像、部署 (私有站 + 公开站): 等主人同意。合并后第一次公开部署会从头走一遍, 这次才会知道「没有网络的临时容器能否起到 healthy」。

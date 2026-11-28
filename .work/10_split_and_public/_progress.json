@@ -162,7 +162,7 @@
       "status": "BRANCH_ONLY_REVIEWED_NOT_MERGED",
       "date": "2026-11-28",
       "artifact": "evidence/checkpoints/public_price_pin.md",
-      "note": "根因复核与上一个会话一致, 另查出 litellm 的在线价格表对 Haiku 5.5 超过 10 万 token 的提示词只按低档算 (少记到五分之一); server/cost.py 固定 Claude 5.x 五个模型 + Haiku 5.5 两档 (Anthropic 官方定价页 2026-11-28; DeepSeek 那一行同日对官方页核实, 数值未改), 表内模型只认本名 / 日期后缀 / 本服务商前缀; server/quota.py 估算长度按高档预留、回报用量按实际档结算、回报了表里没有的名字不低于所预留模型的固定价; server/instance.py 公开档的可选模型没有固定价格 → 拒绝启动并报出模型 (私有档不变); tests/test_public_price_pin.py 45 条; 变异 29 / 29 killed (含整个换回修之前的字节 → 红出 run 219 的原句); 浅克隆 + 独立 venv 3611 / 0 / 61 (0eb2c1e); 线上镜像 613f048 的无网络一次性容器: 修之前拒绝启动 ($0.700 > $0.300), 修之后与最终文件都通过 (单轮上限 0.07), 私有站前后无变化; 独立审查: 代码 PASS-with-fixes (HIGH 1 = 被审提交上 PRE 变异无效, 已修)、安全 PASS; 审查之后的修正没有再经独立审查; 合并会命中部署路径过滤 (server/**), 公开部署开关开着 → 需要主人另行同意"
+      "note": "根因复核与上一个会话一致, 另查出 litellm 的在线价格表对 Haiku 5.5 超过 10 万 token 的提示词只按低档算 (少记到五分之一); server/cost.py 固定 Claude 5.x 五个模型 + Haiku 5.5 两档 (Anthropic 官方定价页 2026-11-28; DeepSeek 那一行同日对官方页核实, 数值未改), 表内模型只认本名 / 日期后缀 / 本服务商前缀; server/quota.py 估算长度按高档预留、回报用量按实际档结算、回报了表里没有的名字不低于所预留模型的固定价; server/instance.py 公开档的可选模型没有固定价格 → 拒绝启动并报出模型 (私有档不变); tests/test_public_price_pin.py 46 条; 变异 32 / 32 killed (含整个换回修之前的字节 → 红出 run 219 的原句); 浅克隆 + 独立 venv 3612 / 0 / 61 (4a53fe5); 线上镜像 613f048 的无网络一次性容器: 修之前拒绝启动 ($0.700 > $0.300), 修之后与最终文件都通过 (单轮上限 0.07), 私有站前后无变化; 独立审查两轮: 第一轮 代码 PASS-with-fixes (HIGH 1 = 被审提交上 PRE 变异无效, 已修)、安全 PASS; 审查后的修正 (服务商前缀、结算下限) 送回复核: 安全 PASS、代码 PASS-with-fixes (只缺测试, 已补; 补的三条断言没有再送审); 改动命中部署路径过滤 (server/**), 但分支头提交带 [skip ci]: 快进合并后 push 不会触发构建, 要手动运行工作流; squash 或头提交不带该标记则 push 即构建 + 私有部署 + (开关开着) 公开部署 —— 都需要主人另行同意"
     }
   ],
   "recovery_hint": "新会话在 /Volumes/DevSSD/Project/sdtm-rag 打开: 读本文件 → PLAN.md §2 P1 1.8/1.9 → 续跑",
@@ -407,7 +407,7 @@
         "checkpoints/public_price_pin_offline_probe.py",
         "subagent_prompts/public_price_pin_reviewers.md"
       ],
-      "gates": "pytest -m 'not slow' 浅克隆 3611 / 0 / 61 (0eb2c1e); 变异 29 / 29; 线上镜像无网络容器 修之前 REFUSES / 修之后 PASS; 审查 PASS-with-fixes + PASS",
+      "gates": "pytest -m 'not slow' 浅克隆 3612 / 0 / 61 (4a53fe5); 变异 32 / 32; 线上镜像无网络容器 修之前 REFUSES / 修之后与最终文件 PASS; 审查两轮: 代码 PASS-with-fixes ×2 (已处理)、安全 PASS ×2",
       "note": "没有 push、没有合并、没有部署; SDTM_RAG_PUBLIC_DEPLOY 仍是 true (没有动); 公开站没有被碰过"
     }
   ],

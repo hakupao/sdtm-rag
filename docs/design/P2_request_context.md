@@ -173,7 +173,7 @@ endpoint (@request_scope) ── begin(): RequestContext{endpoint, request, tier
 各线必须守的接缝规则:
 - 钩子收到 `ctx is None` (eval / scripts) 必须原样放行。
 - 访客身份 / 设置从 `ctx.request` 取 (cookie、`CF-Connecting-IP`、`ctx.request.app.state.settings`); ⛔ 不读模块级 `server.config.settings` (与 app.state 可能不是同一份)。
-- `quota.reserve` 返回的句柄原样回到同一次调用的 `settle`; `settle` 的 `model` = provider 报的模型 (Router 回退会改变它, 计价按它)。`route` / `review` / `embedding` / `hyde` 用的不是 `ctx.model`, 以 `reserve` 的 `kw["model"]` 与 `settle` 的 `model` 为准。
+- `quota.reserve` 返回的句柄原样回到同一次调用的 `settle`; `settle` 的 `model` = provider 报的模型 (Router 回退会改变它, 计价按它; 2026-11-28 起: 报的名字不在 `server/cost.py` 的固定价格表里、而 `reserve` 时的模型在表里时, 不低于后者的固定价)。`route` / `review` / `embedding` / `hyde` 用的不是 `ctx.model`, 以 `reserve` 的 `kw["model"]` 与 `settle` 的 `model` 为准。
 - 拒绝只用 `ServiceRefusal` (状态码 + §2.3 code); 其它异常类型会被各处兜底吞掉。
 - v1.2: `quota.settle(ctx, purpose, handle, usage, model, *, streamed_text=None, closed_early=False)`。`outbound._metered` 记本次流已产出的文本
   (content + reasoning_content + 工具调用参数) 和结束方式。usage 缺失时: 正常耗尽 ⇒ `prompt 估算 + ceil(1.5 × 已流出)`; 提前关闭 (GeneratorExit /
@@ -224,6 +224,7 @@ export SDTM_RAG_CHROMA_DIR_OVERRIDE=/Volumes/DevSSD/Project/sdtm-rag/data/chroma
 | `SDTM_RAG_VISITOR_COOKIE_SECURE` 不为假 (P3.4) | 公开站只走 HTTPS; 不带 `Secure` 的访客 cookie 会随同主机名的明文请求发出 |
 | `SDTM_RAG_RATE_LIMIT_TRUST_FORWARDED` 不为真 | `X-Forwarded-For` 穿过隧道可被访客伪造; 公开档全局限流按 `CF-Connecting-IP` (仅可信代理来源) 计 |
 | `SDTM_RAG_SELECTABLE_MODELS` 显式设置, 每个模型显式写 `max_output_tokens`, 且单轮预留 ≤ 免费池 / 10 (`quota.round_estimate_usd`: 历史上限 + 40k token prompt 余量 + max_output) | 内置清单是私有站的 Claude 128K 输出 (一轮 ≈ $3); 例: DeepSeek v4-pro 32000 输出 ≈ $0.21 ≤ $0.30 |
+| 每个可选模型在 `server/cost.py` 的固定价格表里有价格 (2026-11-28; `.work/10_split_and_public/evidence/checkpoints/public_price_pin.md`) | 没有固定价格时, 上一行的单轮预留和运行时的记账用的是 litellm 联网取的价格表 (没有网络时取不到) 或回退费率, 都不是核对过的数; 按提示词长度分档的模型, 预留和这条上限按高档算 |
 | `security_headers_enabled=true` | BYOK key 在浏览器 localStorage, CSP 是 XSS 的第二道防线 |
 
 **部署要求 (P3.2 / P3.4 compose 落实)**: 公开容器不发布宿主端口, 只在专用 docker 网络 `sdtm-rag-public` (固定子网) 上;
