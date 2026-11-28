@@ -10,6 +10,7 @@
 退出码非零但不满足这三条记 INVALID, 和 SURVIVED 一样算没通过。
 直接改文件, 所以只在副本上跑: 不设 PSF_MUT_ROOT 就拒跑 (独立审查的建议: 默认改工作区的话, 中途被打断会把半变异态留在工作区里)。
 开跑前核对测试导入的 kbsync 就是 ROOT 下的那一份 (防「改的是这份、测的是另一份」)。
+只重跑其中几个: PSF_MUT_ONLY=Z16,W6 (逗号分隔的编号; 写了不存在的编号会拒跑)。
 """
 from __future__ import annotations
 
@@ -24,9 +25,8 @@ from pathlib import Path
 if not os.environ.get("PSF_MUT_ROOT"):
     raise SystemExit("先把仓库复制一份, 再用 PSF_MUT_ROOT 指过去 (见文件头); 本脚本不在工作区里直接改文件")
 ROOT = Path(os.environ["PSF_MUT_ROOT"]).resolve()
-WORKSPACE = Path(__file__).resolve().parents[4]
-if ROOT == WORKSPACE:
-    raise SystemExit("PSF_MUT_ROOT 指的就是工作区本身, 拒跑")
+if (ROOT / ".git").exists():  # git archive 出来的副本没有 .git; 有的话就是工作区或某个克隆
+    raise SystemExit("PSF_MUT_ROOT 指的目录里有 .git (工作区或克隆), 拒跑: 用 git archive 出来的副本")
 TESTS = ["tests/test_kbsync.py", "tests/test_kbsync_public.py", "tests/test_kbsync_deploy_public.py",
          "tests/test_workflow_conditions.py"]
 KS = "deploy/kbsync/kbsync.py"
@@ -131,7 +131,7 @@ MUTATIONS = [
     ("Z14", KS, "        except OSError:\n            return False\n        try:\n", "        except OSError:\n            continue\n        try:\n",
      "读的时候报错的进程被跳过 (审查的 M16: 看不见的活进程被当成不相干)", ZGROUP),
     ("Z15", KS, KILL, "", "判成「只剩僵尸」时不补发 SIGKILL (判错时漏掉的进程没人结束)", ZABORT),
-    ("Z16", KS, POLL, KILL + POLL, "还没问僵尸就先发 SIGKILL (不给 SIGTERM 留时间)", ZABORT),
+    ("Z16", KS, POLL, "                send(signal.SIGKILL)\n" + POLL, "还没问僵尸就先发 SIGKILL (不给 SIGTERM 留时间)", ZABORT),
     # ── 兜底测试的缺口: 只发 SIGTERM、不升级 SIGKILL ──
     ("T1", KS, "        for sig in (signal.SIGTERM, signal.SIGKILL):\n", "        for sig in (signal.SIGTERM,):\n",
      "兜底只发 SIGTERM, 不升级到 SIGKILL", ALIVE),
@@ -194,6 +194,10 @@ def main() -> int:
     loaded = subprocess.run([sys.executable, "-c", "from tests.test_kbsync import ks; print(ks.__file__)"], cwd=ROOT,
                             capture_output=True, text=True, check=True).stdout.strip()
     assert Path(loaded).resolve() == (ROOT / KS).resolve(), f"测试导入的 kbsync 不是 ROOT 下的那一份: {loaded}"
+    only = [x for x in os.environ.get("PSF_MUT_ONLY", "").split(",") if x]
+    unknown = sorted(set(only) - {m[0] for m in MUTATIONS})
+    assert not unknown, f"PSF_MUT_ONLY 里有不存在的编号: {unknown}"
+    todo = [m for m in MUTATIONS if not only or m[0] in only]
     files = sorted({m[1] for m in MUTATIONS})
     frozen = {f: (ROOT / f).read_bytes() for f in files}
     base = {f: sha(b) for f, b in frozen.items()}
@@ -206,7 +210,7 @@ def main() -> int:
         print("基线不绿, 拒跑")
         return 2
     bad = []
-    for mid, f, old, new, what, expected in MUTATIONS:
+    for mid, f, old, new, what, expected in todo:
         path = ROOT / f
         assert sha(path.read_bytes()) == base[f], f"{mid}: {f} 与基线不符, 拒跑"
         text = frozen[f].decode("utf-8")
@@ -230,7 +234,8 @@ def main() -> int:
               + (f" | 同时红的: {', '.join(others)}" if others else ""))
     rc, summary, _failed, _why = run_tests()
     print(f"RESTORED rc={rc} {summary}")
-    print(f"{len(MUTATIONS) - len(bad)}/{len(MUTATIONS)} killed" + (f"; 没通过: {bad}" if bad else ""))
+    print(f"{len(todo) - len(bad)}/{len(todo)} killed" + (f" (全部 {len(MUTATIONS)} 个里只跑了这 {len(todo)} 个)" if only else "")
+          + (f"; 没通过: {bad}" if bad else ""))
     return 1 if bad or rc != 0 else 0
 
 

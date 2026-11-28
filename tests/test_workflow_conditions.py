@@ -588,23 +588,33 @@ def test_no_workflow_has_a_schedule_trigger():
     assert set(WF["sdtm-rag"][True]) == {"push", "workflow_dispatch"}
 
 
-@pytest.mark.parametrize("head", [
-    "on:\n  schedule:\n    - cron: '17 3 * * *'\n  workflow_dispatch:\n",
-    "on: [workflow_dispatch, schedule]\n",
-    "on: {schedule: [{cron: '17 3 * * *'}], workflow_dispatch: {}}\n",
-    "on: schedule\n",
-    "on:\n  \"schedule\":\n    - \"cron\": \"17 3 * * *\"\n",
-    "on: {schedule: [{cron: '17 3 * * *'}]}\non:\n  workflow_dispatch:\n",   # 重复的 on 键, 带定时的在前 (PyYAML 默认取后一个)
-    "on:\n  workflow_dispatch:\non: {schedule: [{cron: '17 3 * * *'}]}\n",
+DUP = "键重复"  # 加载时报错
+
+
+@pytest.mark.parametrize("head,parsed,in_text", [
+    ("on:\n  schedule:\n    - cron: '17 3 * * *'\n  workflow_dispatch:\n", True, True),
+    ("on: {schedule: [{cron: '17 3 * * *'}], workflow_dispatch: {}}\n", True, True),      # 写在一行里: 文本检查不能只看行首
+    ("on:\n  \"schedule\":\n    - \"cron\": \"17 3 * * *\"\n", True, True),
+    ("on: [workflow_dispatch, schedule]\n", True, False),                                  # 没有冒号: 只有解析看得到
+    ("on: schedule\n", True, False),
+    # 重复的 on 键 (PyYAML 默认悄悄取后一个; Gitea 那边怎么取没有核实): 加载时就报错
+    ("on: {schedule: [{cron: '17 3 * * *'}]}\non:\n  workflow_dispatch:\n", DUP, True),
+    ("on:\n  workflow_dispatch:\non: {schedule: [{cron: '17 3 * * *'}]}\n", DUP, True),
+    ("on: [schedule]\non:\n  workflow_dispatch:\n", DUP, False),                          # 这一种只有「键重复就报错」抓得到
+    # 不在触发方式里、写在别的层级的 schedule 键: 解析出的触发方式看不到, 文本检查照样拦 (宁可错拦)
+    ("on:\n  workflow_dispatch:\nenv:\n  schedule: nightly\n", False, True),
 ])
-def test_the_schedule_check_sees_every_way_of_writing_it(head):
-    """上面那条的两个判据自己要验得出来: 各种把定时加回来的写法, 至少被其中一个抓到。"""
+def test_the_schedule_check_sees_every_way_of_writing_it(head, parsed, in_text):
+    """上面那条的两个判据各自要验得出来: 把定时加回来的各种写法, 逐个核对「解析」和「文本」分别怎么判
+    (每一种至少被其中一个抓到; 两个判据互相兜底, 所以要分开断言, 否则弄坏其中一个看不出来)。"""
     raw = "name: x\n" + head + "jobs: {}\n"
-    try:
-        parsed = "schedule" in _triggers(raw)
-    except yaml.YAMLError:
-        parsed = True  # 键重复: 加载就报错
-    assert parsed or _mentions_schedule(raw)
+    assert parsed or in_text  # 表里的每一种写法都得有人抓
+    if parsed == DUP:
+        with pytest.raises(yaml.YAMLError, match="重复的键"):
+            _triggers(raw)
+    else:
+        assert ("schedule" in _triggers(raw)) is parsed
+    assert _mentions_schedule(raw) is in_text
     clean = "name: x\non:\n  workflow_dispatch:\n    inputs: {}\n# schedule: 注释里提到不算\njobs: {}  # cron: 行尾注释也不算\n"
     assert _triggers(clean) == {"workflow_dispatch"} and not _mentions_schedule(clean)
 
